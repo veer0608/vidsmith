@@ -6,8 +6,8 @@ You write a markdown script. vidsmith speaks it in a neural voice, finds a shot
 for every scene, burns word-timed captions, mixes music under the narration, and
 encodes a delivery-ready mp4 — plus an `.srt` and a draft title/description/chapters.
 
-```bash
-cd ~/claude/vidsmith && .idsmith.cmd build demo
+```powershell
+cd ~/claude/vidsmith; .idsmith.cmd build demo
 ```
 
 ```
@@ -33,8 +33,11 @@ a full stop.
 
 ## Install
 
-```bash
-cd ~/claude/vidsmith && python -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements.txt
+This is a PowerShell 5.1 machine: `&&` is a parser error there, so the commands
+below chain with `;`.
+
+```powershell
+cd ~/claude/vidsmith; python -m venv .venv; .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 ffmpeg is the only non-Python dependency:
@@ -45,8 +48,8 @@ winget install Gyan.FFmpeg
 
 Check everything at once:
 
-```bash
-cd ~/claude/vidsmith && .idsmith.cmd doctor
+```powershell
+cd ~/claude/vidsmith; .idsmith.cmd doctor
 ```
 
 ## Writing a script
@@ -71,8 +74,8 @@ shop. That is why a coffee costs money at a company you have never heard of.
 
 Or have Gemini draft one:
 
-```bash
-cd ~/claude/vidsmith && .idsmith.cmd new gil --topic "why Python's GIL still matters" --minutes 3
+```powershell
+cd ~/claude/vidsmith; .idsmith.cmd new gil --topic "why Python's GIL still matters" --minutes 3
 ```
 
 ## Commands
@@ -250,8 +253,8 @@ frame, so the second cut costs no extra calls.
 
 ## Thumbnails
 
-```bash
-cd ~/claude/vidsmith && .idsmith.cmd thumbs demo
+```powershell
+cd ~/claude/vidsmith; .idsmith.cmd thumbs demo
 ```
 
 Frames are sampled from the picture track, not the delivery file, so no
@@ -357,8 +360,8 @@ projects/demo/out/
 
 ## Tests
 
-```bash
-cd ~/claude/vidsmith && .venv/Scripts/python.exe -m pytest
+```powershell
+cd ~/claude/vidsmith; .venv/Scripts/python.exe -m pytest
 ```
 
 53 fast tests run in under a second; 12 more marked `slow` encode real video with
