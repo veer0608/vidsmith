@@ -196,3 +196,58 @@ def test_finished_jobs_are_swept(tmp_path, monkeypatch):
     jobs.submit(SCRIPT, {})
     assert jobs.get(old.id) is None
     assert not old.root.exists()
+
+
+# --------------------------------------------------------------------------- #
+# the token gate
+# --------------------------------------------------------------------------- #
+def test_no_token_configured_means_no_friction(client):
+    """Local use must not need a secret."""
+    assert client.get("/api/options").json()["auth"] is False
+    assert client.post("/api/jobs", json={"script": SCRIPT}).status_code == 202
+
+
+@pytest.fixture
+def guarded(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "TOKEN", "s3cret")
+    monkeypatch.setattr(web_app, "jobs", Jobs(tmp_path / "jobs"))
+    return TestClient(web_app.app)
+
+
+def test_a_configured_token_is_advertised(guarded):
+    assert guarded.get("/api/options").json()["auth"] is True
+
+
+def test_starting_a_render_without_the_token_is_refused(guarded):
+    assert guarded.post("/api/jobs", json={"script": SCRIPT}).status_code == 401
+
+
+def test_a_wrong_token_is_refused(guarded):
+    r = guarded.post("/api/jobs", json={"script": SCRIPT},
+                     headers={"X-Vidsmith-Token": "guess"})
+    assert r.status_code == 401
+
+
+def test_the_right_token_gets_through(guarded):
+    r = guarded.post("/api/jobs", json={"script": SCRIPT},
+                     headers={"X-Vidsmith-Token": "s3cret"})
+    assert r.status_code == 202
+    job_id = r.json()["id"]
+    assert guarded.get(f"/api/jobs/{job_id}",
+                       headers={"X-Vidsmith-Token": "s3cret"}).status_code == 200
+
+
+def test_media_can_authenticate_by_query(guarded):
+    """A <video> element cannot set a header."""
+    r = guarded.post("/api/jobs", json={"script": SCRIPT},
+                     headers={"X-Vidsmith-Token": "s3cret"})
+    job_id = r.json()["id"]
+    _settle(web_app.jobs)
+    assert guarded.get(f"/api/jobs/{job_id}/files/video.mp4",
+                       params={"t": "s3cret"}).status_code == 200
+    assert guarded.get(f"/api/jobs/{job_id}/files/video.mp4",
+                       params={"t": "wrong"}).status_code == 401
+
+
+def test_health_stays_open_so_a_deploy_can_be_checked(guarded):
+    assert guarded.get("/healthz").status_code == 200

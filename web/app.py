@@ -5,12 +5,14 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
+import hmac
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
 from vidsmith import music as music_mod
-from vidsmith.config import ASPECTS
+from vidsmith.config import ASPECTS, env
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import Busy, Jobs
@@ -18,9 +20,29 @@ from web.jobs import Busy, Jobs
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
 MAX_MINUTES = float(os.environ.get("VIDSMITH_MAX_MINUTES", "4"))
+_DOTENVS = (HERE.parent / ".env", Path.cwd() / ".env")
+# Set this before exposing the app to the internet. Every render spends the
+# owner's Pexels and Gemini quota, so an open renderer is an open wallet.
+# read from .env as well, so the token sits beside the API keys instead of
+# having to be exported into every shell that starts the server
+TOKEN = (os.environ.get("VIDSMITH_TOKEN")
+         or env("VIDSMITH_TOKEN", *_DOTENVS)).strip()
 
 app = FastAPI(title="vidsmith", docs_url="/api/docs", redoc_url=None)
 jobs = Jobs(WORKDIR)
+
+
+def guard(x_vidsmith_token: str = Header(default=""), t: str = "") -> None:
+    """No-op when no token is configured, so local use stays frictionless.
+
+    `t` is accepted as a query parameter because a <video> element and a plain
+    download link cannot set a header.
+    """
+    if not TOKEN:
+        return
+    supplied = x_vidsmith_token or t
+    if not hmac.compare_digest(supplied, TOKEN):
+        raise HTTPException(401, "bad or missing token")
 
 
 class BuildRequest(BaseModel):
@@ -81,11 +103,11 @@ def healthz() -> Dict[str, Any]:
 def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
-            "busy": jobs.busy()}
+            "busy": jobs.busy(), "auth": bool(TOKEN)}
 
 
 @app.post("/api/jobs", status_code=202)
-def create(req: BuildRequest) -> Dict[str, Any]:
+def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     _validate(req)
     try:
         job = jobs.submit(req.script, req.options())
@@ -98,7 +120,7 @@ def create(req: BuildRequest) -> Dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}")
-def status(job_id: str) -> Dict[str, Any]:
+def status(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
     job = jobs.get(job_id)
     if job is None:
         raise HTTPException(404, "no such job")
@@ -106,7 +128,8 @@ def status(job_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/files/{name}")
-def download(job_id: str, name: str) -> FileResponse:
+def download(job_id: str, name: str,
+             _: None = Depends(guard)) -> FileResponse:
     path = jobs.file(job_id, name)
     if path is None:
         raise HTTPException(404, "no such file")

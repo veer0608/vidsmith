@@ -401,6 +401,28 @@ x264 encodes starve each other on a small box, so a second caller gets a 429.
 | `GET /healthz` | ffmpeg found, and whether a render is running |
 | `GET /api/docs` | generated OpenAPI docs |
 
+### A public URL without hosting it
+
+A Cloudflare quick tunnel puts the local server on the internet. It is free, it
+needs no Cloudflare account and no domain, and the render happens on your own
+machine - so it runs at full local speed instead of a hosted instance's fraction
+of a CPU. The URL lasts as long as the window stays open.
+
+```powershell
+cd ~/claude/vidsmith; .\scripts\serve-public.ps1
+```
+
+It starts the server, mints an access token into `.env` on first run, opens the
+tunnel and prints the `https://....trycloudflare.com` URL.
+
+`cloudflared` comes from `winget install Cloudflare.cloudflared`.
+
+**The token is the point.** Any exposed instance - tunnel or host - is a renderer
+that spends your Pexels and Gemini quota. Set `VIDSMITH_TOKEN` (the script does
+it for you) and the API refuses anything without it; leave it unset and there is
+no gate at all, which is the right default only on localhost. `/healthz` stays
+open either way so a deploy can be checked without the secret.
+
 ### Deploying free
 
 Hugging Face Spaces is the one free tier that can actually encode video: 2 vCPU

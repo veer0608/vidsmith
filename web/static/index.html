@@ -109,6 +109,27 @@ Reconcile against receipts, not memory. If the two disagree, the receipt is almo
 <script>
 const $ = (id) => document.getElementById(id);
 let timer = null;
+let needsAuth = false;
+
+// The token is only ever held in this browser. It exists so a tunnelled or
+// hosted instance is not an open renderer spending the owner's API quota.
+function token() {
+  let t = localStorage.getItem("vidsmith_token") || "";
+  if (needsAuth && !t) {
+    t = prompt("Access token for this instance:") || "";
+    if (t) localStorage.setItem("vidsmith_token", t);
+  }
+  return t;
+}
+
+function authHeaders() {
+  const t = needsAuth ? token() : "";
+  return t ? {"X-Vidsmith-Token": t} : {};
+}
+
+function forgetToken() {
+  localStorage.removeItem("vidsmith_token");
+}
 
 function fillSelect(el, values, selected) {
   el.innerHTML = "";
@@ -123,6 +144,7 @@ function fillSelect(el, values, selected) {
 async function loadOptions() {
   const r = await fetch("/api/options");
   const o = await r.json();
+  needsAuth = !!o.auth;
   fillSelect($("aspect"), o.aspects, "16:9");
   fillSelect($("theme"), o.themes, "midnight");
   fillSelect($("mood"), o.moods, "calm");
@@ -147,14 +169,16 @@ function render(job) {
   files.innerHTML = "";
   for (const f of job.outputs) {
     const a = document.createElement("a");
-    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}`;
+    const q = needsAuth ? `?t=${encodeURIComponent(token())}` : "";
+    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${q}`;
     a.textContent = `${f.name} · ${(f.size / 1e6).toFixed(1)} MB`;
     files.appendChild(a);
   }
   const video = job.outputs.find((f) => f.kind === "mp4");
   if (video) {
     const p = $("player");
-    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}`;
+    const q = needsAuth ? `?t=${encodeURIComponent(token())}` : "";
+    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}${q}`;
     p.classList.remove("hidden");
   }
   $("go").disabled = false;
@@ -162,8 +186,11 @@ function render(job) {
 }
 
 async function poll(id) {
-  const r = await fetch(`/api/jobs/${id}`);
-  if (!r.ok) { clearInterval(timer); $("go").disabled = false; return; }
+  const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
+  if (!r.ok) {
+    if (r.status === 401) forgetToken();
+    clearInterval(timer); $("go").disabled = false; return;
+  }
   if (render(await r.json())) clearInterval(timer);
 }
 
@@ -183,11 +210,13 @@ $("form").addEventListener("submit", async (e) => {
     music: $("music").checked,
   };
   const r = await fetch("/api/jobs", {
-    method: "POST", headers: {"Content-Type": "application/json"},
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...authHeaders()},
     body: JSON.stringify(body),
   });
   const job = await r.json();
   if (!r.ok) {
+    if (r.status === 401) forgetToken();
     $("progress").classList.remove("hidden");
     $("log").classList.add("err");
     $("log").textContent = job.detail || "could not start the render";
