@@ -138,8 +138,10 @@ def _metrics(size: Tuple[int, int]) -> Tuple[int, int, bool, float, float]:
     w, h = size
     portrait = h > w
     type_size = w * (0.034 if portrait else 0.020)
-    # the captions own the bottom of the frame; the diagram must stay clear
-    usable_bottom = h * (0.72 if portrait else 0.80)
+    # The captions own the bottom of the frame and the diagram must clear them,
+    # not merely stop above their baseline: at 1080p the caption box starts
+    # around 0.80h, and portrait captions are larger still.
+    usable_bottom = h * (0.66 if portrait else 0.74)
     return w, h, portrait, type_size, usable_bottom
 
 
@@ -204,16 +206,17 @@ def _draw_flow(draw, spec, size, theme, shown):
                        1.0 if i + 1 < shown else 0.0, w)
             y += box_h + gap
     else:
-        gap = w * 0.035
-        box_w = min(w * 0.20, (w * 0.86 - gap * (n - 1)) / n)
-        box_h = ts * 5.0
+        gap = w * 0.030
+        box_w = min(w * 0.24, (w * 0.92 - gap * (n - 1)) / n)
+        box_h = min((bottom - top) * 0.62, box_w * 0.78)
+        label_size = _fit_type(box_h, box_w, ts)
         x = (w - (box_w * n + gap * (n - 1))) / 2
         y = _centre(top, bottom, box_h)
         for i, text in enumerate(spec.nodes):
             on = 1.0 if i < shown else 0.0
             rect = (x, y, x + box_w, y + box_h)
             _box(draw, rect, theme, on, accent=(i in (0, n - 1)))
-            _label(draw, rect, text, theme, on, int(ts))
+            _label(draw, rect, text, theme, on, label_size)
             if i < n - 1:
                 _arrow(draw, (x + box_w + gap * 0.18, y + box_h / 2),
                        (x + box_w + gap * 0.82, y + box_h / 2), theme,
@@ -263,17 +266,20 @@ def _draw_tree(draw, spec, size, theme, shown):
             y += box_h + gap
         return
 
-    box_h = ts * 3.0
     gap_x = w * 0.03
-    child_w = min(w * 0.24, (w * 0.90 - gap_x * (kids - 1)) / kids)
-    root_w = child_w * 1.1
-    drop = box_h * 1.5
-    y = _centre(top, bottom, box_h * 2 + drop)
+    child_w = min(w * 0.26, (w * 0.92 - gap_x * (kids - 1)) / kids)
+    root_w = child_w * 1.15
+    # two rows of boxes with the fan between them, sized to fill the band
+    box_h, drop = _fill(bottom - top, 2, 1.05)
+    box_h = min(box_h, child_w * 0.62)
+    drop = (bottom - top) - box_h * 2
+    label_size = _fit_type(box_h, child_w, ts)
+    y = top
 
     root_rect = ((w - root_w) / 2, y, (w + root_w) / 2, y + box_h)
     on_root = 1.0 if shown >= 1 else 0.0
     _box(draw, root_rect, theme, on_root, accent=True)
-    _label(draw, root_rect, root, theme, on_root, int(ts))
+    _label(draw, root_rect, root, theme, on_root, label_size)
     if not children:
         return
 
@@ -285,7 +291,7 @@ def _draw_tree(draw, spec, size, theme, shown):
         _arrow(draw, (w / 2, y + box_h + drop * 0.10),
                (x + child_w / 2, row_y - drop * 0.10), theme, on, w)
         _box(draw, rect, theme, on)
-        _label(draw, rect, text, theme, on, int(ts * 0.92))
+        _label(draw, rect, text, theme, on, label_size)
         x += child_w + gap_x
 
 
@@ -301,9 +307,10 @@ def _draw_stack(draw, spec, size, theme, shown):
         label_size = _fit_type(box_h, box_w, ts)
         y = top
     else:
-        box_h = ts * 2.9
+        box_h, gap = _fill(bottom - top, n, 0.16)
+        box_h = min(box_h, box_w * 0.26)
         gap = box_h * 0.16
-        label_size = int(ts)
+        label_size = _fit_type(box_h, box_w, ts)
         y = _centre(top, bottom, box_h * n + gap * (n - 1))
 
     x0 = (w - box_w) / 2
@@ -329,10 +336,11 @@ def _draw_compare(draw, spec, size, theme, shown):
         label_size = _fit_type(box_h, col_w, ts)
         y_top = top
     else:
-        head_h = ts * 2.2
-        box_h = ts * 2.9
+        head_h = ts * 2.4
+        box_h, gap_y = _fill(bottom - top - head_h, rows, 0.22)
+        box_h = min(box_h, col_w * 0.34)
         gap_y = box_h * 0.22
-        label_size = int(ts * 0.92)
+        label_size = _fit_type(box_h, col_w, ts)
         y_top = _centre(top, bottom, head_h + box_h * rows + gap_y * (rows - 1))
 
     block = head_h + box_h * rows + gap_y * (rows - 1)
