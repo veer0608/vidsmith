@@ -123,6 +123,26 @@ def _metrics(size: Tuple[int, int], cfg: CaptionConfig) -> Tuple[float, bool]:
     return scale, portrait
 
 
+def caption_top(size: Tuple[int, int], cfg: CaptionConfig,
+                lines: int = 2) -> float:
+    """The highest y the captions can occupy.
+
+    Anything else drawn in the frame has to stay above this. It is computed from
+    the same numbers that build the ASS styles, so changing `size` or `margin_v`
+    in a project moves the diagrams out of the way instead of letting a caption
+    land across them.
+    """
+    w, h = size
+    scale, portrait = _metrics(size, cfg)
+    if not cfg.enabled or cfg.style == "none":
+        return h * 0.96
+    font = max(18, int(cfg.size * scale))
+    margin = int(h * 0.22) if portrait else max(20, int(cfg.margin_v * (h / 1080.0)))
+    # a plate is taller than an outline, and a long line can wrap to two
+    padding = font * (0.60 if cfg.box else 0.30)
+    return h - margin - font * 1.25 * max(1, lines) - padding
+
+
 def _styles(size: Tuple[int, int], cfg: CaptionConfig, theme: Theme) -> List[str]:
     w, h = size
     scale, portrait = _metrics(size, cfg)

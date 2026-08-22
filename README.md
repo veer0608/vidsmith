@@ -224,6 +224,12 @@ visual  scene   2  3 shots  3.5+3.4+3.8   complex branching tree diagram graphic
   not filmable; drawing a tree diagram
 ```
 
+The space a diagram may use is derived from the caption settings, not assumed:
+`captions.caption_top()` computes where the caption box will reach from the same
+numbers that build the ASS styles, and the layout stops above it. Raise
+`captions.size` or `margin_v` and the diagram moves up; switch captions off and
+it takes the whole frame.
+
 On a multi-shot scene the diagram builds as it is explained - one element
 revealed per shot, the rest ghosted in place so the layout never jumps. Diagrams
 never get Ken Burns: a frame someone is reading must not drift under them.

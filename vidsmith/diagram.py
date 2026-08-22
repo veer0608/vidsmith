@@ -124,7 +124,8 @@ def _arrow(draw: ImageDraw.ImageDraw, start: Tuple[float, float],
     ], fill=colour)
 
 
-def _metrics(size: Tuple[int, int]) -> Tuple[int, int, bool, float, float]:
+def _metrics(size: Tuple[int, int],
+             clear_below: Optional[float] = None) -> Tuple[int, int, bool, float, float]:
     """Frame geometry every layout shares.
 
     Sizes are keyed to frame WIDTH, never height: 15% of 1920 is not the same
@@ -138,11 +139,16 @@ def _metrics(size: Tuple[int, int]) -> Tuple[int, int, bool, float, float]:
     w, h = size
     portrait = h > w
     type_size = w * (0.034 if portrait else 0.020)
-    # The captions own the bottom of the frame and the diagram must clear them,
-    # not merely stop above their baseline: at 1080p the caption box starts
-    # around 0.80h, and portrait captions are larger still.
-    usable_bottom = h * (0.66 if portrait else 0.74)
-    return w, h, portrait, type_size, usable_bottom
+    # The captions own the bottom of the frame and the diagram must clear the
+    # whole caption box, not merely stop above its baseline. The caller passes
+    # the real figure, computed from the caption settings in force.
+    if clear_below:
+        # trust the figure outright: with captions switched off it is nearly the
+        # whole frame, and capping it there would waste the room they freed
+        usable_bottom = min(h * 0.92, clear_below - h * 0.02)
+    else:
+        usable_bottom = h * (0.66 if portrait else 0.74)
+    return w, h, portrait, type_size, max(h * 0.35, usable_bottom)
 
 
 def _fill(avail: float, rows: int, gap_ratio: float) -> Tuple[float, float]:
@@ -184,8 +190,8 @@ def _fit_type(box_h: float, box_w: float, base: float) -> int:
 # --------------------------------------------------------------------------- #
 # layouts
 # --------------------------------------------------------------------------- #
-def _draw_flow(draw, spec, size, theme, shown):
-    w, h, portrait, ts, bottom = _metrics(size)
+def _draw_flow(draw, spec, size, theme, shown, clear_below=None):
+    w, h, portrait, ts, bottom = _metrics(size, clear_below)
     top = _title(draw, spec.title, size, theme)
     n = len(spec.nodes)
 
@@ -224,13 +230,13 @@ def _draw_flow(draw, spec, size, theme, shown):
             x += box_w + gap
 
 
-def _draw_tree(draw, spec, size, theme, shown):
+def _draw_tree(draw, spec, size, theme, shown, clear_below=None):
     """Root on top, the rest fanned out beneath it - the B-tree case.
 
     Portrait runs the children down a column instead. Three boxes side by side
     across 1080 pixels leaves each too narrow to hold two words.
     """
-    w, h, portrait, ts, bottom = _metrics(size)
+    w, h, portrait, ts, bottom = _metrics(size, clear_below)
     top = _title(draw, spec.title, size, theme)
     root, children = spec.nodes[0], spec.nodes[1:]
     kids = max(1, len(children))
@@ -295,9 +301,9 @@ def _draw_tree(draw, spec, size, theme, shown):
         x += child_w + gap_x
 
 
-def _draw_stack(draw, spec, size, theme, shown):
+def _draw_stack(draw, spec, size, theme, shown, clear_below=None):
     """Layers, revealed bottom-up so the base reads as the foundation."""
-    w, h, portrait, ts, bottom = _metrics(size)
+    w, h, portrait, ts, bottom = _metrics(size, clear_below)
     top = _title(draw, spec.title, size, theme)
     n = len(spec.nodes)
     box_w = w * (0.86 if portrait else 0.56)
@@ -322,8 +328,8 @@ def _draw_stack(draw, spec, size, theme, shown):
         y += box_h + gap
 
 
-def _draw_compare(draw, spec, size, theme, shown):
-    w, h, portrait, ts, bottom = _metrics(size)
+def _draw_compare(draw, spec, size, theme, shown, clear_below=None):
+    w, h, portrait, ts, bottom = _metrics(size, clear_below)
     top = _title(draw, spec.title, size, theme)
     gap_x = w * (0.035 if portrait else 0.06)
     col_w = (w * (0.92 if portrait else 0.82) - gap_x) / 2
@@ -374,14 +380,17 @@ DRAWERS = {"flow": _draw_flow, "tree": _draw_tree, "stack": _draw_stack,
 # public
 # --------------------------------------------------------------------------- #
 def render(spec: Spec, out: Path, size: Tuple[int, int], theme: Theme,
-           reveal: float = 1.0) -> Path:
-    """Draw the diagram with the first `reveal` fraction of its parts shown."""
+           reveal: float = 1.0, clear_below: Optional[float] = None) -> Path:
+    """Draw the diagram with the first `reveal` fraction of its parts shown.
+
+    `clear_below` is the y the captions reach up to; nothing is drawn under it.
+    """
     img = cards.background(size, theme, f"diagram|{spec.title}|{spec.kind}")
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
 
     shown = max(1, math.ceil(spec.elements * max(0.0, min(1.0, reveal))))
-    DRAWERS.get(spec.kind, _draw_flow)(draw, spec, size, theme, shown)
+    DRAWERS.get(spec.kind, _draw_flow)(draw, spec, size, theme, shown, clear_below)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     Image.alpha_composite(img.convert("RGBA"), layer).convert("RGB").save(

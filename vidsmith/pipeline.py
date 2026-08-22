@@ -152,7 +152,8 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     vis_dir = proj.build / f"visuals{tag}"
     visuals.build_all(scenes, cfg.visuals, cfg.size, cfg.render.fps, vis_dir, keys,
                       force="visuals" in force, log=log, theme=theme,
-                      theme_cfg=cfg.theme, lead_in=cfg.voice.lead_in)
+                      theme_cfg=cfg.theme, lead_in=cfg.voice.lead_in,
+                      caption_cfg=cfg.captions)
     clips = [Path(shot["path"]) for s in scenes for shot in s.shots]
     shot_count = len(clips)
 

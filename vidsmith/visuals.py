@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import requests
 from PIL import Image
 
-from .config import ThemeConfig, VisualConfig
+from .config import CaptionConfig, ThemeConfig, VisualConfig
 from .script_parser import Scene
 from .theme import Theme, resolve as resolve_theme
 from . import cards
@@ -306,12 +306,15 @@ class VisualBuilder:
                  workdir: Path, keys: Dict[str, str], log=print,
                  theme: Optional[Theme] = None,
                  theme_cfg: Optional[ThemeConfig] = None, total_scenes: int = 0,
-                 lead_in: float = 0.25):
+                 lead_in: float = 0.25,
+                 caption_cfg: Optional[CaptionConfig] = None):
         self.cfg = cfg
         self.theme = theme or resolve_theme()
         self.theme_cfg = theme_cfg or ThemeConfig()
         self.total_scenes = total_scenes
         self.lead_in = lead_in
+        # diagrams must not be drawn under wherever the captions will land
+        self.caption_clear = cap.caption_top(size, caption_cfg or CaptionConfig())
         self.size = size
         self.fps = fps
         self.workdir = workdir
@@ -672,7 +675,8 @@ class VisualBuilder:
                 # the diagram builds across the scene's shots as it is explained
                 frame = diagram.render(
                     spec, self.cache / f"diagram_{scene.index:03d}_{j:02d}.png",
-                    self.size, self.theme, reveals[j])
+                    self.size, self.theme, reveals[j],
+                    clear_below=self.caption_clear)
                 # a diagram must not drift under the viewer while they read it
                 normalise_still(frame, out, duration, self.size, self.fps,
                                 ken_burns=False)
@@ -710,10 +714,12 @@ def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
               fps: int, workdir: Path, keys: Dict[str, str], force: bool = False,
               log=print, theme: Optional[Theme] = None,
               theme_cfg: Optional[ThemeConfig] = None,
-              lead_in: float = 0.25) -> None:
+              lead_in: float = 0.25,
+              caption_cfg: Optional[CaptionConfig] = None) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     builder = VisualBuilder(cfg, size, fps, workdir, keys, log, theme, theme_cfg,
-                            total_scenes=len(scenes), lead_in=lead_in)
+                            total_scenes=len(scenes), lead_in=lead_in,
+                            caption_cfg=caption_cfg)
     for scene in scenes:
         builder.build(scene, force=force)
         cuts = "+".join(f"{s['duration']:.1f}" for s in scene.shots)
