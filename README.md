@@ -7,7 +7,7 @@ for every scene, burns word-timed captions, mixes music under the narration, and
 encodes a delivery-ready mp4 — plus an `.srt` and a draft title/description/chapters.
 
 ```powershell
-cd ~/claude/vidsmith; .idsmith.cmd build demo
+cd ~/claude/vidsmith; .\vidsmith.cmd build demo
 ```
 
 ```
@@ -49,7 +49,7 @@ winget install Gyan.FFmpeg
 Check everything at once:
 
 ```powershell
-cd ~/claude/vidsmith; .idsmith.cmd doctor
+cd ~/claude/vidsmith; .\vidsmith.cmd doctor
 ```
 
 ## Writing a script
@@ -75,7 +75,7 @@ shop. That is why a coffee costs money at a company you have never heard of.
 Or have Gemini draft one:
 
 ```powershell
-cd ~/claude/vidsmith; .idsmith.cmd new gil --topic "why Python's GIL still matters" --minutes 3
+cd ~/claude/vidsmith; .\vidsmith.cmd new gil --topic "why Python's GIL still matters" --minutes 3
 ```
 
 ## Commands
@@ -254,7 +254,7 @@ frame, so the second cut costs no extra calls.
 ## Thumbnails
 
 ```powershell
-cd ~/claude/vidsmith; .idsmith.cmd thumbs demo
+cd ~/claude/vidsmith; .\vidsmith.cmd thumbs demo
 ```
 
 Frames are sampled from the picture track, not the delivery file, so no
@@ -361,7 +361,7 @@ projects/demo/out/
 ## Tests
 
 ```powershell
-cd ~/claude/vidsmith; .venv/Scripts/python.exe -m pytest
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest
 ```
 
 53 fast tests run in under a second; 12 more marked `slow` encode real video with
