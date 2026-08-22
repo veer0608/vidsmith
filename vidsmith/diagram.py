@@ -124,60 +124,83 @@ def _arrow(draw: ImageDraw.ImageDraw, start: Tuple[float, float],
     ], fill=colour)
 
 
+def _metrics(size: Tuple[int, int]) -> Tuple[int, int, bool, float, float]:
+    """Frame geometry every layout shares.
+
+    Sizes are keyed to frame WIDTH, never height. Keying a box height to height
+    made portrait boxes nearly square with a speck of text floating in them,
+    because 15% of 1920 is not the same kind of quantity as 15% of 1080.
+    Portrait also gets larger type, for the same reason the captions do: it is
+    watched on a phone.
+    """
+    w, h = size
+    portrait = h > w
+    type_size = w * (0.034 if portrait else 0.020)
+    # the captions own the bottom of the frame; the diagram must stay clear
+    usable_bottom = h * (0.70 if portrait else 0.80)
+    return w, h, portrait, type_size, usable_bottom
+
+
 def _title(draw: ImageDraw.ImageDraw, text: str, size: Tuple[int, int],
            theme: Theme) -> float:
-    """Draws the caption-style heading and returns the top of the canvas below it."""
+    """Draws the heading and returns the y the layout may start from."""
     w, h = size
+    top = h * (0.12 if h > w else 0.16)
     if not text:
-        return h * 0.16
-    font = cards.font(theme.kicker_file, int(w * 0.026))
+        return top
+    font = cards.font(theme.kicker_file, int(w * (0.030 if h > w else 0.026)))
     label = cards.trim(text.upper(), 46)
-    span = sum(draw.textlength(c, font=font) + w * 0.004 for c in label)
-    y = h * 0.10
+    tracking = w * 0.004
+    span = sum(draw.textlength(c, font=font) + tracking for c in label)
+    y = h * (0.09 if h > w else 0.10)
     x = (w - span) / 2
     for ch in label:
         draw.text((x, y), ch, font=font, fill=hex_rgb(theme.accent))
-        x += draw.textlength(ch, font=font) + w * 0.004
-    return h * 0.20
+        x += draw.textlength(ch, font=font) + tracking
+    return y + font.size * 2.2
+
+
+def _centre(top: float, bottom: float, block_h: float) -> float:
+    """Top edge that centres a block of block_h in the usable band."""
+    return max(top, top + (bottom - top - block_h) / 2)
 
 
 # --------------------------------------------------------------------------- #
 # layouts
 # --------------------------------------------------------------------------- #
 def _draw_flow(draw, spec, size, theme, shown):
-    w, h = size
+    w, h, portrait, ts, bottom = _metrics(size)
     top = _title(draw, spec.title, size, theme)
     n = len(spec.nodes)
-    vertical = h > w
 
-    if vertical:
-        gap = h * 0.035
-        box_h = min(h * 0.11, (h * 0.66 - gap * (n - 1)) / n)
-        box_w = w * 0.72
+    if portrait:
+        box_w = w * 0.76
+        box_h = ts * 3.1
+        gap = box_h * 0.52
+        block = box_h * n + gap * (n - 1)
+        y = _centre(top, bottom, block)
         x0 = (w - box_w) / 2
-        y = top + (h * 0.72 - (box_h * n + gap * (n - 1))) / 2
         for i, text in enumerate(spec.nodes):
             on = 1.0 if i < shown else 0.0
             rect = (x0, y, x0 + box_w, y + box_h)
-            _box(draw, rect, theme, on, accent=(i == 0 or i == n - 1))
-            _label(draw, rect, text, theme, on, int(w * 0.033))
+            _box(draw, rect, theme, on, accent=(i in (0, n - 1)))
+            _label(draw, rect, text, theme, on, int(ts))
             if i < n - 1:
-                _arrow(draw, (w / 2, y + box_h + gap * 0.15),
-                       (w / 2, y + box_h + gap * 0.85), theme,
+                _arrow(draw, (w / 2, y + box_h + gap * 0.18),
+                       (w / 2, y + box_h + gap * 0.82), theme,
                        1.0 if i + 1 < shown else 0.0, w)
             y += box_h + gap
     else:
         gap = w * 0.035
         box_w = min(w * 0.20, (w * 0.86 - gap * (n - 1)) / n)
-        box_h = h * 0.22
-        total = box_w * n + gap * (n - 1)
-        x = (w - total) / 2
-        y = top + (h * 0.62 - box_h) / 2
+        box_h = ts * 5.0
+        x = (w - (box_w * n + gap * (n - 1))) / 2
+        y = _centre(top, bottom, box_h)
         for i, text in enumerate(spec.nodes):
             on = 1.0 if i < shown else 0.0
             rect = (x, y, x + box_w, y + box_h)
-            _box(draw, rect, theme, on, accent=(i == 0 or i == n - 1))
-            _label(draw, rect, text, theme, on, int(w * 0.020))
+            _box(draw, rect, theme, on, accent=(i in (0, n - 1)))
+            _label(draw, rect, text, theme, on, int(ts))
             if i < n - 1:
                 _arrow(draw, (x + box_w + gap * 0.18, y + box_h / 2),
                        (x + box_w + gap * 0.82, y + box_h / 2), theme,
@@ -187,80 +210,92 @@ def _draw_flow(draw, spec, size, theme, shown):
 
 def _draw_tree(draw, spec, size, theme, shown):
     """Root on top, the rest fanned out beneath it - the B-tree case."""
-    w, h = size
+    w, h, portrait, ts, bottom = _metrics(size)
     top = _title(draw, spec.title, size, theme)
-    nodes = spec.nodes
-    root, children = nodes[0], nodes[1:]
+    root, children = spec.nodes[0], spec.nodes[1:]
 
-    box_w = min(w * 0.26, w * 0.86 / max(1, len(children)))
-    box_h = h * 0.15
-    root_rect = ((w - box_w) / 2, top, (w + box_w) / 2, top + box_h)
-    _box(draw, root_rect, theme, 1.0 if shown >= 1 else 0.0, accent=True)
-    _label(draw, root_rect, root, theme, 1.0 if shown >= 1 else 0.0, int(w * 0.021))
+    box_h = ts * 3.0
+    gap_x = w * 0.03
+    kids = max(1, len(children))
+    child_w = min(w * (0.30 if portrait else 0.24),
+                  (w * 0.90 - gap_x * (kids - 1)) / kids)
+    root_w = child_w * (1.25 if portrait else 1.1)
+    drop = box_h * 1.5
 
+    block = box_h * 2 + drop
+    y = _centre(top, bottom, block)
+
+    root_rect = ((w - root_w) / 2, y, (w + root_w) / 2, y + box_h)
+    on_root = 1.0 if shown >= 1 else 0.0
+    _box(draw, root_rect, theme, on_root, accent=True)
+    _label(draw, root_rect, root, theme, on_root, int(ts))
     if not children:
         return
-    row_y = top + box_h + h * 0.20
-    gap = (w * 0.88 - box_w * len(children)) / max(1, len(children) - 1) \
-        if len(children) > 1 else 0
-    x = (w - (box_w * len(children) + gap * (len(children) - 1))) / 2
+
+    row_y = y + box_h + drop
+    x = (w - (child_w * kids + gap_x * (kids - 1))) / 2
     for i, text in enumerate(children):
         on = 1.0 if i + 1 < shown else 0.0
-        rect = (x, row_y, x + box_w, row_y + box_h)
-        _arrow(draw, (w / 2, top + box_h + h * 0.015),
-               (x + box_w / 2, row_y - h * 0.015), theme, on, w)
+        rect = (x, row_y, x + child_w, row_y + box_h)
+        _arrow(draw, (w / 2, y + box_h + drop * 0.10),
+               (x + child_w / 2, row_y - drop * 0.10), theme, on, w)
         _box(draw, rect, theme, on)
-        _label(draw, rect, text, theme, on, int(w * 0.019))
-        x += box_w + gap
+        _label(draw, rect, text, theme, on, int(ts * 0.92))
+        x += child_w + gap_x
 
 
 def _draw_stack(draw, spec, size, theme, shown):
-    """Layers, drawn bottom-up so the base reads as the foundation."""
-    w, h = size
+    """Layers, revealed bottom-up so the base reads as the foundation."""
+    w, h, portrait, ts, bottom = _metrics(size)
     top = _title(draw, spec.title, size, theme)
     n = len(spec.nodes)
-    gap = h * 0.018
-    box_h = min(h * 0.13, (h * 0.66 - gap * (n - 1)) / n)
-    box_w = w * 0.62
+    box_h = ts * 2.9
+    gap = box_h * 0.16
+    box_w = w * (0.78 if portrait else 0.56)
     x0 = (w - box_w) / 2
-    y = top + (h * 0.70 - (box_h * n + gap * (n - 1))) / 2
+    y = _centre(top, bottom, box_h * n + gap * (n - 1))
     for i, text in enumerate(spec.nodes):
         on = 1.0 if (n - 1 - i) < shown else 0.0
         rect = (x0, y, x0 + box_w, y + box_h)
         _box(draw, rect, theme, on, accent=(i == n - 1))
-        _label(draw, rect, text, theme, on, int(w * 0.024))
+        _label(draw, rect, text, theme, on, int(ts))
         y += box_h + gap
 
 
 def _draw_compare(draw, spec, size, theme, shown):
-    w, h = size
+    w, h, portrait, ts, bottom = _metrics(size)
     top = _title(draw, spec.title, size, theme)
-    col_w = w * 0.38
-    gap = w * 0.06
-    x_positions = [(w - col_w * 2 - gap) / 2, (w + gap) / 2]
-    seen = 0
+    gap_x = w * (0.04 if portrait else 0.06)
+    col_w = (w * (0.90 if portrait else 0.82) - gap_x) / 2
+    x_positions = [(w - col_w * 2 - gap_x) / 2, (w + gap_x) / 2]
 
+    rows = max(len(g["items"]) for g in spec.groups)
+    box_h = ts * 2.9
+    gap_y = box_h * 0.22
+    head_h = ts * 2.2
+    block = head_h + box_h * rows + gap_y * (rows - 1)
+    y_top = _centre(top, bottom, block)
+
+    seen = 0
     for col, group in enumerate(spec.groups):
         x0 = x_positions[col]
-        head_font = cards.font(theme.kicker_file, int(w * 0.024))
-        label = cards.trim(group["label"].upper(), 26)
+        head_font = cards.font(theme.kicker_file, int(ts * 0.95))
+        label = cards.trim(group["label"].upper(), 24)
         tw = draw.textlength(label, font=head_font)
-        draw.text((x0 + (col_w - tw) / 2, top), label, font=head_font,
+        draw.text((x0 + (col_w - tw) / 2, y_top), label, font=head_font,
                   fill=hex_rgb(theme.accent if col else theme.muted))
 
-        y = top + h * 0.09
-        box_h = h * 0.11
+        y = y_top + head_h
         for item in group["items"]:
             on = 1.0 if seen < shown else 0.0
             rect = (x0, y, x0 + col_w, y + box_h)
             _box(draw, rect, theme, on, accent=bool(col))
-            _label(draw, rect, item, theme, on, int(w * 0.018))
-            y += box_h + h * 0.025
+            _label(draw, rect, item, theme, on, int(ts * 0.92))
+            y += box_h + gap_y
             seen += 1
 
-    divider_x = w / 2
-    draw.line([(divider_x, top - h * 0.02), (divider_x, top + h * 0.60)],
-              fill=_alpha(hex_rgb(theme.muted), 0.35), width=max(1, int(w * 0.001)))
+    draw.line([(w / 2, y_top - ts * 0.6), (w / 2, y_top + block)],
+              fill=_alpha(hex_rgb(theme.muted), 0.35), width=max(1, int(w * 0.0012)))
 
 
 DRAWERS = {"flow": _draw_flow, "tree": _draw_tree, "stack": _draw_stack,

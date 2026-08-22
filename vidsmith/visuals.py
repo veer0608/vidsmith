@@ -361,7 +361,10 @@ class VisualBuilder:
 
     # -- diagrams ------------------------------------------------------------ #
     def _diagram_cache_path(self) -> Path:
-        return self.workdir / "diagrams.json"
+        # A diagram spec describes the idea, not the frame, so it is the same for
+        # every aspect - it lives beside the narration rather than in the
+        # per-aspect visuals directory, and a second cut costs no extra calls.
+        return self.workdir.parent / "diagrams.json"
 
     def _diagram_spec(self, scene: Scene, brief: str) -> Optional[diagram.Spec]:
         """The drawn alternative for a line no footage can illustrate."""
