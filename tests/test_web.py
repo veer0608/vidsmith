@@ -44,6 +44,8 @@ def stub_pipeline(monkeypatch):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    # the developer's own .env may carry a token; these tests decide their own
+    monkeypatch.setattr(web_app, "TOKEN", "")
     monkeypatch.setattr(web_app, "jobs", Jobs(tmp_path / "jobs"))
     return TestClient(web_app.app)
 
