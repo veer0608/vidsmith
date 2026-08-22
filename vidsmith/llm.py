@@ -289,33 +289,95 @@ def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
     return _json_block(raw)
 
 
-SCRIPT_PROMPT = """Write a narration script for a YouTube video.
+SCRIPT_PROMPT = """Write the narration for a YouTube explainer video.
 
-Topic: {topic}
-Target runtime: about {minutes} minutes (roughly {words} words of narration).
+TOPIC: {topic}
 
-Format the output as markdown exactly like this, and output nothing else:
+LENGTH: {words} words of narration across {scenes} scenes. This is a hard
+budget, not a suggestion - a scene of {lo} to {hi} words is the right size, and
+coming in short makes the video shorter than it was commissioned to be. Count as
+you go.
 
-# <video title>
+SHAPE, in this order:
+1. The hook. Open on something the viewer has done or believed, and the cost of
+   it being wrong. Two sentences, no preamble, no "in this video".
+2. Why the obvious answer is wrong. State the belief plainly, then break it.
+3. The mechanism, over three to five scenes. This is the body: how the thing
+   actually works, one idea per scene, each one earning the next. Give each of
+   these its own heading naming that step - never repeat a heading.
+4. When it bites. A concrete situation where this costs someone something.
+5. What to do instead. Actionable, not abstract.
+6. The takeaway. One sentence worth repeating.
 
-## <scene heading>
-[visual: <2-5 word stock footage search query, concrete and filmable>]
-<narration for this scene: 2 to 4 spoken sentences>
+WRITE FOR THE EAR:
+- Second person. "Your query", not "the user's query".
+- Vary the rhythm. At least two scenes are a single short sentence. At least one
+  runs four sentences. A script where every scene is two sentences reads like a
+  metronome and listens like one.
+- Concrete nouns over abstractions. No lists, no markdown, no headings inside
+  narration, no URLs, no "firstly" or "in conclusion".
+- Say numbers as words a voice can speak. Nothing longer than four digits.
 
-Rules:
-- Open with a hook that states the payoff in the first two sentences.
-- Write for the ear: short sentences, no lists, no headings inside narration,
-  no markdown emphasis, no numbers longer than four digits, no URLs.
-- 8 to 16 scenes. Each [visual:] must show what the camera sees, not an idea.
-- End with one clear takeaway. No "like and subscribe".
+DO NOT INVENT SPECIFICS. No version numbers, release dates, benchmark figures,
+percentages, company announcements or named studies unless they appear in the
+topic above. A confident wrong fact is the worst thing this can produce. If a
+point needs a number you do not have, make the point without it.
+
+EVERY SCENE GETS ONE VISUAL DIRECTIVE:
+
+  [visual: 2-5 words, something a camera can point at]
+      Use when the scene has a physical subject: hands, objects, places,
+      machinery, people working. This is searched against a stock library, so
+      it must be a thing that exists on film.
+
+  [diagram: what the diagram itself shows]
+      Use only when the idea has no photographable subject at all - a data
+      structure, a protocol, a sequence of states, a tradeoff.
+
+      Describe the DIAGRAM, not a picture. It is drawn as boxes and arrows, so
+      say what the boxes are:
+        good  [diagram: the four stages a write passes through]
+        good  [diagram: a root node branching down to leaf nodes]
+        good  [diagram: read speed set against write cost]
+        bad   [diagram: magnifying glass over a book]
+        bad   [diagram: person closing a laptop]
+        bad   [diagram: red gear stuck in machinery]
+      The bad ones name objects you could photograph. Those are [visual:].
+
+THE TEST: if you can imagine pointing a camera at it, it is [visual:]. Most
+scenes are. Even a technical script usually has only two or three [diagram:]
+scenes, and a script where most scenes are diagrams is wrong - it means
+photographable images were filed as diagrams.
+
+OUTPUT exactly this markdown and nothing else:
+
+# <title, under sixty characters, no colon, states the payoff>
+
+## <scene heading, two or three words, different from every other heading>
+[visual: ...]  or  [diagram: ...]
+<narration>
 """
+
+
+# edge-tts at the default +8% rate speaks about 155 words a minute
+WORDS_PER_MINUTE = 155
+WORDS_PER_SCENE = 42
 
 
 def draft_script(topic: str, minutes: float, api_key: str,
                  model: str = DEFAULT_MODEL) -> str:
-    words = int(minutes * 150)
+    """Draft a script sized to an actual runtime.
+
+    The budget is spelled out per scene as well as in total, because a lone
+    total is consistently undershot - measured at about two thirds of the
+    requested length.
+    """
+    words = int(minutes * WORDS_PER_MINUTE)
+    scenes = max(5, min(18, round(words / WORDS_PER_SCENE)))
+    per_scene = words / scenes
     text = generate(
-        SCRIPT_PROMPT.format(topic=topic, minutes=minutes, words=words),
+        SCRIPT_PROMPT.format(topic=topic, words=words, scenes=scenes,
+                             lo=int(per_scene * 0.8), hi=int(per_scene * 1.25)),
         api_key, model, temperature=0.8,
     )
     return re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
