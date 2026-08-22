@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Sequence
 
 from . import captions as cap
 from . import ffmpeg_util as ff
-from . import cards, llm, render, visuals, voice
+from . import cards, llm, music, render, visuals, voice
 from .config import Config, load_config
 from .theme import resolve as resolve_theme
 from .script_parser import Scene, load_scenes, parse_script, save_scenes
@@ -198,6 +198,14 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         picture.unlink()
     render.build_picture(clips, picture, proj.build, cfg.render, cfg.size)
 
+    if cfg.audio.music.strip().lower() == "auto":
+        bed = music.ensure_bed(proj.build, cfg.audio.mood)
+        cfg.audio.music = str(bed)
+        log(f"music    generated {cfg.audio.mood} bed, ducked under the voice")
+    elif cfg.audio.music and not Path(cfg.audio.music).exists():
+        log(f"music    {cfg.audio.music} not found - rendering without a bed")
+        cfg.audio.music = ""
+
     scrim = None
     if cfg.theme.scrim:
         scrim = cards.scrim(proj.build / f"scrim{tag}.png", cfg.size, theme)
@@ -307,7 +315,10 @@ def _apply_overrides(cfg: Config, ov: Dict[str, str]) -> None:
     if ov.get("voice"):
         cfg.voice.name = ov["voice"]
     if ov.get("music"):
-        cfg.audio.music = ov["music"]
+        value = ov["music"]
+        cfg.audio.music = "" if value.lower() in ("none", "off") else value
+    if ov.get("mood"):
+        cfg.audio.mood = ov["mood"]
     if ov.get("captions"):
         cfg.captions.style = ov["captions"]
         cfg.captions.enabled = ov["captions"] != "none"

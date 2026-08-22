@@ -84,8 +84,9 @@ class CaptionConfig:
 
 @dataclass
 class AudioConfig:
-    music: str = ""                    # path to a background music file, or ""
-    music_gain_db: float = -22.0
+    music: str = "auto"                # "auto" generates a bed, or a file path, or ""
+    mood: str = "calm"                 # calm | warm | tense (only used by "auto")
+    music_gain_db: float = -18.0   # below the -14 LUFS voice, so ~-32 LUFS
     duck: bool = True                  # sidechain-duck music under narration
     normalize: bool = True             # loudnorm the final mix to -14 LUFS
     lufs: float = -14.0

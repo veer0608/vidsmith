@@ -507,18 +507,26 @@ class VisualBuilder:
         # ---- reuse whatever this aspect already rendered -------------------- #
         if not force:
             ledger = self._load_ledger()
-            for n in {len(plan), 1}:
+            # Deterministic order, and the clips on disk must actually add up to
+            # the narration slot. Trusting the filenames alone let a stale set
+            # from a different plan through, and the picture ran short of the
+            # speech - every cut after it drifted.
+            for n in dict.fromkeys([len(plan), 1]):
                 paths = self._shot_paths(scene, n)
-                if all(p.exists() for p in paths):
-                    got = collapse(plan, n) if n != len(plan) else plan
-                    scene.shots = [
-                        {"path": str(p), "duration": d,
-                         "credit": ledger.get(f"{scene.index}:{j}", {}).get("credit", ""),
-                         "credit_url": ledger.get(f"{scene.index}:{j}", {}).get("url", "")}
-                        for j, (p, d) in enumerate(zip(paths, got))
-                    ]
-                    scene.visual = scene.shots[0]["path"]
-                    return [s["path"] for s in scene.shots]
+                if not all(p.exists() for p in paths):
+                    continue
+                on_disk = sum(ff.duration(p) for p in paths)
+                if abs(on_disk - scene.duration) > 0.15:
+                    continue
+                got = collapse(plan, n) if n != len(plan) else plan
+                scene.shots = [
+                    {"path": str(p), "duration": d,
+                     "credit": ledger.get(f"{scene.index}:{j}", {}).get("credit", ""),
+                     "credit_url": ledger.get(f"{scene.index}:{j}", {}).get("url", "")}
+                    for j, (p, d) in enumerate(zip(paths, got))
+                ]
+                scene.visual = scene.shots[0]["path"]
+                return [s["path"] for s in scene.shots]
 
         # ---- source the footage --------------------------------------------- #
         if self.cfg.provider in ("pexels", "pixabay"):

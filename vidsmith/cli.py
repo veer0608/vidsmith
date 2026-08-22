@@ -5,7 +5,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import llm, pipeline, thumbs, voice
+from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
 from .pipeline import Project, find_keys
@@ -74,7 +74,7 @@ def cmd_build(args) -> int:
         "aspect": args.aspect, "provider": args.provider, "voice": args.voice,
         "music": args.music, "captions": args.captions, "theme": args.theme,
         "accent": args.accent, "watermark": args.watermark,
-        "no_cards": "1" if args.no_cards else "",
+        "no_cards": "1" if args.no_cards else "", "mood": args.mood,
     }
     out = pipeline.build(
         root,
@@ -196,7 +196,9 @@ def main(argv=None) -> int:
     b.add_argument("--aspect", choices=sorted(ASPECTS), help="override output shape")
     b.add_argument("--provider", choices=["cards", "pexels", "pixabay", "local"])
     b.add_argument("--voice", help="edge-tts voice, e.g. en-IN-PrabhatNeural")
-    b.add_argument("--music", help="path to a background music file")
+    b.add_argument("--music", help='"auto", "none", or a path to a music file')
+    b.add_argument("--mood", choices=music.moods(),
+                   help="which generated bed to use with --music auto")
     b.add_argument("--captions", choices=["karaoke", "block", "none"])
     b.add_argument("--theme", choices=sorted(THEME_PRESETS),
                    help="colour and type preset for cards, captions and overlays")

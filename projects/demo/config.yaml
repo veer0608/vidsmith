@@ -49,8 +49,8 @@ captions:
   max_words: 6
   uppercase: false
 audio:
-  music: ''
-  music_gain_db: -22.0
+  music: auto
+  music_gain_db: -18.0
   duck: true
   normalize: true
   lufs: -14.0

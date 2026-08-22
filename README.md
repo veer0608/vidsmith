@@ -168,6 +168,32 @@ visuals:
   rerank_pool: 8      # candidates shown to the model
 ```
 
+## Music
+
+There is no free API for licensed music, and an unlicensed track is a copyright
+strike waiting to happen - so the bed is synthesised. It is a slow chord pad:
+detuned sines per chord with soft attack and release, low-passed and smeared
+with an echo until it reads as atmosphere rather than as notes.
+
+```yaml
+audio:
+  music: auto        # "auto", "" for none, or a path to your own file
+  mood: calm         # calm | warm | tense
+  music_gain_db: -18
+  duck: true
+```
+
+The bed is loudness-normalised when generated, so `music_gain_db` means "this
+far under the voice" rather than "this far under whatever amplitude the
+synthesis happened to land on". Measured on the demo: the bed sits around
+-34 dB, and ducks 8 dB whenever anyone is speaking.
+
+```
+--music auto --mood tense     # generated bed
+--music path/to/track.mp3     # your own
+--music none                  # silence
+```
+
 ## Thumbnails
 
 ```bash
