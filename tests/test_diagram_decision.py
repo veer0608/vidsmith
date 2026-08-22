@@ -1,0 +1,132 @@
+"""Whether a scene is drawn must be decided once, for every cut.
+
+The model's filmability verdict is not stable between runs: on the same script
+the landscape pass called three scenes unfilmable and the portrait pass called
+none of them unfilmable. Left per-aspect, that produced a 16:9 cut and a Shorts
+cut of the same video that showed different things.
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from vidsmith.config import ThemeConfig, VisualConfig
+from vidsmith.diagram import Spec
+from vidsmith.theme import resolve
+from vidsmith.visuals import VisualBuilder
+
+TREE = {"kind": "tree", "title": "How it branches",
+        "nodes": ["Root", "Leaf A", "Leaf B"]}
+
+
+def _builder(tmp_path, provider="pexels", **cfg_kwargs):
+    workdir = tmp_path / "visuals"
+    workdir.mkdir(parents=True, exist_ok=True)
+    cfg = VisualConfig(provider=provider, **cfg_kwargs)
+    return VisualBuilder(cfg, (640, 360), 24, workdir, keys={"gemini": "x"},
+                         log=lambda *a: None, theme=resolve("midnight"),
+                         theme_cfg=ThemeConfig(), total_scenes=1)
+
+
+def test_the_decision_file_sits_beside_the_narration(tmp_path):
+    """Per-aspect would let the two cuts disagree; the build root is shared."""
+    builder = _builder(tmp_path)
+    assert builder._decision_path().parent == tmp_path
+    assert builder._decision_path().name == "diagram_scenes.json"
+
+
+def test_a_decision_round_trips(tmp_path, scene):
+    builder = _builder(tmp_path)
+    assert builder._decisions() == {}
+    builder._decide(scene, True)
+    assert _builder(tmp_path)._decisions() == {"0": True}
+
+
+def test_decisions_accumulate_per_scene(tmp_path, scenes):
+    builder = _builder(tmp_path)
+    builder._decide(scenes[0], True)
+    builder._decide(scenes[1], False)
+    builder._decide(scenes[2], True)
+    assert builder._decisions() == {"0": True, "1": False, "2": True}
+
+
+def test_a_second_cut_reuses_the_first_cuts_decision(tmp_path, scene, monkeypatch):
+    """A decided scene must not go looking for footage it will throw away."""
+    (tmp_path / "diagram_scenes.json").write_text(json.dumps({"0": True}),
+                                                  encoding="utf-8")
+    builder = _builder(tmp_path)
+
+    searched = []
+    monkeypatch.setattr(builder, "_stock_batch",
+                        lambda *a, **k: searched.append(1) or [])
+    monkeypatch.setattr(builder, "_diagram_spec",
+                        lambda *a, **k: Spec.from_dict(TREE))
+    monkeypatch.setattr("vidsmith.visuals.diagram.render",
+                        lambda *a, **k: tmp_path / "frame.png")
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+
+    builder.build(scene)
+    assert not searched, "a decided diagram scene still searched for footage"
+    assert scene.shots and all(s["credit"] == "" for s in scene.shots)
+
+
+def test_a_scene_decided_against_is_not_redrawn(tmp_path, scene, monkeypatch):
+    (tmp_path / "diagram_scenes.json").write_text(json.dumps({"0": False}),
+                                                  encoding="utf-8")
+    builder = _builder(tmp_path)
+    builder._filmable = False           # the signal that would otherwise fire
+
+    drawn = []
+    monkeypatch.setattr(builder, "_stock_batch", lambda *a, **k: [])
+    monkeypatch.setattr(builder, "_diagram_spec",
+                        lambda *a, **k: drawn.append(1) or Spec.from_dict(TREE))
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+    monkeypatch.setattr("vidsmith.visuals.cards.scene_card",
+                        lambda out, *a, **k: out)
+
+    builder.build(scene)
+    assert not drawn, "a scene already decided against was re-evaluated"
+
+
+def test_an_explicit_directive_beats_an_absent_decision(tmp_path, scene, monkeypatch):
+    scene.diagram = "a root branching to leaves"
+    builder = _builder(tmp_path)
+
+    searched = []
+    monkeypatch.setattr(builder, "_stock_batch",
+                        lambda *a, **k: searched.append(1) or [])
+    monkeypatch.setattr(builder, "_diagram_spec",
+                        lambda *a, **k: Spec.from_dict(TREE))
+    monkeypatch.setattr("vidsmith.visuals.diagram.render",
+                        lambda *a, **k: tmp_path / "frame.png")
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+
+    builder.build(scene)
+    assert not searched
+
+
+def test_diagrams_off_means_footage_even_when_decided(tmp_path, scene, monkeypatch):
+    (tmp_path / "diagram_scenes.json").write_text(json.dumps({"0": True}),
+                                                  encoding="utf-8")
+    builder = _builder(tmp_path, diagrams=False)
+
+    drawn = []
+    monkeypatch.setattr(builder, "_stock_batch", lambda *a, **k: [])
+    monkeypatch.setattr(builder, "_diagram_spec",
+                        lambda *a, **k: drawn.append(1) or Spec.from_dict(TREE))
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+    monkeypatch.setattr("vidsmith.visuals.cards.scene_card",
+                        lambda out, *a, **k: out)
+
+    builder.build(scene)
+    assert not drawn
+
+
+def test_the_spec_cache_is_shared_too(tmp_path):
+    builder = _builder(tmp_path)
+    assert builder._diagram_cache_path().parent == tmp_path

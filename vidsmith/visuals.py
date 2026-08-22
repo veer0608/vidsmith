@@ -360,6 +360,29 @@ class VisualBuilder:
         self._ledger_path().write_text(json.dumps(ledger, indent=2), encoding="utf-8")
 
     # -- diagrams ------------------------------------------------------------ #
+    def _decision_path(self) -> Path:
+        # Whether a scene is drawn is an editorial decision about the narration,
+        # not about the frame - so it is made once and both cuts obey it. The
+        # model's filmability verdict is not stable across runs, and letting each
+        # aspect ask again produced a landscape cut and a Shorts cut that showed
+        # different things.
+        return self.workdir.parent / "diagram_scenes.json"
+
+    def _decisions(self) -> Dict[str, bool]:
+        path = self._decision_path()
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _decide(self, scene: Scene, drawn: bool) -> None:
+        decisions = self._decisions()
+        decisions[str(scene.index)] = drawn
+        self._decision_path().write_text(json.dumps(decisions, indent=2),
+                                         encoding="utf-8")
+
     def _diagram_cache_path(self) -> Path:
         # A diagram spec describes the idea, not the frame, so it is the same for
         # every aspect - it lives beside the narration rather than in the
@@ -595,12 +618,15 @@ class VisualBuilder:
 
         # ---- source the footage --------------------------------------------- #
         spec: Optional[diagram.Spec] = None
-        wants_drawing = bool(scene.diagram) and self.cfg.diagrams
+        decided = self._decisions().get(str(scene.index))
+        wants_drawing = self.cfg.diagrams and (bool(scene.diagram) or decided is True)
 
         if wants_drawing:
-            # an explicit [diagram:] skips the search entirely - no point paying
-            # for downloads that are going to be thrown away
-            spec = self._diagram_spec(scene, scene.diagram)
+            # a decided or explicit diagram skips the search entirely - no point
+            # paying for downloads that are going to be thrown away
+            spec = self._diagram_spec(scene, scene.diagram or query)
+            if spec is None and decided is True:
+                self.log("    diagram spec unavailable; falling back to footage")
 
         if spec is not None:
             sources = []
@@ -608,7 +634,7 @@ class VisualBuilder:
             sources = self._stock_batch(query, len(plan), scene)
             hopeless = (not self._filmable
                         or self._reject_ratio >= self.cfg.diagram_on_reject)
-            if self.cfg.diagrams and hopeless:
+            if self.cfg.diagrams and decided is None and hopeless:
                 # Two signals, and the first matters more: candidates can all look
                 # related to a bad query ("branching tree diagram" returns trees)
                 # while none of them illustrate the idea.
@@ -618,6 +644,8 @@ class VisualBuilder:
                            else f"{self._reject_ratio:.0%} rejected")
                     self.log(f"    {why}; drawing a {spec.kind} diagram")
                     sources = []
+            if decided is None:
+                self._decide(scene, spec is not None)
         elif self.cfg.provider == "local":
             sources = self._local_batch(scene, query, len(plan))
         else:

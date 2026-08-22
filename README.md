@@ -234,6 +234,14 @@ visuals:
   diagram_on_reject: 0.7    # rejected fraction that also triggers one
 ```
 
+Which scenes get drawn is decided **once**, in `build/diagram_scenes.json`, and
+every aspect obeys it. The model's filmability verdict is not stable between
+runs - on the same script the landscape pass called three scenes unfilmable and
+the portrait pass called none of them unfilmable - so asking again per aspect
+gave a 16:9 cut and a Shorts cut that showed different things. The spec lives in
+`build/diagrams.json` for the same reason: a diagram describes the idea, not the
+frame, so the second cut costs no extra calls.
+
 ## Thumbnails
 
 ```bash
