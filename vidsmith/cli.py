@@ -43,6 +43,7 @@ def cmd_new(args) -> int:
     title = args.title or args.topic or args.name.replace("-", " ").title()
 
     script = root / "script.md"
+    drafted = False
     if script.exists() and not args.force:
         print(f"{script} already exists (use --force to overwrite)")
     elif args.topic:
@@ -54,8 +55,18 @@ def cmd_new(args) -> int:
             print(f"drafting a ~{args.minutes} minute script on: {args.topic}")
             script.write_text(llm.draft_script(args.topic, args.minutes, keys["gemini"]),
                               encoding="utf-8")
+            drafted = True
     else:
         script.write_text(STARTER.format(title=title), encoding="utf-8")
+
+    if drafted:
+        # the drafted script writes its own headline, which is a real title -
+        # the topic is a search phrase and reads like one on a thumbnail
+        from .script_parser import parse_script
+
+        written, _ = parse_script(script)
+        if written:
+            title = written
 
     cfgp = root / "config.yaml"
     if not cfgp.exists() or args.force:
