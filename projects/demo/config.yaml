@@ -50,6 +50,7 @@ captions:
   uppercase: false
 audio:
   music: auto
+  mood: calm
   music_gain_db: -18.0
   duck: true
   normalize: true
