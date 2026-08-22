@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS
+from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import Busy, Jobs
 
@@ -60,14 +61,20 @@ def index() -> str:
 
 @app.get("/healthz")
 def healthz() -> Dict[str, Any]:
+    from vidsmith import cards
     from vidsmith import ffmpeg_util as ff
 
+    # fonts are reported rather than enforced: a missing face is a cosmetic
+    # downgrade, and the build deliberately does not fail over one
+    bundled = sorted(p.name for p in cards.FONT_DIR.glob("*.ttf"))         if cards.FONT_DIR.exists() else []
     try:
         ffmpeg = ff.ffmpeg_bin()
     except RuntimeError as exc:
-        return {"ok": False, "ffmpeg": str(exc)}
-    return {"ok": True, "ffmpeg": ffmpeg, "busy": jobs.busy(),
-            "max_minutes": MAX_MINUTES}
+        return {"ok": False, "ffmpeg": str(exc), "fonts": bundled}
+    return {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
+            "busy": jobs.busy(), "max_minutes": MAX_MINUTES,
+            "keys": {name: bool(value) for name, value
+                     in find_keys(Path.cwd()).items()}}
 
 
 @app.get("/api/options")
