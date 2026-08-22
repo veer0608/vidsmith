@@ -17,7 +17,7 @@ import json
 import re
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
 from PIL import Image
@@ -27,6 +27,7 @@ from .script_parser import Scene
 from .theme import Theme, resolve as resolve_theme
 from . import cards
 from . import captions as cap
+from . import diagram
 from . import llm
 from . import ffmpeg_util as ff
 
@@ -319,6 +320,10 @@ class VisualBuilder:
         self.keys = keys
         self.log = log
         self.used: set = set()
+        # what fraction of the last scene's candidates showed the wrong
+        # subject - a near-total rejection means there is no footage to find
+        self._reject_ratio = 0.0
+        self._filmable = True
         self._local: List[Path] = []
         if cfg.provider == "local":
             root = Path(cfg.local_dir)
@@ -354,6 +359,40 @@ class VisualBuilder:
             }
         self._ledger_path().write_text(json.dumps(ledger, indent=2), encoding="utf-8")
 
+    # -- diagrams ------------------------------------------------------------ #
+    def _diagram_cache_path(self) -> Path:
+        return self.workdir / "diagrams.json"
+
+    def _diagram_spec(self, scene: Scene, brief: str) -> Optional[diagram.Spec]:
+        """The drawn alternative for a line no footage can illustrate."""
+        key = self.keys.get("gemini", "")
+        if not key:
+            return None
+
+        cache: Dict[str, Any] = {}
+        path = self._diagram_cache_path()
+        if path.exists():
+            try:
+                cache = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cache = {}
+
+        raw = cache.get(str(scene.index))
+        if not raw:
+            try:
+                raw = llm.design_diagram(scene.text, brief, key)
+            except Exception as exc:
+                self.log(f"    diagram skipped ({exc})")
+                return None
+            cache[str(scene.index)] = raw
+            path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+
+        spec = diagram.Spec.from_dict(raw)
+        if not spec.is_drawable():
+            self.log("    diagram spec was too thin to draw; keeping footage")
+            return None
+        return spec
+
     # -- vision reranking ---------------------------------------------------- #
     def _preview(self, url: str) -> Optional[bytes]:
         """Fetch a candidate's still, small enough to be cheap to look at."""
@@ -379,6 +418,8 @@ class VisualBuilder:
         if not (self.cfg.rerank and key) or len(hits) < 2:
             return hits
 
+        self._reject_ratio = 0.0
+        self._filmable = True
         cache = self._rank_cache()
         cached = cache.get(str(scene.index))
         if isinstance(cached, dict) and cached.get("order"):
@@ -387,6 +428,8 @@ class VisualBuilder:
             rejected = set(cached.get("reject") or [])
             keepers = [h for h in ordered if h["id"] not in rejected]
             if ordered:
+                self._reject_ratio = len(rejected) / max(1, len(ordered))
+                self._filmable = cached.get("filmable", True)
                 return keepers or ordered[:1]
 
         pool = hits[:max(2, self.cfg.rerank_pool)]
@@ -401,7 +444,7 @@ class VisualBuilder:
             return hits
 
         try:
-            order, rejected = llm.rank_clips(scene.text, query, images, key)
+            order, rejected, filmable = llm.rank_clips(scene.text, query, images, key)
         except Exception as exc:
             self.log(f"    rerank skipped ({exc})")
             return hits
@@ -412,6 +455,10 @@ class VisualBuilder:
         ranked = [keep[i] for i in order]
         reject_ids = {keep[i]["id"] for i in rejected}
         keepers = [h for h in ranked if h["id"] not in reject_ids]
+        self._reject_ratio = len(reject_ids) / max(1, len(keep))
+        self._filmable = filmable
+        if not filmable:
+            self.log("    rerank: no camera can point at this idea")
 
         if ranked[0]["id"] != hits[0]["id"]:
             self.log(f"    rerank: picked #{hits.index(ranked[0])} over the top result")
@@ -425,7 +472,8 @@ class VisualBuilder:
             keepers = ranked[:1]
 
         cache[str(scene.index)] = {"order": [h["id"] for h in ranked],
-                                   "reject": sorted(reject_ids)}
+                                   "reject": sorted(reject_ids),
+                                   "filmable": filmable}
         self._rank_cache_path().write_text(json.dumps(cache, indent=2), encoding="utf-8")
         return keepers
 
@@ -543,8 +591,30 @@ class VisualBuilder:
                 return [s["path"] for s in scene.shots]
 
         # ---- source the footage --------------------------------------------- #
-        if self.cfg.provider in ("pexels", "pixabay"):
+        spec: Optional[diagram.Spec] = None
+        wants_drawing = bool(scene.diagram) and self.cfg.diagrams
+
+        if wants_drawing:
+            # an explicit [diagram:] skips the search entirely - no point paying
+            # for downloads that are going to be thrown away
+            spec = self._diagram_spec(scene, scene.diagram)
+
+        if spec is not None:
+            sources = []
+        elif self.cfg.provider in ("pexels", "pixabay"):
             sources = self._stock_batch(query, len(plan), scene)
+            hopeless = (not self._filmable
+                        or self._reject_ratio >= self.cfg.diagram_on_reject)
+            if self.cfg.diagrams and hopeless:
+                # Two signals, and the first matters more: candidates can all look
+                # related to a bad query ("branching tree diagram" returns trees)
+                # while none of them illustrate the idea.
+                spec = self._diagram_spec(scene, query)
+                if spec is not None:
+                    why = ("not filmable" if not self._filmable
+                           else f"{self._reject_ratio:.0%} rejected")
+                    self.log(f"    {why}; drawing a {spec.kind} diagram")
+                    sources = []
         elif self.cfg.provider == "local":
             sources = self._local_batch(scene, query, len(plan))
         else:
@@ -552,7 +622,7 @@ class VisualBuilder:
 
         if sources and len(sources) < len(plan):
             plan = collapse(plan, len(sources))
-        elif not sources:
+        elif not sources and spec is None:
             plan = [scene.duration]
 
         outs = self._shot_paths(scene, len(plan))
@@ -561,12 +631,21 @@ class VisualBuilder:
             if old not in outs:
                 old.unlink(missing_ok=True)
 
+        reveals = diagram.reveal_steps(len(plan)) if spec is not None else []
         scene.shots = []
         for j, (out, duration) in enumerate(zip(outs, plan)):
             src = sources[j] if j < len(sources) else None
             path = src["path"] if src else None
 
-            if path and path.suffix.lower() in VIDEO_EXT:
+            if spec is not None:
+                # the diagram builds across the scene's shots as it is explained
+                frame = diagram.render(
+                    spec, self.cache / f"diagram_{scene.index:03d}_{j:02d}.png",
+                    self.size, self.theme, reveals[j])
+                # a diagram must not drift under the viewer while they read it
+                normalise_still(frame, out, duration, self.size, self.fps,
+                                ken_burns=False)
+            elif path and path.suffix.lower() in VIDEO_EXT:
                 head = 1.0 if ff.duration(path) > duration + 2 else 0.0
                 normalise_video(path, out, duration, self.size, self.fps, start=head)
             elif path:

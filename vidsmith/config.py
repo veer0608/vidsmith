@@ -35,6 +35,8 @@ class VisualConfig:
     ken_burns: bool = True             # pan/zoom for stills and cards
     zoom: float = 1.12                 # end zoom factor for ken burns
     min_clip_seconds: float = 2.0
+    diagrams: bool = True             # draw a diagram when no footage fits
+    diagram_on_reject: float = 0.7    # fraction rejected that triggers one
     rerank: bool = True               # let Gemini vision pick the matching clip
     rerank_pool: int = 8              # candidates shown to the model per scene
     cut_on_sentences: bool = True     # split a scene into shots at its full stops

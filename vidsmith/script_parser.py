@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 DIRECTIVE = re.compile(
-    r"^\s*\[(visual|b-?roll|footage|shot|hold|image)\s*:\s*(.+?)\]\s*$",
+    r"^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$",
     re.IGNORECASE,
 )
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -41,6 +41,7 @@ class Scene:
     text: str = ""
     query: str = ""
     hold: float = 0.0
+    diagram: str = ""      # "[diagram: ...]" forces a drawn frame for this scene
     # filled in by later stages
     audio: str = ""
     words: List[Dict[str, Any]] = field(default_factory=list)
@@ -76,10 +77,11 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
     cur_heading = ""
     cur_query = ""
     cur_hold = 0.0
+    cur_diagram = ""
     buf: List[str] = []
 
     def flush():
-        nonlocal buf, cur_query, cur_hold, cur_heading
+        nonlocal buf, cur_query, cur_hold, cur_heading, cur_diagram
         text = _clean(" ".join(buf))
         buf = []
         if not text:
@@ -91,10 +93,12 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
                 text=text,
                 query=cur_query or cur_heading,
                 hold=cur_hold,
+                diagram=cur_diagram,
             )
         )
         cur_query = ""
         cur_hold = 0.0
+        cur_diagram = ""
 
     for raw in lines:
         line = raw.rstrip()
@@ -110,6 +114,10 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
                     cur_hold = float(value)
                 except ValueError:
                     pass
+            elif kind == "diagram":
+                if buf:
+                    flush()
+                cur_diagram = value
             else:
                 # A directive starts a new scene if narration is already buffered.
                 if buf:

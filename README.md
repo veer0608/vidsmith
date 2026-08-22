@@ -194,6 +194,46 @@ synthesis happened to land on". Measured on the demo: the bed sits around
 --music none                  # silence
 ```
 
+## Diagrams for what cannot be filmed
+
+Some ideas have no footage anywhere. A script about B-trees asks for "branching
+tree diagram" and every stock library returns a photograph of a tree - the
+reranker cannot fix that, because the footage does not exist.
+
+Those scenes get drawn instead. Gemini writes a small JSON spec (text, not image
+generation - the free tier has no image quota) and vidsmith draws it in the
+project's theme, so a diagram frame sits beside the cards and the footage
+without looking pasted in. Four layouts: `flow`, `tree`, `stack`, `compare`.
+
+Two things trigger one. An explicit directive in the script:
+
+```markdown
+## How B-trees work
+[diagram: a root node branching down to leaves]
+Most databases build these shortcuts using tree structures.
+```
+
+Or the reranker deciding for itself. It already looks at every candidate still,
+so it also answers whether a camera can point at the idea at all - and that
+verdict matters more than the rejection count, because candidates can all look
+related to a bad query while none of them illustrate anything:
+
+```
+visual  scene   2  3 shots  3.5+3.4+3.8   complex branching tree diagram graphic
+  rerank: no camera can point at this idea
+  not filmable; drawing a tree diagram
+```
+
+On a multi-shot scene the diagram builds as it is explained - one element
+revealed per shot, the rest ghosted in place so the layout never jumps. Diagrams
+never get Ken Burns: a frame someone is reading must not drift under them.
+
+```yaml
+visuals:
+  diagrams: true
+  diagram_on_reject: 0.7    # rejected fraction that also triggers one
+```
+
 ## Thumbnails
 
 ```bash

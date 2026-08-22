@@ -116,9 +116,16 @@ calendar; a laptop is not a card terminal. Be strict about subject and lenient
 about style: an unremarkable shot of the right thing beats a beautiful shot of
 the wrong thing.
 
+Finally, judge whether stock footage can depict this line at all. Some ideas
+have no footage anywhere - a B-tree, a hash collision, an API contract. A
+literal photograph of a tree does not illustrate a tree data structure. If the
+line is about an abstract or technical construct that no camera can point at,
+say so, even when the candidates look superficially related.
+
 Return ONLY a JSON object:
 {{"ranked": [image numbers, best first, every number once],
-  "reject": [image numbers showing the wrong subject, may be empty]}}"""
+  "reject": [image numbers showing the wrong subject, may be empty],
+  "filmable": true or false}}"""
 
 
 def _indices(values: Any, limit: int) -> List[int]:
@@ -134,17 +141,21 @@ def _indices(values: Any, limit: int) -> List[int]:
 
 
 def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
-               model: str = DEFAULT_MODEL) -> Tuple[List[int], List[int]]:
-    """(order, rejected) over `images`. Rejected clips show the wrong subject."""
+               model: str = DEFAULT_MODEL) -> Tuple[List[int], List[int], bool]:
+    """(order, rejected, filmable) over `images`.
+
+    `filmable` is False when no camera can point at the idea - that is the cue to
+    draw a diagram rather than keep searching for footage that does not exist.
+    """
     if not images or len(images) < 2:
-        return [], []
+        return [], [], True
     prompt = RERANK_PROMPT.format(n=len(images), last=len(images) - 1,
                                   line=line.strip(), query=query.strip())
     raw = generate_vision(prompt, images, api_key, model)
     verdict = _json_block(raw)
 
     if isinstance(verdict, list):          # tolerate a bare ranking
-        verdict = {"ranked": verdict, "reject": []}
+        verdict = {"ranked": verdict, "reject": [], "filmable": True}
     if not isinstance(verdict, dict):
         raise ValueError("model did not return a ranking")
 
@@ -152,7 +163,7 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
     # anything the model left out keeps its original relative position
     order += [i for i in range(len(images)) if i not in order]
     rejected = _indices(verdict.get("reject"), len(images))
-    return order, rejected
+    return order, rejected, verdict.get("filmable", True) is not False
 
 
 def _json_block(text: str) -> Any:
@@ -211,6 +222,42 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
             scene.query = q.strip()
             filled += 1
     return filled
+
+
+DIAGRAM_PROMPT = """You are designing a simple diagram to illustrate one line of
+narration in an explainer video. Stock footage cannot show this idea, so it is
+being drawn instead.
+
+NARRATION: {line}
+THE SHOT THAT WAS WANTED: {query}
+
+Pick the layout that fits the idea:
+- "flow"    a sequence of steps or a pipeline, 3 to 5 stages
+- "tree"    one thing branching into several, a root and 2 to 4 children
+- "stack"   layers sitting on each other, 3 to 4, base first
+- "compare" two sides set against each other, 2 to 4 items each
+
+Rules:
+- Labels are 1 to 3 words. They are read at a glance, not studied.
+- No sentences, no punctuation, no numbers longer than four digits.
+- The diagram must carry the idea in the narration, not decorate it.
+- "title" is at most five words, or an empty string if the layout speaks alone.
+
+Return ONLY JSON, one of:
+{{"kind": "flow"|"tree"|"stack", "title": "...", "nodes": ["...", "..."]}}
+{{"kind": "compare", "title": "...",
+  "groups": [{{"label": "...", "items": ["..."]}}, {{"label": "...", "items": ["..."]}}]}}"""
+
+
+def design_diagram(line: str, query: str, api_key: str,
+                   model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """A diagram spec for a line stock footage cannot illustrate."""
+    raw = generate(DIAGRAM_PROMPT.format(line=line.strip(), query=query.strip()),
+                   api_key, model, temperature=0.3)
+    spec = _json_block(raw)
+    if not isinstance(spec, dict):
+        raise ValueError("model did not return a diagram spec")
+    return spec
 
 
 META_PROMPT = """Write YouTube upload metadata for this video.
