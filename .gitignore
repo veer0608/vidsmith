@@ -6,3 +6,7 @@ __pycache__/
 projects/*/build/
 projects/*/out/
 assets/clips/
+bin/
+assets/fonts/
+jobs/
+web/__pycache__/

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vidsmith</title>
+<style>
+  :root {
+    --bg: #0B1020; --panel: #151B33; --edge: #26304F;
+    --text: #F5F7FA; --muted: #8C93A8; --accent: #FFC24B; --bad: #E5533D;
+    --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.55 var(--font);
+  }
+  main { max-width: 940px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  .lede { color: var(--muted); margin: 0 0 28px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 12px; padding: 20px; margin-bottom: 18px;
+  }
+  label { display: block; font-size: 12px; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  textarea, select, input[type=text] {
+    width: 100%; background: #0E1428; color: var(--text);
+    border: 1px solid var(--edge); border-radius: 8px; padding: 10px 12px;
+    font: inherit;
+  }
+  textarea { min-height: 260px; resize: vertical; font-family: ui-monospace,
+             SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+         gap: 14px; margin-top: 16px; }
+  .check { display: flex; align-items: center; gap: 8px; margin-top: 26px; }
+  .check label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 14px;
+                 color: var(--text); }
+  button {
+    margin-top: 18px; background: var(--accent); color: #16130A; border: 0;
+    border-radius: 8px; padding: 11px 20px; font: 600 15px var(--font);
+    cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .bar { height: 6px; background: #0E1428; border-radius: 999px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent);
+           transition: width .4s ease; }
+  pre.log {
+    margin: 14px 0 0; max-height: 260px; overflow: auto; font-size: 12.5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted); white-space: pre-wrap;
+  }
+  .files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .files a {
+    color: var(--text); text-decoration: none; font-size: 13px;
+    border: 1px solid var(--edge); border-radius: 999px; padding: 6px 14px;
+  }
+  .files a:hover { border-color: var(--accent); }
+  video { width: 100%; margin-top: 16px; border-radius: 10px; background: #000; }
+  .err { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>vid<span>smith</span></h1>
+  <p class="lede">A script in, a narrated and captioned video out.</p>
+
+  <form class="panel" id="form">
+    <label for="script">Script</label>
+    <textarea id="script" spellcheck="false"># Why Your Bank Statement Lies
+
+## The hook
+[visual: paper bank statement on a desk]
+Your bank statement is not a record of what you spent. It is a record of what your bank found convenient to store.
+
+## Merchant names
+[visual: card terminal in a small shop]
+The merchant name on a transaction is typed by the payment processor, not the shop. That is why a coffee costs money at a company you have never heard of.
+
+## What to do
+[visual: person reconciling receipts]
+Reconcile against receipts, not memory. If the two disagree, the receipt is almost always right.</textarea>
+
+    <div class="row">
+      <div><label for="aspect">Shape</label><select id="aspect"></select></div>
+      <div><label for="theme">Theme</label><select id="theme"></select></div>
+      <div><label for="mood">Music</label><select id="mood"></select></div>
+      <div><label for="watermark">Watermark</label>
+           <input type="text" id="watermark" placeholder="@handle"></div>
+      <div class="check"><input type="checkbox" id="music" checked>
+           <label for="music">Music bed</label></div>
+    </div>
+
+    <button id="go" type="submit">Render</button>
+    <p class="hint" id="hint"></p>
+  </form>
+
+  <section class="panel hidden" id="progress">
+    <div class="bar"><i id="fill"></i></div>
+    <pre class="log" id="log"></pre>
+    <div class="files" id="files"></div>
+    <video id="player" controls class="hidden"></video>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let timer = null;
+
+function fillSelect(el, values, selected) {
+  el.innerHTML = "";
+  for (const v of values) {
+    const o = document.createElement("option");
+    o.value = o.textContent = v;
+    if (v === selected) o.selected = true;
+    el.appendChild(o);
+  }
+}
+
+async function loadOptions() {
+  const r = await fetch("/api/options");
+  const o = await r.json();
+  fillSelect($("aspect"), o.aspects, "16:9");
+  fillSelect($("theme"), o.themes, "midnight");
+  fillSelect($("mood"), o.moods, "calm");
+  $("hint").textContent =
+    `Scripts up to about ${o.max_minutes} minutes. One render at a time.`;
+}
+
+function render(job) {
+  $("progress").classList.remove("hidden");
+  $("fill").style.width = Math.round(job.progress * 100) + "%";
+  $("log").textContent = job.log.join("\n");
+  $("log").scrollTop = $("log").scrollHeight;
+
+  if (job.status === "failed") {
+    $("log").classList.add("err");
+    $("go").disabled = false;
+    return true;
+  }
+  if (job.status !== "done") return false;
+
+  const files = $("files");
+  files.innerHTML = "";
+  for (const f of job.outputs) {
+    const a = document.createElement("a");
+    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}`;
+    a.textContent = `${f.name} · ${(f.size / 1e6).toFixed(1)} MB`;
+    files.appendChild(a);
+  }
+  const video = job.outputs.find((f) => f.kind === "mp4");
+  if (video) {
+    const p = $("player");
+    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}`;
+    p.classList.remove("hidden");
+  }
+  $("go").disabled = false;
+  return true;
+}
+
+async function poll(id) {
+  const r = await fetch(`/api/jobs/${id}`);
+  if (!r.ok) { clearInterval(timer); $("go").disabled = false; return; }
+  if (render(await r.json())) clearInterval(timer);
+}
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("go").disabled = true;
+  $("log").classList.remove("err");
+  $("files").innerHTML = "";
+  $("player").classList.add("hidden");
+
+  const body = {
+    script: $("script").value,
+    aspect: $("aspect").value,
+    theme: $("theme").value,
+    mood: $("mood").value,
+    watermark: $("watermark").value,
+    music: $("music").checked,
+  };
+  const r = await fetch("/api/jobs", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  const job = await r.json();
+  if (!r.ok) {
+    $("progress").classList.remove("hidden");
+    $("log").classList.add("err");
+    $("log").textContent = job.detail || "could not start the render";
+    $("go").disabled = false;
+    return;
+  }
+  render(job);
+  timer = setInterval(() => poll(job.id), 1500);
+});
+
+loadOptions();
+</script>
+</body>
+</html>

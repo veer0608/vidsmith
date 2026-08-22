@@ -379,6 +379,47 @@ with no comma in the usable window fell through and held one 12-second shot -
 exactly what the cutting is there to prevent. It now falls back to a word gap,
 and to an arithmetic split if there is not even one of those.
 
+## Running it as a web service
+
+`web/` is a small FastAPI front: paste a script, watch the pipeline log stream,
+download the mp4. Locally:
+
+```powershell
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m uvicorn web.app:app --port 8077
+```
+
+Renders happen on a worker thread, not in the request, because a video takes
+minutes. The browser polls `/api/jobs/{id}` and the progress bar tracks real
+pipeline stages rather than a timer. **The queue depth is one** - two concurrent
+x264 encodes starve each other on a small box, so a second caller gets a 429.
+
+| route | what it does |
+| --- | --- |
+| `POST /api/jobs` | start a render, returns a job id |
+| `GET /api/jobs/{id}` | status, progress, log tail, output list |
+| `GET /api/jobs/{id}/files/{name}` | download one output |
+| `GET /healthz` | ffmpeg found, and whether a render is running |
+| `GET /api/docs` | generated OpenAPI docs |
+
+### Deploying
+
+`render.yaml` is a Render blueprint. It uses the native Python runtime, not a
+container: `scripts/fetch-runtime-deps.sh` pulls a static ffmpeg into `bin/` and
+the DejaVu fonts into `assets/fonts/` at build time, both of which the code
+already looks in. Nothing needs Docker.
+
+Two things that bite on a host:
+
+- **ffmpeg is not there.** `FFMPEG_BINARY`/`FFPROBE_BINARY`, then `bin/`, then
+  `PATH` - the fetch script covers the second.
+- **Neither are the fonts.** The themes name Windows families, and libass will
+  silently substitute something else, so `assets/fonts` is handed to the
+  `subtitles` filter as `fontsdir`.
+
+Set `PEXELS_API_KEY` and `GEMINI_API_KEY` in the dashboard, and keep
+`VIDSMITH_MAX_MINUTES` honest for the instance size - encoding is CPU-bound and
+a free instance is roughly ten times slower than a laptop.
+
 ## Known limits
 
 - Edge voices are a free, undocumented Microsoft endpoint. Occasional connection

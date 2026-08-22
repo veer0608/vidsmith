@@ -18,9 +18,25 @@ _WINGET_HINTS = [
 ]
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def _resolve(name: str) -> str:
     if name in _CACHE:
         return _CACHE[name]
+
+    # an explicit path wins: hosts without a package manager fetch a static
+    # build at deploy time and point at it
+    override = os.environ.get(f"{name.upper()}_BINARY")
+    if override and Path(override).exists():
+        _CACHE[name] = override
+        return override
+
+    local = REPO_ROOT / "bin" / name
+    for candidate in (local, local.with_suffix(".exe")):
+        if candidate.exists():
+            _CACHE[name] = str(candidate)
+            return str(candidate)
 
     found = shutil.which(name)
     if not found:

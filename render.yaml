@@ -1,0 +1,33 @@
+# Render blueprint. Deploy with: render.com -> New -> Blueprint -> this repo.
+#
+# The native Python runtime is used rather than a container, because ffmpeg and
+# the fonts are fetched in the build step instead - nothing here needs Docker.
+#
+# Sizing note: encoding is CPU-bound. On the free instance a 90 second video
+# takes roughly ten to fifteen minutes and can run out of memory at 1080p, so
+# VIDSMITH_MAX_MINUTES is held low. The starter plan is the first one that
+# renders at a sensible speed.
+services:
+  - type: web
+    name: vidsmith
+    runtime: python
+    plan: starter
+    region: singapore
+    buildCommand: |
+      pip install -r requirements-web.txt
+      bash scripts/fetch-runtime-deps.sh
+    startCommand: uvicorn web.app:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 120
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: VIDSMITH_MAX_MINUTES
+        value: "2"
+      - key: VIDSMITH_JOBS
+        value: /tmp/vidsmith-jobs
+      # set these in the dashboard, not here
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

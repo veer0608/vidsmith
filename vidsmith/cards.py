@@ -21,10 +21,19 @@ FONT_FALLBACKS = {
     "seguibl.ttf": ("seguibl.ttf", "arialbd.ttf", "DejaVuSans-Bold.ttf"),
     "bahnschrift.ttf": ("bahnschrift.ttf", "framd.ttf", "arial.ttf", "DejaVuSans.ttf"),
 }
+# Fonts fetched at deploy time live here; a Linux host has none of the Windows
+# families the themes name, and libass needs to be pointed at them too.
+FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 
 
 def font(file: str, size: int) -> ImageFont.FreeTypeFont:
     for name in FONT_FALLBACKS.get(file, (file, "arialbd.ttf")):
+        bundled = FONT_DIR / name
+        if bundled.exists():
+            try:
+                return ImageFont.truetype(str(bundled), size)
+            except OSError:
+                pass
         try:
             return ImageFont.truetype(name, size)
         except OSError:

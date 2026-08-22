@@ -13,6 +13,7 @@ from typing import List, Optional, Sequence, Tuple
 from .config import AudioConfig, RenderConfig, ThemeConfig
 from .script_parser import Scene
 from .theme import Theme, hex_rgb
+from . import cards
 from . import ffmpeg_util as ff
 
 
@@ -173,7 +174,12 @@ def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
         post.append(f"drawbox=x=0:y=ih-{bar}:w='iw*min(t/{total:.3f}\\,1)':h={bar}"
                     f":color={_hexc(theme.accent)}@0.95:t=fill")
     if captions and Path(captions).exists():
-        post.append(f"subtitles='{ff.escape_filter_path(Path(captions))}'")
+        subs = f"subtitles='{ff.escape_filter_path(Path(captions))}'"
+        # without fontsdir libass silently substitutes whatever it can find, and
+        # a host with no Segoe UI renders the captions in something else
+        if cards.FONT_DIR.exists():
+            subs += f":fontsdir='{ff.escape_filter_path(cards.FONT_DIR)}'"
+        post.append(subs)
     post.append("format=yuv420p")
     graph.append(f"{cur}" + ",".join(post) + "[vout]")
 
