@@ -401,7 +401,18 @@ x264 encodes starve each other on a small box, so a second caller gets a 429.
 | `GET /healthz` | ffmpeg found, and whether a render is running |
 | `GET /api/docs` | generated OpenAPI docs |
 
-### Deploying
+### Deploying free
+
+Hugging Face Spaces is the one free tier that can actually encode video: 2 vCPU
+and 16 GB on the free CPU plan, against 0.1 vCPU and 512 MB on a free Render
+instance. `Dockerfile` targets it, and the Space builds the image itself - no
+Docker on your machine. Steps and the caveats are in
+[deploy/huggingface.md](deploy/huggingface.md).
+
+**A public Space is a public renderer**: anyone with the URL spends your Pexels
+and Gemini quota. Keep it private unless you put auth in front of it.
+
+### Deploying on Render
 
 `render.yaml` is a Render blueprint. It uses the native Python runtime, not a
 container: `scripts/fetch-runtime-deps.sh` pulls a static ffmpeg into `bin/` and
