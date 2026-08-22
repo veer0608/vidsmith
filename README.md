@@ -301,6 +301,27 @@ projects/demo/out/
   credits.txt                         creator attribution when stock footage was used
 ```
 
+## Tests
+
+```bash
+cd ~/claude/vidsmith && .venv/Scripts/python.exe -m pytest
+```
+
+53 fast tests run in under a second; 12 more marked `slow` encode real video with
+ffmpeg. `-m "not slow"` skips those.
+
+They exist because the same class of bug kept shipping: cache and timing
+invariants that look fine until you watch the whole video. The suite pins the
+ones that actually broke - a shot plan must sum to its narration slot, caption
+lines must never overlap, an ASS Format row must match its Dialogue fields, a
+cached clip is only reused when its real duration fits the slot, and every clip
+used has to end up in the credits.
+
+Writing them immediately found another: a sentence longer than `max_shot_seconds`
+with no comma in the usable window fell through and held one 12-second shot -
+exactly what the cutting is there to prevent. It now falls back to a word gap,
+and to an arithmetic split if there is not even one of those.
+
 ## Known limits
 
 - Edge voices are a free, undocumented Microsoft endpoint. Occasional connection

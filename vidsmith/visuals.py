@@ -96,20 +96,34 @@ def _boundaries(scene: Scene, lead_in: float, min_s: float,
                  if w["text"].rstrip().endswith(SENTENCE_END)]
     clauses = [lead_in + w["end"] for w in words
                if w["text"].rstrip().endswith(CLAUSE_END)]
+    word_ends = [lead_in + w["end"] for w in words]
+
+    def breath(lo: float, hi: float) -> float:
+        """The best place to cut inside a window, in order of preference.
+
+        A comma is ideal, the gap between two words is acceptable, and an
+        arbitrary time is the last resort - but something must always come back,
+        because the alternative is holding one shot for the whole sentence,
+        which is the exact thing this is here to prevent.
+        """
+        for points in (clauses, word_ends):
+            legal = [p for p in points if lo <= p <= hi]
+            if legal:
+                return max(legal)
+        return hi
 
     cuts: List[float] = []
     start = 0.0
     for end in sorted(set(sentences + [total])):
         if end - start < min_s:
             continue
-        # A sentence that outruns max_s gets subdivided at the latest breath
-        # point that still leaves a legal shot on either side.
+        # A sentence that outruns max_s is subdivided at the latest breath point
+        # that still leaves a legal shot on either side.
         while end - start > max_s:
-            legal = [c for c in clauses
-                     if start + min_s <= c <= min(start + max_s, end - min_s)]
-            if not legal:
+            lo, hi = start + min_s, min(start + max_s, end - min_s)
+            if hi < lo:
                 break
-            start = max(legal)
+            start = breath(lo, hi)
             cuts.append(start)
         cuts.append(end)
         start = end
