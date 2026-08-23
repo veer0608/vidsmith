@@ -209,6 +209,7 @@ them on meaning, not on technical quality.
 
 TITLE: {title}
 IT OPENS: {hook}
+{drawn}
 
 Pick the frame that best represents what the video is about.
 
@@ -219,9 +220,10 @@ well the person in front of it matches the mood. Judge what is on the screen and
 in the frame, not the emotion you infer from a posture.
 
 Among what is left:
-- A frame that shows the mechanism the video explains beats a stock reaction
-  shot. If one of these frames is a diagram drawn for this video, it is on the
-  subject by construction and is usually the honest choice.
+- A frame that shows the mechanism the video explains beats a stock shot, and
+  beats a metaphor for the mechanism. A gear is not an index. Any frame listed
+  above as drawn for this video is on the subject by construction; prefer one
+  unless a photographic frame shows the actual subject more clearly.
 - One clear focal point beats a busy or empty frame.
 - It has to read at the size of a phone thumbnail.
 
@@ -250,7 +252,8 @@ NARRATION:
 
 
 def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
-                   model: str = DEFAULT_MODEL) -> Tuple[int, str]:
+                   model: str = DEFAULT_MODEL,
+                   drawn: Sequence[int] = ()) -> Tuple[int, str]:
     """Which candidate frame actually represents the video.
 
     Sharpness and colour find a striking frame, which is not the same thing as a
@@ -261,8 +264,13 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
         return 0, ""
     if len(images) == 1:
         return 0, ""
+    # which candidates are diagrams is known, not something to make the model
+    # squint at: it read a rusty gear as "matching the indexing mechanism"
+    note = (f"DRAWN FOR THIS VIDEO: images {', '.join(str(i) for i in drawn)}"
+            if drawn else "")
     prompt = THUMBNAIL_PROMPT.format(n=len(images), last=len(images) - 1,
-                                     title=title.strip(), hook=hook.strip()[:220])
+                                     title=title.strip(), hook=hook.strip()[:220],
+                                     drawn=note)
     verdict = _json_block(generate_vision(prompt, images, api_key, model))
     if not isinstance(verdict, dict):
         raise ValueError("no pick returned")

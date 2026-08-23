@@ -11,7 +11,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
@@ -37,7 +37,15 @@ class Candidate:
 
 
 def _sample(video: Path, workdir: Path, samples: int) -> List[Tuple[Path, float]]:
-    """Dump evenly spaced frames in one ffmpeg pass."""
+    """Dump frames at known timestamps, one seek each.
+
+    A single fps-filtered pass is faster but the mapping from output file to
+    source time is only an assumption, and it was wrong: ffmpeg emitted more
+    frames than the span implied, so labels ran past the end of the sampled
+    window and a frame of the closing card came back tagged as mid-scene. The
+    timestamp matters here - it decides whether a frame counts as a diagram - so
+    each one is asked for explicitly and is exactly what it says it is.
+    """
     if workdir.exists():
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -45,15 +53,22 @@ def _sample(video: Path, workdir: Path, samples: int) -> List[Tuple[Path, float]
     duration = ff.duration(video)
     start = duration * HEAD_SKIP
     span = duration * (1 - HEAD_SKIP - TAIL_SKIP)
-    every = max(0.4, span / max(1, samples))
+    if span <= 0 or samples < 1:
+        return []
+    step = span / max(1, samples - 1) if samples > 1 else 0.0
 
-    ff.run([
-        "-ss", f"{start:.3f}", "-t", f"{span:.3f}", "-i", str(video),
-        "-vf", f"fps=1/{every:.4f}", "-q:v", "2",
-        str(workdir / "frame_%03d.jpg"),
-    ])
-    frames = sorted(workdir.glob("frame_*.jpg"))
-    return [(p, start + i * every) for i, p in enumerate(frames)]
+    out: List[Tuple[Path, float]] = []
+    for i in range(samples):
+        when = start + i * step
+        dest = workdir / f"frame_{i:03d}.jpg"
+        try:
+            ff.run(["-ss", f"{when:.3f}", "-i", str(video),
+                    "-frames:v", "1", "-q:v", "2", str(dest)])
+        except RuntimeError:
+            continue
+        if dest.exists():
+            out.append((dest, when))
+    return out
 
 
 def _score(path: Path) -> Tuple[float, float, float]:
@@ -83,7 +98,8 @@ def _score(path: Path) -> Tuple[float, float, float]:
 
 
 def rank(video: Path, workdir: Path, count: int = 6,
-         samples: int = 40, spread: float = 2.5) -> List[Candidate]:
+         samples: int = 40, spread: float = 2.5,
+         include: Sequence[Tuple[float, float]] = ()) -> List[Candidate]:
     """Best `count` frames, one from each slice of the runtime.
 
     Taking the top scores outright does not work: the cleanest, best-lit frames
@@ -111,6 +127,17 @@ def rank(video: Path, workdir: Path, count: int = 6,
         if slice_:
             picked.append(max(slice_, key=lambda c: c.score))
 
+    # Drawn scenes are flat and low contrast, so _score ranks them below stock
+    # footage every time and they never survive the slice pick - on one video not
+    # a single candidate fell inside a diagram. They are the frames most likely
+    # to be about the subject, so each drawn range is guaranteed a candidate.
+    for lo, hi in include:
+        if any(lo <= c.time < hi for c in picked):
+            continue
+        inside = [c for c in scored if lo <= c.time < hi]
+        if inside:
+            picked.append(max(inside, key=lambda c: c.score))
+
     # a short video may leave slices empty; backfill on score, keeping them apart
     if len(picked) < count:
         for cand in sorted(scored, key=lambda c: -c.score):
@@ -131,23 +158,26 @@ def _thumb_bytes(path: Path, width: int = 384) -> bytes:
 
 
 def choose(video: Path, workdir: Path, title: str, hook: str = "",
-           api_key: str = "", pool: int = 6, log=print) -> Candidate:
+           api_key: str = "", pool: int = 6, log=print,
+           include: Sequence[Tuple[float, float]] = ()) -> Candidate:
     """The frame that best represents the video, not merely the sharpest one.
 
     Scoring narrows forty samples to a handful of technically usable frames;
     the model then picks which of those is actually about the subject. Without a
     key the top-scoring frame is used, which is the old behaviour.
     """
-    best = rank(video, workdir, count=pool)
+    best = rank(video, workdir, count=pool, include=include)
     if not best:
         raise RuntimeError(f"no frames could be sampled from {video}")
     if not api_key or len(best) == 1:
         return best[0]
 
     try:
+        drawn = [i for i, c in enumerate(best)
+                 if any(lo <= c.time < hi for lo, hi in include)]
         pick, why = llm.pick_thumbnail(title, hook,
                                        [_thumb_bytes(c.path) for c in best],
-                                       api_key)
+                                       api_key, drawn=drawn)
     except Exception as exc:
         log(f"         thumbnail pick skipped ({exc}); using the sharpest frame")
         return best[0]

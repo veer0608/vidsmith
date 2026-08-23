@@ -267,8 +267,9 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # on a thumbnail. The frame is chosen for relevance, then titled.
     try:
         hook = scenes[0].text if scenes else ""
+        drawn = _drawn_ranges(proj, scenes, intro)
         frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
-                              hook, keys["gemini"], log=log)
+                              hook, keys["gemini"], log=log, include=drawn)
         target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
         thumbs.titled(frame.path, proj.out / f"{slug}{tag}.jpg", cfg.title,
                       theme, target)
@@ -342,6 +343,22 @@ def all_credits(out_dir: Path) -> str:
         chunks.append(f"[{label.replace('x', ':')}]\n"
                       + path.read_text(encoding="utf-8").strip())
     return "\n\n".join(chunks) + "\n" if chunks else ""
+
+
+def _drawn_ranges(proj: "Project", scenes: Sequence[Scene],
+                  intro: float) -> List[tuple]:
+    """When the drawn scenes play, so a thumbnail can always consider one."""
+    path = proj.build / "diagram_scenes.json"
+    if not path.exists():
+        return []
+    try:
+        decided = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    # the closing card sits immediately after the last scene, so trim the tail
+    # of each range rather than let a designed text frame qualify as footage
+    return [(s.start, s.start + s.duration - 0.4)
+            for s in scenes if decided.get(str(s.index))]
 
 
 def description_box(meta: Dict, credits: str = "") -> str:
