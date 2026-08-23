@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Sequence
 
 from . import captions as cap
 from . import ffmpeg_util as ff
-from . import cards, llm, music, render, visuals, voice
+from . import cards, llm, music, render, thumbs, visuals, voice
 from .config import Config, load_config
 from .theme import resolve as resolve_theme
 from .script_parser import Scene, load_scenes, parse_script, save_scenes
@@ -262,8 +262,20 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     render.master(picture, narration, final, cfg.render, cfg.audio,
                   ass if ass and Path(ass).exists() else None, total,
                   theme, cfg.theme, cfg.size, scrim=scrim, hold_tail=hold_tail)
-    render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
-                     at=intro + min(2.0, speech / 3))
+    # Sampled from the picture track, not the delivery file: the delivery file
+    # has captions, watermark and progress bar burned in, none of which belong
+    # on a thumbnail. The frame is chosen for relevance, then titled.
+    try:
+        hook = scenes[0].text if scenes else ""
+        frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
+                              hook, keys["gemini"], log=log)
+        target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
+        thumbs.titled(frame.path, proj.out / f"{slug}{tag}.jpg", cfg.title,
+                      theme, target)
+    except Exception as exc:
+        log(f"         thumbnail fell back to a plain frame ({exc})")
+        render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
+                         at=intro + min(2.0, speech / 3))
 
     # Each aspect fetches its own clips (portrait searches return different
     # footage), so attribution is per cut - one shared file would silently drop

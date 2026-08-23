@@ -15,7 +15,10 @@ from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
+from io import BytesIO
+
 from . import cards
+from . import llm
 from . import ffmpeg_util as ff
 from .theme import Theme, hex_rgb
 
@@ -81,26 +84,94 @@ def _score(path: Path) -> Tuple[float, float, float]:
 
 def rank(video: Path, workdir: Path, count: int = 6,
          samples: int = 40, spread: float = 2.5) -> List[Candidate]:
-    """Best `count` frames, no two closer together than `spread` seconds."""
+    """Best `count` frames, one from each slice of the runtime.
+
+    Taking the top scores outright does not work: the cleanest, best-lit frames
+    cluster in whichever shots are static and well exposed, so a 142 second
+    video returned six candidates spanning its last 25 seconds, all of them the
+    same desk-and-coffee stock footage. Scoring picks the best frame within a
+    slice; the slices guarantee the video is actually covered.
+    """
     scored: List[Candidate] = []
     for path, when in _sample(video, workdir, samples):
         score, sharp, colour = _score(path)
         scored.append(Candidate(path, when, score, sharp, colour))
+    if not scored:
+        return []
 
-    scored.sort(key=lambda c: -c.score)
+    first, last = min(c.time for c in scored), max(c.time for c in scored)
+    span = max(0.001, last - first)
+    width = span / max(1, count)
+
     picked: List[Candidate] = []
-    for cand in scored:
-        if len(picked) >= count:
-            break
-        if all(abs(cand.time - p.time) >= spread for p in picked):
-            picked.append(cand)
-    # a short video may not have `count` frames far enough apart
-    for cand in scored:
-        if len(picked) >= count:
-            break
-        if cand not in picked:
-            picked.append(cand)
+    for i in range(count):
+        lo = first + i * width
+        hi = lo + width if i < count - 1 else last + 1
+        slice_ = [c for c in scored if lo <= c.time < hi]
+        if slice_:
+            picked.append(max(slice_, key=lambda c: c.score))
+
+    # a short video may leave slices empty; backfill on score, keeping them apart
+    if len(picked) < count:
+        for cand in sorted(scored, key=lambda c: -c.score):
+            if len(picked) >= count:
+                break
+            if all(abs(cand.time - p.time) >= spread for p in picked):
+                picked.append(cand)
+
     return sorted(picked, key=lambda c: -c.score)
+
+
+def _thumb_bytes(path: Path, width: int = 384) -> bytes:
+    img = Image.open(path).convert("RGB")
+    img.thumbnail((width, width), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=74)
+    return buf.getvalue()
+
+
+def choose(video: Path, workdir: Path, title: str, hook: str = "",
+           api_key: str = "", pool: int = 6, log=print) -> Candidate:
+    """The frame that best represents the video, not merely the sharpest one.
+
+    Scoring narrows forty samples to a handful of technically usable frames;
+    the model then picks which of those is actually about the subject. Without a
+    key the top-scoring frame is used, which is the old behaviour.
+    """
+    best = rank(video, workdir, count=pool)
+    if not best:
+        raise RuntimeError(f"no frames could be sampled from {video}")
+    if not api_key or len(best) == 1:
+        return best[0]
+
+    try:
+        pick, why = llm.pick_thumbnail(title, hook,
+                                       [_thumb_bytes(c.path) for c in best],
+                                       api_key)
+    except Exception as exc:
+        log(f"         thumbnail pick skipped ({exc}); using the sharpest frame")
+        return best[0]
+
+    chosen = best[pick]
+    if pick != 0:
+        log(f"         thumbnail: the {chosen.time:.0f}s frame over the sharpest"
+            + (f" ({why})" if why else ""))
+    return chosen
+
+
+def _wrap_lines(draw, text: str, font, max_w: float) -> List[str]:
+    lines: List[str] = []
+    cur = ""
+    for word in text.split():
+        trial = f"{cur} {word}".strip()
+        if draw.textlength(trial, font=font) <= max_w or not cur:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def titled(frame: Path, out: Path, title: str, theme: Theme,
@@ -127,18 +198,16 @@ def titled(frame: Path, out: Path, title: str, theme: Theme,
     fsize = int(w * (0.115 if len(text) < 26 else 0.088))
     font = cards.font(theme.headline_file, fsize)
 
-    lines: List[str] = []
-    cur = ""
-    for word in text.split():
-        trial = f"{cur} {word}".strip()
-        if draw.textlength(trial, font=font) <= w - margin * 2 or not cur:
-            cur = trial
-        else:
-            lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
-    lines = lines[:3]
+    lines = _wrap_lines(draw, text, font, w - margin * 2)[:3]
+
+    # A two line title at full size reaches a third of the way up the frame and
+    # lands on whatever the picture was showing - on a diagram frame the accent
+    # bar cut straight through a labelled box. Multi-line titles get smaller so
+    # the whole block stays inside the bottom third.
+    if len(lines) > 1:
+        fsize = int(fsize * (0.80 if len(lines) == 2 else 0.66))
+        font = cards.font(theme.headline_file, fsize)
+        lines = _wrap_lines(draw, text, font, w - margin * 2)[:3]
 
     line_h = int(fsize * 1.12)
     y = h - margin - line_h * len(lines)

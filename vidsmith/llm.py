@@ -201,6 +201,36 @@ def _json_block(text: str) -> Any:
     raise ValueError("unterminated JSON in model output")
 
 
+THUMBNAIL_PROMPT = """You are choosing the thumbnail for a YouTube video.
+
+The {n} images above are frames taken from the finished video, numbered 0 to
+{last}. They have already been filtered for sharpness and contrast, so judge
+them on meaning, not on technical quality.
+
+TITLE: {title}
+IT OPENS: {hook}
+
+Pick the frame that best represents what the video is about.
+
+Rule out first, then choose. A frame is WRONG if what is actually visible in it
+belongs to a different subject. A screen full of trading charts, a spreadsheet,
+a game or an unrelated app is wrong for a video about something else, however
+well the person in front of it matches the mood. Judge what is on the screen and
+in the frame, not the emotion you infer from a posture.
+
+Among what is left:
+- A frame that shows the mechanism the video explains beats a stock reaction
+  shot. If one of these frames is a diagram drawn for this video, it is on the
+  subject by construction and is usually the honest choice.
+- One clear focal point beats a busy or empty frame.
+- It has to read at the size of a phone thumbnail.
+
+The title is composited over the lower third afterwards, so the frame does not
+need to carry words, and anything important should not sit at the very bottom.
+
+Return ONLY a JSON object: {{"pick": <number>, "why": "<six words>"}}"""
+
+
 QUERY_PROMPT = """You are a video editor sourcing stock B-roll for a narrated video.
 
 For each numbered line of narration below, write ONE stock-footage search query.
@@ -217,6 +247,30 @@ Return ONLY a JSON array of strings, one per line, in order.
 NARRATION:
 {lines}
 """
+
+
+def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
+                   model: str = DEFAULT_MODEL) -> Tuple[int, str]:
+    """Which candidate frame actually represents the video.
+
+    Sharpness and colour find a striking frame, which is not the same thing as a
+    relevant one - the sharpest frame in a video about locks is often a stock
+    close-up of a keyboard.
+    """
+    if not images:
+        return 0, ""
+    if len(images) == 1:
+        return 0, ""
+    prompt = THUMBNAIL_PROMPT.format(n=len(images), last=len(images) - 1,
+                                     title=title.strip(), hook=hook.strip()[:220])
+    verdict = _json_block(generate_vision(prompt, images, api_key, model))
+    if not isinstance(verdict, dict):
+        raise ValueError("no pick returned")
+    try:
+        pick = int(verdict.get("pick", 0))
+    except (TypeError, ValueError):
+        pick = 0
+    return (pick if 0 <= pick < len(images) else 0), str(verdict.get("why", ""))
 
 
 def suggest_queries(scenes: Sequence[Scene], api_key: str,
