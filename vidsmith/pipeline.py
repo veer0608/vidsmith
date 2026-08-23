@@ -357,8 +357,11 @@ def _drawn_ranges(proj: "Project", scenes: Sequence[Scene],
         return []
     # the closing card sits immediately after the last scene, so trim the tail
     # of each range rather than let a designed text frame qualify as footage
+    # A scene with an explicit [diagram:] skips the search entirely, so _decide
+    # never runs for it and the decision file does not mention it. It is still a
+    # drawn scene, and the thumbnail must be able to consider it.
     return [(s.start, s.start + s.duration - 0.4)
-            for s in scenes if decided.get(str(s.index))]
+            for s in scenes if decided.get(str(s.index)) or s.diagram]
 
 
 def description_box(meta: Dict, credits: str = "") -> str:

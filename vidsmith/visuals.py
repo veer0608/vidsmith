@@ -649,6 +649,9 @@ class VisualBuilder:
                     sources = []
             if decided is None:
                 self._decide(scene, spec is not None)
+        elif decided is None and spec is not None:
+            # an explicit directive is a decision too, even though no search ran
+            self._decide(scene, True)
         elif self.cfg.provider == "local":
             sources = self._local_batch(scene, query, len(plan))
         else:
