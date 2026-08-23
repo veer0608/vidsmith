@@ -151,6 +151,7 @@ def test_a_redraft_drops_decisions_made_for_the_old_scenes(tmp_path):
     (build / "diagram_scenes.json").write_text('{"5": true}', encoding="utf-8")
     (build / "diagrams.json").write_text("{}", encoding="utf-8")
     (build / "picture.mp4").write_bytes(b"x")
+    (build / "narration.wav").write_bytes(b"x")
     (vis / "rerank.json").write_text("{}", encoding="utf-8")
     (vis / "credits.json").write_text("{}", encoding="utf-8")
     (vis / "scene_005_00.mp4").write_bytes(b"x")
@@ -161,7 +162,8 @@ def test_a_redraft_drops_decisions_made_for_the_old_scenes(tmp_path):
 
     invalidate(proj, log=lambda *a: None)
 
-    for gone in ("diagram_scenes.json", "diagrams.json", "picture.mp4"):
+    for gone in ("diagram_scenes.json", "diagrams.json", "picture.mp4",
+                 "narration.wav"):
         assert not (build / gone).exists(), gone
     for gone in ("rerank.json", "credits.json", "scene_005_00.mp4", "intro.mp4"):
         assert not (vis / gone).exists(), gone
@@ -175,3 +177,19 @@ def test_invalidating_a_fresh_project_is_harmless(tmp_path):
     proj = Project(tmp_path)
     proj.dirs()
     invalidate(proj, log=lambda *a: None)
+
+
+def test_the_mixed_narration_is_dropped_too(tmp_path):
+    """The one that reached the viewer.
+
+    narration.wav is only rebuilt when it is missing, so a redraft left the
+    previous script's voice mixed under the new picture and truncated to the
+    shorter runtime. The per-scene mp3s were correct; the mix was not.
+    """
+    from vidsmith.pipeline import Project, invalidate
+
+    proj = Project(tmp_path)
+    proj.dirs()
+    (proj.build / "narration.wav").write_bytes(b"old voice")
+    invalidate(proj, log=lambda *a: None)
+    assert not (proj.build / "narration.wav").exists()

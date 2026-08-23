@@ -58,7 +58,10 @@ def invalidate(proj: "Project", log=print) -> None:
     is still valid and still worth not fetching twice.
     """
     removed = 0
-    for name in ("diagram_scenes.json", "diagrams.json"):
+    # narration.wav is the one that actually reached the viewer: it is only
+    # rebuilt when it is missing, so a redraft left the previous script's voice
+    # mixed under the new picture and simply truncated to the shorter runtime.
+    for name in ("diagram_scenes.json", "diagrams.json", "narration.wav"):
         path = proj.build / name
         if path.exists():
             path.unlink()
