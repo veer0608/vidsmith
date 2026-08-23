@@ -46,6 +46,44 @@ class Project:
             d.mkdir(parents=True, exist_ok=True)
 
 
+def invalidate(proj: "Project", log=print) -> None:
+    """Drop everything keyed by scene index after the script changes.
+
+    The diagram decisions, the rerank verdicts and the attribution ledger are all
+    keyed by position, with nothing tying them to the words. Redraft a script and
+    scene five is a different scene, so the old "draw this one" would land on the
+    wrong scene and the credits would name a clip that is no longer in the video.
+
+    The downloaded footage in cache/ survives: it is keyed by provider id, so it
+    is still valid and still worth not fetching twice.
+    """
+    removed = 0
+    for name in ("diagram_scenes.json", "diagrams.json"):
+        path = proj.build / name
+        if path.exists():
+            path.unlink()
+            removed += 1
+    for vis in proj.build.glob("visuals*"):
+        if not vis.is_dir():
+            continue
+        for name in ("rerank.json", "credits.json"):
+            path = vis / name
+            if path.exists():
+                path.unlink()
+                removed += 1
+        stale = (list(vis.glob("scene_*.mp4"))
+                 + list(vis.glob("intro*.mp4"))
+                 + list(vis.glob("end*.mp4")))
+        for clip in stale:
+            clip.unlink()
+            removed += 1
+    for picture in proj.build.glob("picture*.mp4"):
+        picture.unlink()
+        removed += 1
+    if removed:
+        log(f"script   changed since the last build; dropped {removed} stale artifacts")
+
+
 def find_keys(project_root: Path) -> Dict[str, str]:
     from .config import env
 
@@ -97,11 +135,14 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     log(f"script   {len(scenes)} scenes, ~{sum(s.est_seconds for s in scenes):.0f}s estimated")
 
     # reuse cached timings/queries unless the script changed under them
-    if scenes_json.exists() and "voice" not in force and "parse" not in force:
+    if scenes_json.exists():
         cached = load_scenes(scenes_json)
-        if len(cached) == len(scenes) and all(
+        same = len(cached) == len(scenes) and all(
             c.text == s.text for c, s in zip(cached, scenes)
-        ):
+        )
+        if not same:
+            invalidate(proj, log)
+        elif "voice" not in force and "parse" not in force:
             scenes = cached
             log("         reusing cached scene timings")
     if done("parse"):

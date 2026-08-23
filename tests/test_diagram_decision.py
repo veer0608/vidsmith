@@ -130,3 +130,48 @@ def test_diagrams_off_means_footage_even_when_decided(tmp_path, scene, monkeypat
 def test_the_spec_cache_is_shared_too(tmp_path):
     builder = _builder(tmp_path)
     assert builder._diagram_cache_path().parent == tmp_path
+
+
+# --------------------------------------------------------------------------- #
+# staleness
+# --------------------------------------------------------------------------- #
+def test_a_redraft_drops_decisions_made_for_the_old_scenes(tmp_path):
+    """Everything per-scene is keyed by index, with nothing tying it to words.
+
+    Redraft a script and scene five is a different scene, so a stale "draw this
+    one" lands on the wrong scene and the credits name a clip that is no longer
+    in the video.
+    """
+    from vidsmith.pipeline import Project, invalidate
+
+    proj = Project(tmp_path)
+    build = proj.build
+    vis = build / "visuals"
+    vis.mkdir(parents=True)
+    (build / "diagram_scenes.json").write_text('{"5": true}', encoding="utf-8")
+    (build / "diagrams.json").write_text("{}", encoding="utf-8")
+    (build / "picture.mp4").write_bytes(b"x")
+    (vis / "rerank.json").write_text("{}", encoding="utf-8")
+    (vis / "credits.json").write_text("{}", encoding="utf-8")
+    (vis / "scene_005_00.mp4").write_bytes(b"x")
+    (vis / "intro.mp4").write_bytes(b"x")
+    cache = vis / "cache"
+    cache.mkdir()
+    (cache / "pexels_123.mp4").write_bytes(b"keep me")
+
+    invalidate(proj, log=lambda *a: None)
+
+    for gone in ("diagram_scenes.json", "diagrams.json", "picture.mp4"):
+        assert not (build / gone).exists(), gone
+    for gone in ("rerank.json", "credits.json", "scene_005_00.mp4", "intro.mp4"):
+        assert not (vis / gone).exists(), gone
+    # downloads are keyed by provider id, so they survive a redraft
+    assert (cache / "pexels_123.mp4").read_bytes() == b"keep me"
+
+
+def test_invalidating_a_fresh_project_is_harmless(tmp_path):
+    from vidsmith.pipeline import Project, invalidate
+
+    proj = Project(tmp_path)
+    proj.dirs()
+    invalidate(proj, log=lambda *a: None)
