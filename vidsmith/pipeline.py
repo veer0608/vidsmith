@@ -245,7 +245,9 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
             if block:
                 text += "\nCREDITS\n" + block
             (proj.out / "youtube.txt").write_text(text, encoding="utf-8")
-            log(f"meta     {proj.out / 'youtube.txt'}")
+            (proj.out / "description.txt").write_text(
+                description_box(meta, block), encoding="utf-8")
+            log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
         except Exception as exc:
             log(f"meta     skipped ({exc})")
 
@@ -284,6 +286,25 @@ def all_credits(out_dir: Path) -> str:
         chunks.append(f"[{label.replace('x', ':')}]\n"
                       + path.read_text(encoding="utf-8").strip())
     return "\n\n".join(chunks) + "\n" if chunks else ""
+
+
+def description_box(meta: Dict, credits: str = "") -> str:
+    """Exactly what goes in YouTube's description field, ready to paste.
+
+    youtube.txt is annotated with headings for a human to read; pasting it
+    wholesale would put the word DESCRIPTION into the description. This is the
+    same content with the scaffolding removed, in the order YouTube wants it:
+    prose, then chapters starting at 0:00, then attribution.
+    """
+    parts = [str(meta.get("description", "")).strip()]
+    chapters = meta.get("chapters") or []
+    if chapters:
+        parts.append("\n".join(
+            f"{c.get('time', '')} {c.get('label', '')}".strip()
+            for c in chapters))
+    if credits.strip():
+        parts.append(credits.strip())
+    return "\n\n".join(p for p in parts if p) + "\n"
 
 
 def _readable_meta(meta: Dict) -> str:
