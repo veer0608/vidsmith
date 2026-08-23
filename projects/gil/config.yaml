@@ -1,5 +1,5 @@
 # vidsmith project config - every key is optional
-title: Why Python's GIL Still Dictates Your Code
+title: Why Python's GIL Still Matters
 theme:
   preset: midnight
   accent: ''
