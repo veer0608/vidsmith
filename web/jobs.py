@@ -36,10 +36,19 @@ KEEP_SECONDS = 60 * 60          # finished jobs are swept after an hour
 MAX_SCRIPT_CHARS = 12_000
 
 
+STAGE_LABELS = {
+    "script": "reading the script", "queries": "choosing b-roll",
+    "voice": "recording narration", "visuals": "finding footage",
+    "captions": "timing captions", "music": "scoring", "render": "encoding",
+    "credits": "crediting", "meta": "writing the description",
+}
+
+
 @dataclass
 class Job:
     id: str
     status: str = "queued"          # queued | running | done | failed
+    stage: str = ""
     progress: float = 0.0
     log: List[str] = field(default_factory=list)
     error: str = ""
@@ -50,8 +59,11 @@ class Job:
     root: Optional[Path] = None
 
     def public(self) -> Dict[str, Any]:
+        end = self.finished or time.time()
         return {
             "id": self.id, "status": self.status,
+            "stage": STAGE_LABELS.get(self.stage, self.stage),
+            "elapsed": round(end - self.created, 1),
             "progress": round(self.progress, 3), "log": self.log[-60:],
             "error": self.error, "outputs": self.outputs, "title": self.title,
             "created": datetime.fromtimestamp(self.created, timezone.utc).isoformat(),
@@ -138,6 +150,7 @@ class Jobs:
             stage = line.split(" ", 1)[0].strip()
             if stage in STAGE_PROGRESS:
                 job.progress = max(job.progress, STAGE_PROGRESS[stage])
+                job.stage = stage
             elif line.lstrip().startswith("visual "):
                 # inch forward across the slowest stage so it does not look stuck
                 job.progress = min(0.78, job.progress + 0.02)
@@ -157,6 +170,14 @@ class Jobs:
             job.finished = time.time()
             with self._lock:
                 self._active = None
+
+    def description(self, job_id: str) -> str:
+        """The paste-ready description, so the page can offer it directly."""
+        job = self.get(job_id)
+        if job is None or job.root is None:
+            return ""
+        path = job.root / "out" / "description.txt"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
 
     def _collect(self, job: Job) -> List[Dict[str, Any]]:
         out = job.root / "out"

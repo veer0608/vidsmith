@@ -253,3 +253,67 @@ def test_media_can_authenticate_by_query(guarded):
 
 def test_health_stays_open_so_a_deploy_can_be_checked(guarded):
     assert guarded.get("/healthz").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# drafting and progress reporting
+# --------------------------------------------------------------------------- #
+def test_drafting_needs_a_key(client, monkeypatch):
+    monkeypatch.setattr(web_app, "find_keys", lambda *a, **k: {"gemini": ""})
+    r = client.post("/api/draft", json={"topic": "why indexes slow writes"})
+    assert r.status_code == 503
+
+
+def test_drafting_returns_a_script(client, monkeypatch):
+    monkeypatch.setattr(web_app, "find_keys", lambda *a, **k: {"gemini": "k"})
+    monkeypatch.setattr(web_app.llm, "draft_script",
+                        lambda topic, minutes, key, **kw: f"# {topic}\n")
+    r = client.post("/api/draft", json={"topic": "why indexes slow writes"})
+    assert r.status_code == 200
+    assert r.json()["script"].startswith("# why indexes")
+
+
+def test_drafting_is_clamped_to_the_instance_limit(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(web_app, "find_keys", lambda *a, **k: {"gemini": "k"})
+    monkeypatch.setattr(web_app.llm, "draft_script",
+                        lambda topic, minutes, key, **kw: seen.setdefault("m", minutes) and "" or "# x\n")
+    client.post("/api/draft", json={"topic": "a topic", "minutes": 99})
+    assert seen["m"] <= web_app.MAX_MINUTES
+
+
+def test_a_short_topic_is_refused(client):
+    assert client.post("/api/draft", json={"topic": "x"}).status_code == 422
+
+
+def test_the_stage_is_reported_in_words_not_pipeline_jargon(client):
+    """"visuals" means nothing to someone watching a progress bar."""
+    from web.jobs import Job
+
+    job = Job(id="x", stage="visuals")
+    assert job.public()["stage"] == "finding footage"
+    assert Job(id="x", stage="render").public()["stage"] == "encoding"
+
+
+def test_status_carries_elapsed_time(client):
+    r = client.post("/api/jobs", json={"script": SCRIPT})
+    job_id = r.json()["id"]
+    _settle(web_app.jobs)
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert body["elapsed"] >= 0
+    assert body["stage"]
+
+
+def test_the_description_is_served_when_present(client, tmp_path):
+    r = client.post("/api/jobs", json={"script": SCRIPT})
+    job_id = r.json()["id"]
+    _settle(web_app.jobs)
+    assert client.get(f"/api/jobs/{job_id}/description").json()["description"] == ""
+
+    out = web_app.jobs.get(job_id).root / "out"
+    (out / "description.txt").write_text("paste me", encoding="utf-8")
+    assert client.get(f"/api/jobs/{job_id}/description").json()["description"] == "paste me"
+
+
+def test_the_description_of_an_unknown_job_is_a_404(client):
+    assert client.get("/api/jobs/nope/description").status_code == 404

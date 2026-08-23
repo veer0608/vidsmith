@@ -351,7 +351,9 @@ photographable images were filed as diagrams.
 
 OUTPUT exactly this markdown and nothing else:
 
-# <title, under sixty characters, no colon, states the payoff>
+# <title, under sixty characters, no colon, states the payoff. Keep
+#  apostrophes where they belong: "Python's GIL", not "Pythons GIL" -
+#  the title is burned onto the opening card>
 
 ## <scene heading, two or three words, different from every other heading>
 [visual: ...]  or  [diagram: ...]

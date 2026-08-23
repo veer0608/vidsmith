@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
+from vidsmith import llm
 from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, env
 from vidsmith.pipeline import find_keys
@@ -117,6 +118,32 @@ def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return job.public()
+
+
+class DraftRequest(BaseModel):
+    topic: str = Field(min_length=3, max_length=200)
+    minutes: float = 2.0
+
+
+@app.post("/api/draft")
+def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
+    """Write a script from a topic, so the page is usable without one."""
+    key = find_keys(Path.cwd()).get("gemini", "")
+    if not key:
+        raise HTTPException(503, "drafting needs GEMINI_API_KEY on this instance")
+    minutes = max(0.5, min(MAX_MINUTES, req.minutes))
+    try:
+        return {"script": llm.draft_script(req.topic.strip(), minutes, key),
+                "minutes": minutes}
+    except llm.LLMUnavailable as exc:
+        raise HTTPException(502, f"the model did not answer: {exc}")
+
+
+@app.get("/api/jobs/{job_id}/description")
+def description(job_id: str, _: None = Depends(guard)) -> Dict[str, str]:
+    if jobs.get(job_id) is None:
+        raise HTTPException(404, "no such job")
+    return {"description": jobs.description(job_id)}
 
 
 @app.get("/api/jobs/{job_id}")

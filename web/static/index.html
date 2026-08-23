@@ -6,71 +6,179 @@
 <title>vidsmith</title>
 <style>
   :root {
-    --bg: #0B1020; --panel: #151B33; --edge: #26304F;
-    --text: #F5F7FA; --muted: #8C93A8; --accent: #FFC24B; --bad: #E5533D;
+    --bg: #0B1020; --panel: #141A31; --sunk: #0C1226; --edge: #232D4C;
+    --text: #F5F7FA; --muted: #8892AB; --accent: #FFC24B; --bad: #E5533D;
+    --ok: #5EE6A8;
     --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.55 var(--font);
-  }
-  main { max-width: 940px; margin: 0 auto; padding: 40px 20px 80px; }
-  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.55 var(--font); }
+  main { max-width: 900px; margin: 0 auto; padding: 36px 20px 90px; }
+
+  header { margin-bottom: 26px; }
+  h1 { font-size: 25px; margin: 0 0 3px; letter-spacing: -0.01em; }
   h1 span { color: var(--accent); }
-  .lede { color: var(--muted); margin: 0 0 28px; }
-  .panel {
-    background: var(--panel); border: 1px solid var(--edge);
-    border-radius: 12px; padding: 20px; margin-bottom: 18px;
+  .lede { color: var(--muted); margin: 0; }
+
+  .panel { background: var(--panel); border: 1px solid var(--edge);
+           border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tabs button {
+    margin: 0; background: transparent; color: var(--muted); border: 1px solid transparent;
+    border-radius: 8px; padding: 7px 14px; font: 500 14px var(--font); cursor: pointer;
   }
-  label { display: block; font-size: 12px; letter-spacing: .08em;
+  .tabs button[aria-selected=true] { background: var(--sunk); color: var(--text);
+                                      border-color: var(--edge); }
+
+  label { display: block; font-size: 11.5px; letter-spacing: .09em;
           text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-  textarea, select, input[type=text] {
-    width: 100%; background: #0E1428; color: var(--text);
-    border: 1px solid var(--edge); border-radius: 8px; padding: 10px 12px;
-    font: inherit;
+  textarea, select, input {
+    width: 100%; background: var(--sunk); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 8px; padding: 10px 12px; font: inherit;
   }
-  textarea { min-height: 260px; resize: vertical; font-family: ui-monospace,
-             SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
-  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-         gap: 14px; margin-top: 16px; }
-  .check { display: flex; align-items: center; gap: 8px; margin-top: 26px; }
-  .check label { margin: 0; text-transform: none; letter-spacing: 0; font-size: 14px;
-                 color: var(--text); }
-  button {
+  textarea { min-height: 250px; resize: vertical; font-family: var(--mono);
+             font-size: 13px; line-height: 1.6; }
+  textarea:focus, select:focus, input:focus { outline: 2px solid var(--accent);
+                                              outline-offset: -1px; }
+
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+         gap: 13px; margin-top: 16px; }
+  .switch { display: flex; align-items: center; gap: 8px; margin-top: 25px; }
+  .switch input { width: auto; }
+  .switch label { margin: 0; text-transform: none; letter-spacing: 0;
+                  font-size: 14px; color: var(--text); }
+
+  button.go {
     margin-top: 18px; background: var(--accent); color: #16130A; border: 0;
-    border-radius: 8px; padding: 11px 20px; font: 600 15px var(--font);
-    cursor: pointer;
+    border-radius: 8px; padding: 11px 22px; font: 600 15px var(--font); cursor: pointer;
   }
+  button.go.ghost { background: transparent; color: var(--text);
+                    border: 1px solid var(--edge); }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  .bar { height: 6px; background: #0E1428; border-radius: 999px; overflow: hidden; }
+  .hint { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  .hint code { font-family: var(--mono); color: var(--text); font-size: 12.5px; }
+
+  .status { display: flex; align-items: baseline; justify-content: space-between;
+            gap: 12px; margin-bottom: 10px; }
+  .stage { font-weight: 600; }
+  .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .bar { height: 6px; background: var(--sunk); border-radius: 999px; overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent);
-           transition: width .4s ease; }
-  pre.log {
-    margin: 14px 0 0; max-height: 260px; overflow: auto; font-size: 12.5px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    color: var(--muted); white-space: pre-wrap;
-  }
-  .files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-  .files a {
-    color: var(--text); text-decoration: none; font-size: 13px;
-    border: 1px solid var(--edge); border-radius: 999px; padding: 6px 14px;
-  }
+           transition: width .5s ease; }
+  .bar.failed i { background: var(--bad); }
+  .bar.done i { background: var(--ok); }
+
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  summary::marker { color: var(--edge); }
+  pre { margin: 10px 0 0; max-height: 240px; overflow: auto; font-size: 12.5px;
+        font-family: var(--mono); color: var(--muted); white-space: pre-wrap; }
+  pre.err { color: var(--bad); }
+
+  video { width: 100%; margin-top: 16px; border-radius: 10px; background: #000;
+          display: block; }
+  video.tall { max-width: 340px; margin-left: auto; margin-right: auto; }
+
+  .files { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+  .files a { color: var(--text); text-decoration: none; font-size: 13px;
+             border: 1px solid var(--edge); border-radius: 999px; padding: 6px 14px; }
   .files a:hover { border-color: var(--accent); }
-  video { width: 100%; margin-top: 16px; border-radius: 10px; background: #000; }
-  .err { color: var(--bad); }
-  .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .files a.main { border-color: var(--accent); color: var(--accent); }
+
+  .copy { display: flex; align-items: center; justify-content: space-between;
+          gap: 10px; margin-top: 18px; }
+  .copy h3 { margin: 0; font-size: 13px; letter-spacing: .09em;
+             text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .copy button { margin: 0; background: transparent; color: var(--text);
+                 border: 1px solid var(--edge); border-radius: 7px;
+                 padding: 5px 12px; font: 500 13px var(--font); cursor: pointer; }
+  .desc { margin-top: 8px; background: var(--sunk); border: 1px solid var(--edge);
+          border-radius: 8px; padding: 12px; max-height: 190px; overflow: auto;
+          font-size: 13px; white-space: pre-wrap; color: var(--muted); }
   .hidden { display: none; }
 </style>
 </head>
 <body>
 <main>
-  <h1>vid<span>smith</span></h1>
-  <p class="lede">A script in, a narrated and captioned video out.</p>
+  <header>
+    <h1>vid<span>smith</span></h1>
+    <p class="lede">A script in, a narrated and captioned video out.</p>
+  </header>
+
+  <div class="panel hidden" id="authpanel">
+    <label for="tokenfield">Access token</label>
+    <input type="password" id="tokenfield" placeholder="this instance is protected"
+           autocomplete="off">
+    <p class="hint">Kept in this browser only. It stops a public URL from being a
+       renderer that spends someone else's API quota.</p>
+  </div>
 
   <form class="panel" id="form">
-    <label for="script">Script</label>
-    <textarea id="script" spellcheck="false"># Why Your Bank Statement Lies
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-script" aria-selected="true">Write a script</button>
+      <button type="button" role="tab" id="tab-topic" aria-selected="false">From a topic</button>
+    </div>
+
+    <div id="pane-topic" class="hidden">
+      <label for="topic">Topic</label>
+      <input type="text" id="topic" placeholder="why database indexes can make queries slower">
+      <button type="button" class="go ghost" id="draft">Draft a script</button>
+      <p class="hint" id="draft-hint">Gemini writes it, then you edit it before rendering.</p>
+    </div>
+
+    <div id="pane-script">
+      <label for="script">Script</label>
+      <textarea id="script" spellcheck="false"></textarea>
+      <p class="hint">
+        Paragraphs are scenes. <code>[visual: hands counting cash]</code> searches
+        stock footage; <code>[diagram: three boxes in a row]</code> draws one
+        instead, for ideas no camera can point at.
+      </p>
+    </div>
+
+    <div class="row">
+      <div><label for="aspect">Shape</label><select id="aspect"></select></div>
+      <div><label for="theme">Theme</label><select id="theme"></select></div>
+      <div><label for="mood">Music</label><select id="mood"></select></div>
+      <div><label for="watermark">Watermark</label>
+           <input type="text" id="watermark" placeholder="@handle"></div>
+      <div class="switch"><input type="checkbox" id="music" checked>
+           <label for="music">Music bed</label></div>
+    </div>
+
+    <button class="go" id="go" type="submit">Render</button>
+    <p class="hint" id="hint"></p>
+  </form>
+
+  <section class="panel hidden" id="progress">
+    <div class="status">
+      <span class="stage" id="stage">starting</span>
+      <span class="clock" id="clock"></span>
+    </div>
+    <div class="bar" id="bar"><i id="fill"></i></div>
+
+    <video id="player" controls class="hidden" playsinline></video>
+    <div class="files" id="files"></div>
+
+    <div class="copy hidden" id="copybar">
+      <h3>Description, ready to paste</h3>
+      <button type="button" id="copy">Copy</button>
+    </div>
+    <div class="desc hidden" id="desc"></div>
+
+    <details id="logbox">
+      <summary>Build log</summary>
+      <pre id="log"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const SAMPLE = `# Why Your Bank Statement Lies
 
 ## The hook
 [visual: paper bank statement on a desk]
@@ -82,54 +190,22 @@ The merchant name on a transaction is typed by the payment processor, not the sh
 
 ## What to do
 [visual: person reconciling receipts]
-Reconcile against receipts, not memory. If the two disagree, the receipt is almost always right.</textarea>
+Reconcile against receipts, not memory. If the two disagree, the receipt is almost always right.`;
 
-    <div class="row">
-      <div><label for="aspect">Shape</label><select id="aspect"></select></div>
-      <div><label for="theme">Theme</label><select id="theme"></select></div>
-      <div><label for="mood">Music</label><select id="mood"></select></div>
-      <div><label for="watermark">Watermark</label>
-           <input type="text" id="watermark" placeholder="@handle"></div>
-      <div class="check"><input type="checkbox" id="music" checked>
-           <label for="music">Music bed</label></div>
-    </div>
+let timer = null, needsAuth = false, portrait = false;
 
-    <button id="go" type="submit">Render</button>
-    <p class="hint" id="hint"></p>
-  </form>
-
-  <section class="panel hidden" id="progress">
-    <div class="bar"><i id="fill"></i></div>
-    <pre class="log" id="log"></pre>
-    <div class="files" id="files"></div>
-    <video id="player" controls class="hidden"></video>
-  </section>
-</main>
-
-<script>
-const $ = (id) => document.getElementById(id);
-let timer = null;
-let needsAuth = false;
-
-// The token is only ever held in this browser. It exists so a tunnelled or
-// hosted instance is not an open renderer spending the owner's API quota.
-function token() {
-  let t = localStorage.getItem("vidsmith_token") || "";
-  if (needsAuth && !t) {
-    t = prompt("Access token for this instance:") || "";
-    if (t) localStorage.setItem("vidsmith_token", t);
-  }
-  return t;
-}
-
-function authHeaders() {
-  const t = needsAuth ? token() : "";
-  return t ? {"X-Vidsmith-Token": t} : {};
-}
-
+/* The token is only ever held in this browser. It exists so a tunnelled or
+   hosted instance is not an open renderer spending the owner's API quota.
+   An inline field rather than prompt(): a modal prompt blocks the page and is
+   refused outright by embedded browsers and some mobile views. */
+const token = () => $("tokenfield").value.trim();
+const authHeaders = () => needsAuth && token() ? {"X-Vidsmith-Token": token()} : {};
 function forgetToken() {
   localStorage.removeItem("vidsmith_token");
+  $("tokenfield").value = "";
+  $("tokenfield").focus();
 }
+const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
 
 function fillSelect(el, values, selected) {
   el.innerHTML = "";
@@ -141,46 +217,109 @@ function fillSelect(el, values, selected) {
   }
 }
 
+/* Settings are remembered because the interesting variable is the script, and
+   retyping a watermark on every render is friction with no purpose. */
+const REMEMBERED = ["aspect", "theme", "mood", "watermark"];
+function saveSettings() {
+  const s = {};
+  for (const k of REMEMBERED) s[k] = $(k).value;
+  s.music = $("music").checked;
+  localStorage.setItem("vidsmith_settings", JSON.stringify(s));
+}
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem("vidsmith_settings")) || {}; }
+  catch { return {}; }
+}
+
+function showTab(which) {
+  const isTopic = which === "topic";
+  $("tab-topic").setAttribute("aria-selected", String(isTopic));
+  $("tab-script").setAttribute("aria-selected", String(!isTopic));
+  $("pane-topic").classList.toggle("hidden", !isTopic);
+  $("pane-script").classList.toggle("hidden", isTopic && !$("script").value.trim());
+}
+
 async function loadOptions() {
-  const r = await fetch("/api/options");
-  const o = await r.json();
+  const o = await (await fetch("/api/options")).json();
   needsAuth = !!o.auth;
-  fillSelect($("aspect"), o.aspects, "16:9");
-  fillSelect($("theme"), o.themes, "midnight");
-  fillSelect($("mood"), o.moods, "calm");
+  if (needsAuth) {
+    $("authpanel").classList.remove("hidden");
+    $("tokenfield").value = localStorage.getItem("vidsmith_token") || "";
+    $("tokenfield").addEventListener("input", () =>
+      localStorage.setItem("vidsmith_token", $("tokenfield").value.trim()));
+  }
+  const saved = loadSettings();
+  fillSelect($("aspect"), o.aspects, saved.aspect || "16:9");
+  fillSelect($("theme"), o.themes, saved.theme || "midnight");
+  fillSelect($("mood"), o.moods, saved.mood || "calm");
+  $("watermark").value = saved.watermark || "";
+  if (saved.music === false) $("music").checked = false;
+  $("script").value = localStorage.getItem("vidsmith_script") || SAMPLE;
   $("hint").textContent =
-    `Scripts up to about ${o.max_minutes} minutes. One render at a time.`;
+    `Scripts up to about ${o.max_minutes} minutes. One render at a time — ` +
+    `expect roughly five minutes of building per minute of video.`;
+}
+
+function fmt(s) {
+  s = Math.round(s);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+async function showDescription(id) {
+  try {
+    const r = await fetch(`/api/jobs/${id}/description`, {headers: authHeaders()});
+    const d = (await r.json()).description || "";
+    if (!d.trim()) return;
+    $("desc").textContent = d;
+    $("desc").classList.remove("hidden");
+    $("copybar").classList.remove("hidden");
+    $("copy").onclick = async () => {
+      await navigator.clipboard.writeText(d);
+      $("copy").textContent = "Copied";
+      setTimeout(() => ($("copy").textContent = "Copy"), 1600);
+    };
+  } catch { /* the description is a convenience, not the deliverable */ }
 }
 
 function render(job) {
   $("progress").classList.remove("hidden");
   $("fill").style.width = Math.round(job.progress * 100) + "%";
+  $("clock").textContent = fmt(job.elapsed || 0);
   $("log").textContent = job.log.join("\n");
   $("log").scrollTop = $("log").scrollHeight;
+  $("bar").className = "bar" + (job.status === "done" ? " done"
+                       : job.status === "failed" ? " failed" : "");
 
   if (job.status === "failed") {
+    $("stage").textContent = "failed";
     $("log").classList.add("err");
+    $("logbox").open = true;
     $("go").disabled = false;
     return true;
   }
-  if (job.status !== "done") return false;
+  if (job.status !== "done") {
+    $("stage").textContent = job.stage || "starting";
+    return false;
+  }
 
+  $("stage").textContent = "done";
   const files = $("files");
   files.innerHTML = "";
   for (const f of job.outputs) {
     const a = document.createElement("a");
-    const q = needsAuth ? `?t=${encodeURIComponent(token())}` : "";
-    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${q}`;
+    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${authQuery()}`;
     a.textContent = `${f.name} · ${(f.size / 1e6).toFixed(1)} MB`;
+    if (f.kind === "mp4") a.className = "main";
     files.appendChild(a);
   }
   const video = job.outputs.find((f) => f.kind === "mp4");
   if (video) {
     const p = $("player");
-    const q = needsAuth ? `?t=${encodeURIComponent(token())}` : "";
-    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}${q}`;
+    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}${authQuery()}`;
+    p.className = portrait ? "tall" : "";
     p.classList.remove("hidden");
   }
+  showDescription(job.id);
   $("go").disabled = false;
   return true;
 }
@@ -194,12 +333,58 @@ async function poll(id) {
   if (render(await r.json())) clearInterval(timer);
 }
 
+function fail(message) {
+  $("progress").classList.remove("hidden");
+  $("stage").textContent = "could not start";
+  $("bar").className = "bar failed";
+  $("fill").style.width = "100%";
+  $("log").classList.add("err");
+  $("log").textContent = message;
+  $("logbox").open = true;
+  $("go").disabled = false;
+}
+
+$("tab-script").onclick = () => showTab("script");
+$("tab-topic").onclick = () => showTab("topic");
+
+$("draft").onclick = async () => {
+  const topic = $("topic").value.trim();
+  if (!topic) return;
+  $("draft").disabled = true;
+  $("draft-hint").textContent = "writing…";
+  try {
+    const r = await fetch("/api/draft", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...authHeaders()},
+      body: JSON.stringify({topic, minutes: 2}),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "drafting failed");
+    $("script").value = d.script;
+    localStorage.setItem("vidsmith_script", d.script);
+    $("pane-script").classList.remove("hidden");
+    $("draft-hint").textContent = "Drafted — read it through, then render.";
+  } catch (e) {
+    $("draft-hint").textContent = e.message;
+  } finally {
+    $("draft").disabled = false;
+  }
+};
+
+$("script").addEventListener("input", () =>
+  localStorage.setItem("vidsmith_script", $("script").value));
+
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("go").disabled = true;
+  saveSettings();
+  portrait = ["9:16", "4:5"].includes($("aspect").value);
   $("log").classList.remove("err");
   $("files").innerHTML = "";
   $("player").classList.add("hidden");
+  $("desc").classList.add("hidden");
+  $("copybar").classList.add("hidden");
+  $("logbox").open = false;
 
   const body = {
     script: $("script").value,
@@ -209,19 +394,20 @@ $("form").addEventListener("submit", async (e) => {
     watermark: $("watermark").value,
     music: $("music").checked,
   };
-  const r = await fetch("/api/jobs", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", ...authHeaders()},
-    body: JSON.stringify(body),
-  });
-  const job = await r.json();
+  let r, job;
+  try {
+    r = await fetch("/api/jobs", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...authHeaders()},
+      body: JSON.stringify(body),
+    });
+    job = await r.json();
+  } catch (err) {
+    return fail("could not reach the server");
+  }
   if (!r.ok) {
     if (r.status === 401) forgetToken();
-    $("progress").classList.remove("hidden");
-    $("log").classList.add("err");
-    $("log").textContent = job.detail || "could not start the render";
-    $("go").disabled = false;
-    return;
+    return fail(job.detail || "could not start the render");
   }
   render(job);
   timer = setInterval(() => poll(job.id), 1500);
