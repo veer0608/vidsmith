@@ -166,6 +166,24 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
     return order, rejected, verdict.get("filmable", True) is not False
 
 
+DASHES = "—–"
+
+
+def undash(text: str) -> str:
+    """Strip em and en dashes out of anything a model wrote.
+
+    They are a tell, and the narration one is worse than cosmetic: the voice
+    reads a dash as a pause the script did not ask for, and the caption grouper
+    treats it as a clause break. Instructing the model is not enough on its own,
+    so the output is repaired as well.
+    """
+    out = re.sub(r"\s*[" + DASHES + r"]\s*", lambda m: ", ", text)
+    # a range between numbers wants a word, not a comma
+    out = re.sub(r"(\d),\s*(?=\d)", r"\1 to ", out)
+    out = re.sub(r",\s*([,.;:!?])", r"\1", out)  # a dash before a full stop
+    return re.sub(r"\s{2,}", " ", out)
+
+
 def _json_block(text: str) -> Any:
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
     start = min((i for i in (text.find("["), text.find("{")) if i >= 0), default=-1)
@@ -264,7 +282,7 @@ META_PROMPT = """Write YouTube upload metadata for this video.
 
 Return ONLY JSON with these keys:
   "title"       - under 70 characters, specific, no clickbait punctuation
-  "description" - 3 short paragraphs, plain text, no markdown
+  "description" - 3 short paragraphs, plain text, no markdown, no dashes
   "tags"        - 12 lowercase strings
   "chapters"    - array of {{"time": "M:SS", "label": "..."}}, first time is "0:00"
 
@@ -286,7 +304,14 @@ def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
     runtime = stamp(sum(s.duration for s in scenes))
     raw = generate(META_PROMPT.format(title=title, runtime=runtime, body=body),
                    api_key, model, temperature=0.5)
-    return _json_block(raw)
+    meta = _json_block(raw)
+    for key in ("title", "description"):
+        if isinstance(meta.get(key), str):
+            meta[key] = undash(meta[key])
+    for chapter in meta.get("chapters") or []:
+        if isinstance(chapter.get("label"), str):
+            chapter["label"] = undash(chapter["label"])
+    return meta
 
 
 SCRIPT_PROMPT = """Write the narration for a YouTube explainer video.
@@ -317,6 +342,8 @@ WRITE FOR THE EAR:
 - Concrete nouns over abstractions. No lists, no markdown, no headings inside
   narration, no URLs, no "firstly" or "in conclusion".
 - Say numbers as words a voice can speak. Nothing longer than four digits.
+- No em dashes or en dashes anywhere. Use a comma or start a new sentence. A
+  dash is read aloud as a pause the writing did not ask for.
 
 DO NOT INVENT SPECIFICS. No version numbers, release dates, benchmark figures,
 percentages, company announcements or named studies unless they appear in the

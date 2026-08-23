@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from vidsmith import llm
+from vidsmith.llm import undash
 
 PROMPT = llm.SCRIPT_PROMPT
 
@@ -81,3 +82,52 @@ def test_the_shape_covers_hook_through_takeaway():
     low = PROMPT.lower()
     for beat in ("hook", "mechanism", "what to do", "takeaway"):
         assert beat in low, f"the {beat} beat is missing"
+
+
+# --------------------------------------------------------------------------- #
+# dashes
+# --------------------------------------------------------------------------- #
+EM, EN = "—", "–"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (f"It is a record {EM} of what your bank stored.",
+     "It is a record, of what your bank stored."),
+    (f"Two vCPU{EM}enough to encode.", "Two vCPU, enough to encode."),
+    (f"Two vCPU {EN} enough to encode.", "Two vCPU, enough to encode."),
+    (f"The lock {EM} a traffic cop {EM} allows one thread.",
+     "The lock, a traffic cop, allows one thread."),
+    (f"That is the cost {EM}.", "That is the cost."),
+])
+def test_dashes_become_commas(raw, expected):
+    assert undash(raw) == expected
+
+
+def test_a_number_range_becomes_a_word():
+    """A comma between digits reads as a thousands separator out loud."""
+    assert undash(f"Wait 5{EN}10 seconds.") == "Wait 5 to 10 seconds."
+
+
+def test_hyphens_are_left_alone():
+    text = "A delivery-ready mp4 with word-level timings."
+    assert undash(text) == text
+
+
+def test_text_without_dashes_is_untouched():
+    text = "Nothing to change here, at all."
+    assert undash(text) == text
+
+
+def test_no_dash_survives():
+    for raw in (f"a {EM} b", f"a{EN}b", f"{EM}leading", f"trailing{EM}"):
+        assert EM not in undash(raw) and EN not in undash(raw)
+
+
+def test_the_parsers_still_understand_a_hand_written_dash():
+    """undash cleans what a model wrote; a human script may still contain one,
+    and the caption and shot splitters rely on it as a clause boundary."""
+    from vidsmith.captions import TRAILING
+    from vidsmith.visuals import CLAUSE_END
+
+    assert EM in TRAILING
+    assert EM in CLAUSE_END

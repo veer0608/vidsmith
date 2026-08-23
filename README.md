@@ -4,7 +4,7 @@ Script in, narrated and captioned YouTube video out.
 
 You write a markdown script. vidsmith speaks it in a neural voice, finds a shot
 for every scene, burns word-timed captions, mixes music under the narration, and
-encodes a delivery-ready mp4 — plus an `.srt` and a draft title/description/chapters.
+encodes a delivery-ready mp4, plus an `.srt` and a draft title/description/chapters.
 
 ```powershell
 cd ~/claude/vidsmith; .\vidsmith.cmd build demo
@@ -28,7 +28,7 @@ the audio. There is nothing to drift, no model to download, and no transcription
 step to be wrong.
 
 Punctuation is the one thing those events drop, so it is stitched back on from
-the source script before captions are grouped — otherwise nothing ever breaks on
+the source script before captions are grouped. Otherwise nothing ever breaks on
 a full stop.
 
 ## Install
@@ -106,7 +106,7 @@ Useful `build` flags:
 ```
 
 Each aspect gets its own picture, captions and output file, so a vertical cut
-never overwrites the landscape one. Narration is shared between them — changing
+never overwrites the landscape one. Narration is shared between them, so changing
 aspect does not re-synthesize speech.
 
 ## Cut rhythm
@@ -267,7 +267,7 @@ video title in the project's theme.
 ## The look
 
 Every on-screen element reads from one `theme`, so a video looks designed rather
-than assembled — the title card rule, the caption highlight, the kicker and the
+than assembled. The title card rule, the caption highlight, the kicker and the
 progress bar are the same accent by construction.
 
 ```yaml
@@ -287,12 +287,12 @@ What that buys you per frame:
 
 - **Title and end cards** are real clips in the timeline, not overlays, so
   narration and captions stay in sync behind them.
-- **Scene cards** are laid out editorially — accent rule, letterspaced kicker,
+- **Scene cards** are laid out editorially: accent rule, letterspaced kicker,
   two-line headline clamped so it can never reach into the caption zone.
 - **Captions** fade in and out, scale up slightly on entry, and keep identical
   glyph widths as the highlight moves, so nothing reflows mid-line.
 - **The scrim** is the reason captions stay legible once real footage replaces
-  the cards — a bottom gradient burned under everything.
+  the cards: a bottom gradient burned under everything.
 
 Override any of it per build:
 
@@ -309,13 +309,13 @@ Override any of it per build:
 | `pixabay` | free `PIXABAY_API_KEY` | same, different library |
 | `local` | none | your own clips in `assets/clips`, matched on filename |
 
-Without a stock key the build does not fail — it logs the fallback and renders
+Without a stock key the build does not fail. It logs the fallback and renders
 cards. With `GEMINI_API_KEY` set, the search query for each scene is written by
 Gemini from the narration ("hands counting cash", not "personal finance");
 without it, queries fall back to keyword extraction from the sentence.
 
 **AI image generation is not wired in on purpose.** Gemini's image models are
-listed on a free key but return `RESOURCE_EXHAUSTED` on the first call — the
+listed on a free key but return `RESOURCE_EXHAUSTED` on the first call, because the
 free tier has no image quota at all. Adding billing to the Google key is the
 only way to turn that on, so cards and stock footage are the honest options.
 

@@ -1,8 +1,8 @@
 """Narration via Microsoft Edge neural voices (edge-tts).
 
-Free, no API key, and — the reason it is the default here — it returns
-WordBoundary events, so we get word-level timings for captions without ever
-running Whisper. Timings come from the same engine that produced the audio,
+Free, no API key, and it returns
+WordBoundary events, which is the reason it is the default here: we get
+word-level timings for captions without ever running Whisper. Timings come from the same engine that produced the audio,
 so they cannot drift.
 """
 from __future__ import annotations

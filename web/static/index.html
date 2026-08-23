@@ -256,7 +256,7 @@ async function loadOptions() {
   if (saved.music === false) $("music").checked = false;
   $("script").value = localStorage.getItem("vidsmith_script") || SAMPLE;
   $("hint").textContent =
-    `Scripts up to about ${o.max_minutes} minutes. One render at a time — ` +
+    `Scripts up to about ${o.max_minutes} minutes. One render at a time. ` +
     `expect roughly five minutes of building per minute of video.`;
 }
 
@@ -363,7 +363,7 @@ $("draft").onclick = async () => {
     $("script").value = d.script;
     localStorage.setItem("vidsmith_script", d.script);
     $("pane-script").classList.remove("hidden");
-    $("draft-hint").textContent = "Drafted — read it through, then render.";
+    $("draft-hint").textContent = "Drafted. Read it through, then render.";
   } catch (e) {
     $("draft-hint").textContent = e.message;
   } finally {

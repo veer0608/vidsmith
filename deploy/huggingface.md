@@ -1,6 +1,6 @@
 # Hosting vidsmith free on Hugging Face Spaces
 
-The free CPU tier is **2 vCPU and 16 GB RAM** — enough to encode 1080p, which a
+The free CPU tier is **2 vCPU and 16 GB RAM**, enough to encode 1080p, which a
 512 MB instance is not. There is no card required, and `apt` is available, so
 ffmpeg and the fonts install as packages rather than being fetched as static
 builds.
@@ -48,7 +48,7 @@ https://YOURNAME-vidsmith.hf.space/healthz
 - **Speed.** Two vCPUs is roughly half a modern laptop, so budget about twice
   your local render time. A 90 second video lands around five minutes.
 - **Sleeping.** A free Space pauses after a long idle stretch and takes a minute
-  to wake. A render already running when it pauses is lost — the job queue is in
+  to wake. A render already running when it pauses is lost, because the job queue is in
   memory.
 - **One at a time.** The queue depth is one by design; a second caller gets a
   429 rather than both renders crawling.
@@ -60,5 +60,5 @@ jobs, and those jobs spend *your* Pexels and Gemini quota. There is no auth in
 front of it.
 
 Make the Space **private** unless you specifically want it public. If you do
-want it public, put something in front of it first — at minimum a shared secret
+want it public, put something in front of it first: at minimum a shared secret
 checked in the API, and a per-day render cap.
