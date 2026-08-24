@@ -82,8 +82,8 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
 
     def flush():
         # cur_heading is read here but only ever assigned in the loop below, so
-        # it needs no nonlocal. It deliberately survives a flush: consecutive
-        # paragraphs under one `##` belong to the same heading.
+        # it needs no nonlocal. Note that it survives a flush, so consecutive
+        # paragraphs under one `##` share both a heading and a b-roll query.
         nonlocal buf, cur_query, cur_hold, cur_diagram
         text = _clean(" ".join(buf))
         buf = []
