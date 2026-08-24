@@ -81,7 +81,10 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
     buf: List[str] = []
 
     def flush():
-        nonlocal buf, cur_query, cur_hold, cur_heading, cur_diagram
+        # cur_heading is read here but only ever assigned in the loop below, so
+        # it needs no nonlocal. It deliberately survives a flush: consecutive
+        # paragraphs under one `##` belong to the same heading.
+        nonlocal buf, cur_query, cur_hold, cur_diagram
         text = _clean(" ".join(buf))
         buf = []
         if not text:

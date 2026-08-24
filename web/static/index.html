@@ -315,7 +315,39 @@ async function loadOptions() {
     `Scripts up to about ${o.max_minutes} minutes. One render at a time. ` +
     `expect roughly five minutes of building per minute of video.`;
   updateMeter();
+  await reattach();
   watchBusy();
+}
+
+/* A render takes minutes, so a reload during one is normal rather than
+   exceptional. The job outlives the page: without this, refreshing loses the
+   progress, the log and the Stop button while the box carries on working. The
+   id is kept until the next render, so a reload after one finishes still shows
+   the video rather than an empty page. */
+async function reattach() {
+  const id = localStorage.getItem("vidsmith_job");
+  if (!id) return;
+  let job;
+  try {
+    const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
+    if (!r.ok) {
+      // swept after its hour, or the server restarted and lost it
+      if (r.status === 404) localStorage.removeItem("vidsmith_job");
+      return;
+    }
+    job = await r.json();
+  } catch { return; }             // offline; the next load can try again
+
+  $("busybanner").classList.add("hidden");
+  portrait = ["9:16", "4:5"].includes($("aspect").value);
+  if (job.status === "queued" || job.status === "running") {
+    running = id;
+    $("go").disabled = true;
+    render(job);
+    timer = setInterval(() => poll(id), 1500);
+  } else {
+    render(job);
+  }
 }
 
 /* While this page is idle, someone else's render still owns the box. Polling a
@@ -612,6 +644,8 @@ $("form").addEventListener("submit", async (e) => {
     return fail(job.detail || "could not start the render");
   }
   running = job.id;
+  // so a reload during the next few minutes finds its way back to this render
+  localStorage.setItem("vidsmith_job", job.id);
   render(job);
   timer = setInterval(() => poll(job.id), 1500);
 });

@@ -48,7 +48,18 @@ redoes cached stages.
 ## Tests
 
 `pytest.ini` sets `pythonpath = . tests` and defines the one marker, `slow`, for
-the tests that shell out to a real ffmpeg and encode video.
+the tests that shell out to a real ffmpeg and encode video. GitHub Actions runs
+the whole suite, encodes included, on every push to main and every PR
+(`.github/workflows/tests.yml`); it installs ffmpeg and a real font, because
+without one Pillow falls back to a bitmap default and the card tests measure
+text nobody would ship.
+
+**`test_lint.py` gates on undefined names.** pyflakes, narrowed to the faults
+that ship broken behaviour: a name that does not resolve, or a `nonlocal` that
+is never bound. It exists because a thumbnail ranking ran through an undefined
+variable for months behind a bare `except`. It deliberately ignores unused
+imports, so the signal stays worth reading, and it carries a test proving the
+gate itself can still fail.
 
 **Build scenes with `make_scene()` from `tests/conftest.py`, never by hand.**
 Word timings drive the edit, the captions and the mix, so a test only means

@@ -1,0 +1,38 @@
+# The suite is fast and hermetic apart from ffmpeg: nothing here reaches a
+# network, and the slow tests skip themselves when ffmpeg is missing rather than
+# failing. So the runner installs ffmpeg and runs everything, including the
+# encodes, because those are the tests that catch drift between picture and
+# voice.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # fonts-dejavu-core because the themes name Windows families: without a
+      # real face installed, Pillow falls back to its bitmap default and the
+      # card and diagram tests measure text that no one would ship.
+      - name: Install ffmpeg and a font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+
+      # requirements-web too, or the 39 web tests skip themselves on a missing
+      # fastapi and the run looks green while covering nothing
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      - name: Run the suite
+        run: python -m pytest
