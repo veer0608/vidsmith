@@ -100,6 +100,34 @@ def test_a_failed_ranking_still_returns_a_thumbnail(tmp_path, stock, monkeypatch
     assert any("thumbnail pick skipped" in line for line in lines)
 
 
+def test_stock_photos_are_not_described_to_the_model_as_video_frames(tmp_path, stock,
+                                                                     monkeypatch):
+    """Ranking a stock photo against "prefer a frame from the video" is a trap:
+    none of the candidates is one, so the advice can only be satisfied badly."""
+    sent = {}
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: (sent.update(prompt=prompt),
+                                                 '{"pick": 1, "why": "x"}')[1])
+    thumbs.from_stock("T", "a bank statement", (1920, 1080),
+                      {"pexels": "k", "gemini": "g"}, tmp_path, log=lambda *a: None)
+    assert "stock photographs found for this video" in sent["prompt"]
+    assert "frames taken from the finished video" not in sent["prompt"]
+    assert "beats a stock shot" not in sent["prompt"]
+    assert '{"pick"' in sent["prompt"], "the JSON example must survive formatting"
+
+
+def test_the_frame_prompt_is_unchanged_for_frames(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: (sent.update(prompt=prompt),
+                                                 '{"pick": 0}')[1])
+    llm.pick_thumbnail("T", "a hook", [b"a", b"b"], "key", drawn=(1,))
+    assert "frames taken from the finished video" in sent["prompt"]
+    assert "beats a stock shot" in sent["prompt"]
+    assert "DRAWN FOR THIS VIDEO: images 1" in sent["prompt"]
+    assert '{"pick"' in sent["prompt"]
+
+
 def test_the_notes_reach_the_prompt_whole(monkeypatch):
     """A line per candidate must not be clipped the way a hook is."""
     sent = {}

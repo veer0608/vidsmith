@@ -223,7 +223,7 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
             # scenes' visual directives, never the hook: every explainer hook is
             # a frustration, and ranking against one rewards a stressed face.
             pick, why = llm.pick_thumbnail(
-                title, subjects, previews, gemini_key,
+                title, subjects, previews, gemini_key, kind="photo",
                 notes=f"WHAT EACH PHOTO SHOWS:\n{described}" if described else "")
             log(f"         thumbnail: '{query}' -> photo {pick}"
                 + (f" ({why})" if why else ""))

@@ -201,6 +201,21 @@ def _json_block(text: str) -> Any:
     raise ValueError("unterminated JSON in model output")
 
 
+# The two ranking jobs are not the same question. Frames come out of the video,
+# so a drawn diagram is on the subject by construction and beats a stock shot.
+# Stock photographs are the opposite case: none of them is from the video, and
+# telling a model to look for the mechanism among them invites it to settle for
+# a metaphor. The shared tail is passed in as a value, so its braces are never
+# re-formatted and the JSON example needs no doubling.
+THUMBNAIL_TAIL = """- One clear focal point beats a busy or empty picture.
+- It has to read at the size of a phone thumbnail.
+
+The title is composited over the lower third afterwards, so the picture does not
+need to carry words, and anything important should not sit at the very bottom.
+
+Return ONLY a JSON object: {"pick": <number>, "why": "<six words>"}"""
+
+
 THUMBNAIL_PROMPT = """You are choosing the thumbnail for a YouTube video.
 
 The {n} images above are frames taken from the finished video, numbered 0 to
@@ -225,13 +240,32 @@ Among what is left:
   beats a metaphor for the mechanism. A gear is not an index. Any frame listed
   above as drawn for this video is on the subject by construction; prefer one
   unless a photographic frame shows the actual subject more clearly.
-- One clear focal point beats a busy or empty frame.
-- It has to read at the size of a phone thumbnail.
+{tail}"""
 
-The title is composited over the lower third afterwards, so the frame does not
-need to carry words, and anything important should not sit at the very bottom.
 
-Return ONLY a JSON object: {{"pick": <number>, "why": "<six words>"}}"""
+THUMBNAIL_STOCK_PROMPT = """You are choosing the thumbnail for a YouTube video.
+
+The {n} images above are stock photographs found for this video, numbered 0 to
+{last}. None of them is a frame from the video, so do not look for one. Judge
+which photograph is most plainly about the subject below.
+
+TITLE: {title}
+IT SHOWS: {hook}
+{drawn}
+{notes}
+
+Pick the photograph that best represents what the video is about.
+
+Rule out first, then choose. A photograph is WRONG if what is actually visible
+in it belongs to a different subject. A generic office, an unrelated app on a
+screen, or a person looking stressed at a laptop is wrong for a video about
+something else, however well the mood matches. Judge what is depicted, not the
+emotion you infer from a posture.
+
+Among what is left:
+- A photograph of the thing the video is actually about beats a metaphor for it.
+  A gear is not an index, and a worried face is not a subject.
+{tail}"""
 
 
 QUERY_PROMPT = """You are a video editor sourcing stock B-roll for a narrated video.
@@ -255,12 +289,17 @@ NARRATION:
 def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
                    model: str = DEFAULT_MODEL,
                    drawn: Sequence[int] = (),
-                   notes: str = "") -> Tuple[int, str]:
-    """Which candidate frame actually represents the video.
+                   notes: str = "",
+                   kind: str = "frame") -> Tuple[int, str]:
+    """Which candidate actually represents the video.
 
     Sharpness and colour find a striking frame, which is not the same thing as a
     relevant one - the sharpest frame in a video about locks is often a stock
     close-up of a keyboard.
+
+    `kind` says what the candidates are. "frame" means they came out of the
+    video; "photo" means they are stock photographs, where the advice to prefer
+    the mechanism over a stock shot would be advice to prefer nothing at all.
     """
     if not images:
         return 0, ""
@@ -273,9 +312,11 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
     # `hook` is clamped because a scene of narration is long and only its
     # opening is useful. `notes` is not: it carries a line per candidate, and
     # truncating it would silently drop the ones at the end of the list.
-    prompt = THUMBNAIL_PROMPT.format(n=len(images), last=len(images) - 1,
-                                     title=title.strip(), hook=hook.strip()[:220],
-                                     drawn=note, notes=notes.strip())
+    template = THUMBNAIL_STOCK_PROMPT if kind == "photo" else THUMBNAIL_PROMPT
+    prompt = template.format(n=len(images), last=len(images) - 1,
+                             title=title.strip(), hook=hook.strip()[:220],
+                             drawn=note, notes=notes.strip(),
+                             tail=THUMBNAIL_TAIL)
     verdict = _json_block(generate_vision(prompt, images, api_key, model))
     if not isinstance(verdict, dict):
         raise ValueError("no pick returned")
