@@ -44,6 +44,17 @@ STAGE_LABELS = {
 }
 
 
+def stage_sequence() -> List[Dict[str, str]]:
+    """The stages in the order they happen, for a page drawing a stepper.
+
+    Ordered by how much of the run is behind you, so it stays correct when a
+    stage is added: the page must not keep its own copy of this list.
+    """
+    return [{"key": key, "label": STAGE_LABELS[key]}
+            for key, _ in sorted(STAGE_PROGRESS.items(), key=lambda kv: kv[1])
+            if key in STAGE_LABELS]
+
+
 @dataclass
 class Job:
     id: str

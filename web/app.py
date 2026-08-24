@@ -16,7 +16,7 @@ from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, env
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
-from web.jobs import Busy, Jobs
+from web.jobs import Busy, Jobs, stage_sequence
 
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
@@ -104,7 +104,8 @@ def healthz() -> Dict[str, Any]:
 def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
-            "busy": jobs.busy(), "auth": bool(TOKEN)}
+            "busy": jobs.busy(), "auth": bool(TOKEN),
+            "stages": stage_sequence()}
 
 
 @app.get("/api/busy")

@@ -85,6 +85,18 @@ def test_options_lists_what_the_form_needs(client):
     assert "calm" in body["moods"]
 
 
+def test_options_carries_the_stage_order_for_the_stepper(client):
+    """The page draws a stepper from this, so it must not keep its own copy:
+    a stage added to the worker has to appear here without touching the page."""
+    import web.jobs as jobs_mod
+
+    stages = client.get("/api/options").json()["stages"]
+    assert [s["key"] for s in stages] == list(jobs_mod.STAGE_LABELS)
+    assert stages[0]["label"] == "reading the script"
+    assert stages[-1]["label"] == "writing the description"
+    assert all(s["label"] for s in stages), "a stage with no label cannot be drawn"
+
+
 def test_the_page_loads(client):
     r = client.get("/")
     assert r.status_code == 200 and "vidsmith" in r.text
