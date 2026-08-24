@@ -18,6 +18,9 @@ cd ~/claude/vidsmith; .\vidsmith.cmd thumbs demo                  # rank frames 
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m uvicorn web.app:app --port 8077
 ```
 
+`.gitattributes` normalises the tree to LF, so git prints a CRLF notice on almost
+every commit made here. It is the setting working, not a problem to fix.
+
 `-m slow` tests shell out to ffmpeg and encode real video. Everything else is
 pure and fast. `--stop-after <stage>` halts a build after any of
 `parse queries voice visuals captions render meta`; `--force voice,visuals,render`
@@ -95,6 +98,15 @@ b-roll search queries, reranking stock candidates by their preview stills,
 designing diagram specs, and writing YouTube metadata plus the thumbnail search.
 Without `GEMINI_API_KEY` each falls back (keyword extraction, provider order,
 no diagram, no metadata). `llm.generate_vision()` sends downscaled JPEGs inline.
+
+**`LLMUnavailable` is what makes that degradation real.** `llm.py` calls
+`v1beta/generateContent` over plain `requests`, with no SDK. The default model is
+the floating alias `gemini-flash-lite-latest` rather than a pinned id, because
+pinned ids get retired out from under a key. A call retries four times with
+exponential backoff on `{429, 500, 502, 503, 504}`, and raises `LLMUnavailable`
+on anything else, including a missing key. Every optional feature above is
+optional precisely because it catches that one exception, so a new model call
+must raise it too rather than inventing its own failure mode.
 
 **Diagrams exist because some scenes are unfilmable.** "branching tree diagram"
 returns photographs of trees. A scene is drawn when the script says
@@ -222,7 +234,15 @@ code, is usually the constraint.
 
 ## Deploying
 
-Two hosts are written up, and they solve the ffmpeg problem differently.
+Three ways out, and the first is usually the right one for showing someone.
+
+**A Cloudflare quick tunnel** (`scripts/serve-public.ps1`) puts the local server
+on a public URL: free, no account, no domain, and `cloudflared` from winget. The
+render happens on this machine, so it runs at full local speed instead of a
+hosted instance's fraction of a CPU. The URL lasts only as long as the window,
+which is the point when the audience is one person for ten minutes.
+
+The two real hosts solve the ffmpeg problem differently.
 
 **Render** (`render.yaml`) uses the *native Python runtime rather than a
 container*, because ffmpeg and the fonts are fetched in the build step by
