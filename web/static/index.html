@@ -144,8 +144,11 @@
        renderer that spends someone else's API quota.</p>
   </div>
 
-  <div class="banner hidden" id="busybanner">
-    <span class="dot"></span>
+  <!-- A render is minutes long and everything about it arrives by mutation, so
+       without live regions none of it reaches a screen reader. polite, not
+       assertive: this should be read at a pause, never cut across typing. -->
+  <div class="banner hidden" id="busybanner" role="status" aria-live="polite">
+    <span class="dot" aria-hidden="true"></span>
     <span id="busytext">a render is already running</span>
   </div>
 
@@ -180,8 +183,8 @@
         stock footage; <code>[diagram: three boxes in a row]</code> draws one
         instead, for ideas no camera can point at.
       </p>
-      <div class="meter" id="meter"></div>
-      <ul class="warn" id="warn"></ul>
+      <div class="meter" id="meter" role="status" aria-live="polite"></div>
+      <ul class="warn" id="warn" aria-live="polite"></ul>
     </div>
 
     <div class="row">
@@ -204,11 +207,13 @@
 
   <section class="panel hidden" id="progress">
     <div class="status">
-      <span class="stage" id="stage">starting</span>
-      <span class="clock" id="clock"></span>
-      <button type="button" class="stop hidden" id="stop">Stop</button>
+      <span class="stage" id="stage" role="status" aria-live="polite">starting</span>
+      <!-- the clock ticks every poll; announcing it would talk over everything -->
+      <span class="clock" id="clock" aria-hidden="true"></span>
+      <button type="button" class="stop hidden" id="stop">Stop this render</button>
     </div>
-    <div class="bar" id="bar"><i id="fill"></i></div>
+    <div class="bar" id="bar" role="progressbar" aria-labelledby="stage"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
 
     <video id="player" controls class="hidden" playsinline></video>
     <div class="files" id="files"></div>
@@ -464,7 +469,9 @@ async function showDescription(id) {
 
 function render(job) {
   $("progress").classList.remove("hidden");
-  $("fill").style.width = Math.round(job.progress * 100) + "%";
+  const pct = Math.round(job.progress * 100);
+  $("fill").style.width = pct + "%";
+  $("bar").setAttribute("aria-valuenow", String(pct));
   $("clock").textContent = fmt(job.elapsed || 0);
   $("log").textContent = job.log.join("\n");
   $("log").scrollTop = $("log").scrollHeight;

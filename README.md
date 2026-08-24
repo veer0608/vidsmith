@@ -257,12 +257,22 @@ frame, so the second cut costs no extra calls.
 cd ~/claude/vidsmith; .\vidsmith.cmd thumbs demo
 ```
 
-Frames are sampled from the picture track, not the delivery file, so no
-captions, watermark or progress bar end up in a thumbnail. Candidates are
-ranked on edge detail and colour spread, penalised for crushed or blown
-exposure, and spaced at least 2.5s apart so six candidates are not six frames of
-one shot. The best frame is also composed into `titled.jpg` at 1280x720 with the
-video title in the project's theme.
+A build prefers a **stock photograph** over anything cut from the video. A frame
+is graded to sit behind captions at speed, and a diagram is the clearest frame in
+the video and the worst thing to put on a thumbnail; a photograph is composed to
+be looked at on its own. The search is written from the scenes' visual
+directives, never the hook, because every explainer hook is a frustration and a
+hook-fed query returns a stressed person every time. Gemini then ranks the
+candidates from their previews and alt text, and is told these are photographs
+rather than frames, so it is not hunting for a mechanism that none of them show.
+
+Frames are the fallback, and what `vidsmith thumbs` gives you. They are sampled
+from the picture track, not the delivery file, so no captions, watermark or
+progress bar end up in a thumbnail. Candidates are ranked on edge detail and
+colour spread, penalised for crushed or blown exposure, and spaced at least 2.5s
+apart so six candidates are not six frames of one shot. Either way the winner is
+composed into `titled.jpg` at 1280x720 with the video title in the project's
+theme.
 
 ## The look
 
@@ -364,8 +374,15 @@ projects/demo/out/
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest
 ```
 
-53 fast tests run in under a second; 12 more marked `slow` encode real video with
-ffmpeg. `-m "not slow"` skips those.
+184 fast tests run in seconds; 12 more marked `slow` encode real video with
+ffmpeg. `-m "not slow"` skips those. GitHub Actions runs the whole suite,
+encodes included, on every push and pull request.
+
+One of them runs pyflakes over the package and fails on a name that cannot
+resolve. That gate exists because the stock thumbnail ranking called through an
+undefined variable for months: the bare `except` around it caught the
+`NameError`, logged a fallback, and shipped the first search result every time.
+Nothing went red, because the only tests touching it were testing the fallback.
 
 They exist because the same class of bug kept shipping: cache and timing
 invariants that look fine until you watch the whole video. The suite pins the
@@ -393,11 +410,29 @@ minutes. The browser polls `/api/jobs/{id}` and the progress bar tracks real
 pipeline stages rather than a timer. **The queue depth is one** - two concurrent
 x264 encodes starve each other on a small box, so a second caller gets a 429.
 
+Because a render is minutes long, the page is built around not wasting them:
+
+- **It counts the script as you type** - scenes, estimated runtime, and words
+  against this instance's limit. Going over disables Render, so the 400 arrives
+  while you can still edit rather than after you submit. It also names any scene
+  with no `[visual:]` line, which will be searched on its own words.
+- **It says when the box is taken.** A second visitor sees the running stage and
+  how long it has been going instead of writing a script and collecting a 429.
+- **It can stop.** Cancelling is cooperative: the run ends at the next stage
+  boundary, not mid-encode, which frees the queue rather than the CPU.
+- **It survives a reload.** Refreshing mid-render re-attaches to the job, log and
+  Stop button included, and after one finishes a reload still shows the video.
+
 | route | what it does |
 | --- | --- |
 | `POST /api/jobs` | start a render, returns a job id |
 | `GET /api/jobs/{id}` | status, progress, log tail, output list |
+| `POST /api/jobs/{id}/cancel` | stop it at the next stage boundary |
 | `GET /api/jobs/{id}/files/{name}` | download one output |
+| `GET /api/jobs/{id}/description` | the paste-ready YouTube description |
+| `POST /api/draft` | write a script from a topic |
+| `GET /api/busy` | whether the one render slot is taken, and by what |
+| `GET /api/options` | aspects, themes, moods, limits, whether auth is on |
 | `GET /healthz` | ffmpeg found, and whether a render is running |
 | `GET /api/docs` | generated OpenAPI docs |
 
