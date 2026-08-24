@@ -416,6 +416,9 @@ Because a render is minutes long, the page is built around not wasting them:
   against this instance's limit. Going over disables Render, so the 400 arrives
   while you can still edit rather than after you submit. It also names any scene
   with no `[visual:]` line, which will be searched on its own words.
+- **It shows the shape of the wait.** The nine pipeline stages are drawn as a
+  stepper: done, current, still to come. The list comes from the server, so it
+  cannot drift out of step with what the worker actually does.
 - **It says when the box is taken.** A second visitor sees the running stage and
   how long it has been going instead of writing a script and collecting a 429.
 - **It can stop.** Cancelling is cooperative: the run ends at the next stage

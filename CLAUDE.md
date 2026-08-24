@@ -281,6 +281,12 @@ runtime as you type. That copy is not authoritative, but it must be kept in step
 with the parser: if the scene-break rule, the directive set or `WPS` changes,
 `analyse()` in `web/static/index.html` changes with it.
 
+The stage stepper is the opposite arrangement, and the better one. `/api/options`
+serves `stages`, built by `jobs.stage_sequence()` from the same table the worker
+reports progress through, so a stage added to the pipeline appears in the page
+without anyone editing it. Copy that pattern rather than `analyse()` whenever the
+page needs to know something the server already knows.
+
 ## Deploying
 
 Three ways out, and the first is usually the right one for showing someone.
