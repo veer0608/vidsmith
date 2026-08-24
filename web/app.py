@@ -29,6 +29,8 @@ _DOTENVS = (HERE.parent / ".env", Path.cwd() / ".env")
 # having to be exported into every shell that starts the server
 TOKEN = (os.environ.get("VIDSMITH_TOKEN")
          or env("VIDSMITH_TOKEN", *_DOTENVS)).strip()
+# `cards` needs no key, which is why it is the fallback the whole app leans on.
+PROVIDERS = ("pexels", "pixabay", "cards")
 
 app = FastAPI(title="vidsmith", docs_url="/api/docs", redoc_url=None)
 jobs = Jobs(WORKDIR)
@@ -66,8 +68,8 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(400, f"aspect must be one of {sorted(ASPECTS)}")
     if req.theme not in PRESETS:
         raise HTTPException(400, f"theme must be one of {sorted(PRESETS)}")
-    if req.provider not in ("pexels", "pixabay", "cards"):
-        raise HTTPException(400, "provider must be pexels, pixabay or cards")
+    if req.provider not in PROVIDERS:
+        raise HTTPException(400, f"provider must be one of {list(PROVIDERS)}")
     if req.mood not in music_mod.moods():
         raise HTTPException(400, f"mood must be one of {music_mod.moods()}")
     # narration runs at roughly 150 words a minute
@@ -76,6 +78,11 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(
             400, f"{words} words is over the {MAX_MINUTES:g} minute limit for "
                  "this instance; shorten the script or run it locally")
+
+
+def _keys() -> Dict[str, str]:
+    """Which stock and model keys this instance actually resolves."""
+    return find_keys(Path.cwd())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -107,6 +114,12 @@ def options() -> Dict[str, Any]:
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
             "busy": jobs.busy(), "auth": bool(TOKEN),
             "stages": stage_sequence(),
+            # `ready` says whether this instance holds the key that provider
+            # needs, so the page can offer it truthfully instead of letting
+            # someone pick a source that will silently fall back to cards
+            "providers": [{"name": name,
+                           "ready": name == "cards" or bool(_keys().get(name))}
+                          for name in PROVIDERS],
             # the vocabulary the page needs to count scenes as you type. Served
             # rather than duplicated, so changing the parser changes the page.
             "script": {"wps": script_parser.WPS,

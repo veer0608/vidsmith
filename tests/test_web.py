@@ -116,6 +116,22 @@ def test_the_page_does_not_hardcode_the_directive_set(client):
     assert "adoptScriptRules(o.script)" in page, "the page ignores the served rules"
 
 
+def test_options_says_which_footage_sources_this_instance_can_reach(client):
+    """A provider without its key does not error, it falls back to cards. The
+    page has to know that before offering it, or a render finishes looking
+    nothing like what was asked for."""
+    providers = client.get("/api/options").json()["providers"]
+    assert [p["name"] for p in providers] == list(web_app.PROVIDERS)
+    cards = next(p for p in providers if p["name"] == "cards")
+    assert cards["ready"] is True, "cards needs no key and must always be offered"
+
+
+def test_a_provider_is_only_ready_when_its_key_resolves(client, monkeypatch):
+    monkeypatch.setattr(web_app, "_keys", lambda: {"pexels": "k", "pixabay": ""})
+    ready = {p["name"]: p["ready"] for p in client.get("/api/options").json()["providers"]}
+    assert ready == {"pexels": True, "pixabay": False, "cards": True}
+
+
 def test_the_page_loads(client):
     r = client.get("/")
     assert r.status_code == 200 and "vidsmith" in r.text

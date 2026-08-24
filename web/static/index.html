@@ -267,6 +267,7 @@
     </div>
 
     <div class="row">
+      <div><label for="provider">Footage</label><select id="provider"></select></div>
       <div><label for="aspect">Shape</label><select id="aspect"></select></div>
       <div><label for="theme">Theme</label><select id="theme"></select></div>
       <div><label for="mood">Music</label><select id="mood"></select></div>
@@ -368,9 +369,29 @@ function fillSelect(el, values, selected) {
   }
 }
 
+/* A provider without its key does not fail; it quietly falls back to cards, so
+   a render can finish looking nothing like what was asked for. Say which ones
+   this instance can actually reach, and refuse to select one it cannot. */
+function fillProviders(providers, selected) {
+  const el = $("provider");
+  el.innerHTML = "";
+  for (const p of providers) {
+    const o = document.createElement("option");
+    o.value = p.name;
+    o.textContent = p.ready ? p.name : `${p.name} (no key on this instance)`;
+    o.disabled = !p.ready;
+    if (p.name === selected && p.ready) o.selected = true;
+    el.appendChild(o);
+  }
+  if (el.selectedIndex < 0 || el.options[el.selectedIndex].disabled) {
+    const first = providers.find((p) => p.ready);
+    if (first) el.value = first.name;
+  }
+}
+
 /* Settings are remembered because the interesting variable is the script, and
    retyping a watermark on every render is friction with no purpose. */
-const REMEMBERED = ["aspect", "theme", "mood", "watermark"];
+const REMEMBERED = ["provider", "aspect", "theme", "mood", "watermark"];
 function saveSettings() {
   const s = {};
   for (const k of REMEMBERED) s[k] = $(k).value;
@@ -402,6 +423,8 @@ async function loadOptions() {
       localStorage.setItem("vidsmith_token", $("tokenfield").value.trim()));
   }
   const saved = loadSettings();
+  fillProviders(o.providers || [{name: "cards", ready: true}],
+                saved.provider || "pexels");
   fillSelect($("aspect"), o.aspects, saved.aspect || "16:9");
   fillSelect($("theme"), o.themes, saved.theme || "midnight");
   fillSelect($("mood"), o.moods, saved.mood || "calm");
@@ -746,6 +769,7 @@ $("form").addEventListener("submit", async (e) => {
 
   const body = {
     script: $("script").value,
+    provider: $("provider").value,
     aspect: $("aspect").value,
     theme: $("theme").value,
     mood: $("mood").value,
