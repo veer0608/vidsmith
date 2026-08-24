@@ -1,0 +1,111 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `;`.
+`.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
+
+```powershell
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 179 tests, ~40s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
+cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
+cd ~/claude/vidsmith; .\vidsmith.cmd build demo --provider pexels
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m uvicorn web.app:app --port 8077
+```
+
+`-m slow` tests shell out to ffmpeg and encode real video. Everything else is
+pure and fast. `--stop-after <stage>` halts a build after any of
+`parse queries voice visuals captions render meta`; `--force voice,visuals,render`
+redoes cached stages.
+
+## Architecture
+
+`pipeline.build()` is the spine: parse → b-roll queries → narration → visuals →
+captions → render → metadata. Every stage writes into `projects/<name>/build/`
+and is skipped when its output is already there.
+
+**Word timings are the backbone.** edge-tts returns a `WordBoundary` event per
+spoken word, but only when `Communicate(..., boundary="WordBoundary")` is passed;
+the default is one `SentenceBoundary` per utterance. Those timings drive caption
+timing and the edit: `visuals.plan_shots()` cuts each scene into shots at the
+sentence boundaries the speaker actually lands. Nothing transcribes anything.
+
+**The narration slot is authoritative.** `scene.duration` is the contract: each
+scene's clips must sum to exactly it, or the picture drifts against the voice for
+the rest of the video. Any floor on clip length is applied to the slot upstream,
+never to the clip. `collapse()` merges a shot plan when fewer clips are available
+than shots, preserving the total.
+
+**Per-aspect vs shared artifacts.** Narration, scene timings, diagram specs and
+the drawn-scene decision are shape-independent and live in `build/`. Picture,
+captions, scrim and the delivery file depend on frame size and are suffixed
+(`picture-9x16.mp4`). A second cut costs footage and an encode, not speech or
+model calls. Anything asked of a model once must be cached where both cuts see
+it, or the two cuts disagree about what the video contains.
+
+**Gemini is used four times, all optional and all degrading to something.**
+b-roll search queries, reranking stock candidates by their preview stills,
+designing diagram specs, and writing YouTube metadata plus the thumbnail search.
+Without `GEMINI_API_KEY` each falls back (keyword extraction, provider order,
+no diagram, no metadata). `llm.generate_vision()` sends downscaled JPEGs inline.
+
+**Diagrams exist because some scenes are unfilmable.** "branching tree diagram"
+returns photographs of trees. A scene is drawn when the script says
+`[diagram: ...]` or when reranking rejects nearly every candidate. `diagram.py`
+renders a JSON spec (`flow`, `tree`, `stack`, `compare`) in the project theme.
+
+**`theme.py` is the single source of colour and type.** Cards, diagrams, captions,
+progress bar and thumbnail all read from one `Theme`, which is why the output
+looks designed rather than assembled.
+
+## Things that have actually broken here
+
+- **Scene-indexed caches go stale on a redraft.** `diagram_scenes.json`,
+  `rerank.json`, `credits.json` and `narration.wav` are keyed by position with
+  nothing tying them to the words. `pipeline.invalidate()` drops them when the
+  script changes; `build/visuals*/cache/` survives, being keyed by provider id.
+  A missed entry here put the previous script's voice under a new picture.
+- **Sizes must key off frame WIDTH, never height.** 15% of 1920 is not the same
+  kind of quantity as 15% of 1080; keying box heights to height made portrait
+  diagrams nearly square. Portrait then gets larger type deliberately.
+- **Layers must not collide.** `captions.caption_top()` computes where the
+  caption box reaches from the same numbers that build the ASS styles, and
+  diagrams stop above it. Do not hardcode a fraction here.
+- **ASS is positional.** The `Format:` line must list all ten Dialogue fields:
+  a missing `MarginV` shifts every field and prepends a stray comma to the text.
+- **Thumbnails come from the Pexels *photo* API, not video frames.** A frame is
+  graded to sit behind captions; a diagram frame is the clearest frame in the
+  video and the worst thumbnail. The search is written from the scenes' visual
+  directives, not the hook. Every explainer hook is a frustration, so a hook-fed
+  query returns a stressed person every time.
+- **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
+  `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
+- **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
+  `\1` through `bash <<'EOF'` has repeatedly produced real newlines and control
+  characters mid-string. Use the Write or Edit tools for anything with escapes.
+
+## Keys and hosts
+
+`pipeline.find_keys()` resolves `GEMINI_API_KEY`, `PEXELS_API_KEY` and
+`PIXABAY_API_KEY` from the environment, then `.env` at the project, projects
+parent and repo root, then two sibling projects' `.env` files. Nothing key-driven
+is required: with no keys at all the build still produces narrated, captioned
+video over generated cards.
+
+`ffmpeg_util` resolves ffmpeg from `FFMPEG_BINARY`, then `bin/`, then PATH, then
+the winget package directory. A host with no package manager fetches a static
+build at deploy time via `scripts/fetch-runtime-deps.sh`. The themes name Windows
+font families, so `assets/fonts` is handed to the `subtitles` filter as
+`fontsdir`; without it libass silently substitutes a different face.
+
+## Web service
+
+`web/` is FastAPI over the same pipeline. Renders run on a worker thread and the
+browser polls, because a video takes minutes. **Queue depth is one**: two x264
+encodes starve each other, so a second caller gets 429. Jobs live in memory under
+`jobs/<id>/` and are swept an hour after finishing, so anything worth keeping is
+copied into `projects/`. `VIDSMITH_TOKEN` gates the API when set; `/healthz`
+stays open and reports ffmpeg, bundled fonts and which keys resolved.
