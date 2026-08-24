@@ -394,6 +394,7 @@ async function loadOptions() {
   const o = await (await fetch("/api/options")).json();
   needsAuth = !!o.auth;
   stages = o.stages || [];
+  adoptScriptRules(o.script);
   if (needsAuth) {
     $("authpanel").classList.remove("hidden");
     $("tokenfield").value = localStorage.getItem("vidsmith_token") || "";
@@ -480,13 +481,32 @@ function fmt(s) {
 }
 
 /* A read-only echo of script_parser.py, so the page can tell you what it is
-   about to build before you spend five minutes finding out. It must stay in
-   step with the real parser: scene breaks, the directive set and WPS all come
-   from there. Nothing here is authoritative; the server still decides. */
-const DIRECTIVE = /^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$/i;
+   about to build before you spend five minutes finding out. Nothing here is
+   authoritative; the server still decides.
+
+   The vocabulary is served rather than copied: `/api/options` carries the
+   directive set, the note prefixes and WPS straight out of the parser, so
+   adding a directive there adds it here. Only the scene-splitting rule itself
+   is reimplemented, and the fallbacks below are for a failed options fetch. */
+let DIRECTIVE = /^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$/i;
+let NOTE = /^\s*(>|<!--|\/\/)/;
+let WPS = 2.6;
 const HEADING = /^(#{1,6})\s+(.*)$/;
-const NOTE = /^\s*(>|<!--|\/\/)/;
-const WPS = 2.6, LEAD_IN = 0.25, GAP = 0.35;
+const LEAD_IN = 0.25, GAP = 0.35;
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function adoptScriptRules(rules) {
+  if (!rules) return;
+  if (rules.wps > 0) WPS = rules.wps;
+  if (rules.directives && rules.directives.length) {
+    // the kinds arrive as written in the pattern, so `b-?roll` stays a pattern
+    DIRECTIVE = new RegExp(`^\\s*\\[(${rules.directives.join("|")})\\s*:\\s*(.+?)\\]\\s*$`, "i");
+  }
+  if (rules.notes && rules.notes.length) {
+    NOTE = new RegExp(`^\\s*(${rules.notes.map(escapeRe).join("|")})`);
+  }
+}
 
 function analyse(text) {
   const scenes = [];

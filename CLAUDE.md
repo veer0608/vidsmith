@@ -276,16 +276,18 @@ rendering a video nobody is waiting for. `GET /api/busy` is the unguarded
 read-out the idle page polls, so a second visitor learns the slot is taken
 before writing a script instead of collecting a 429 afterwards.
 
-The page mirrors `script_parser.py` in JavaScript to count scenes and estimate
-runtime as you type. That copy is not authoritative, but it must be kept in step
-with the parser: if the scene-break rule, the directive set or `WPS` changes,
-`analyse()` in `web/static/index.html` changes with it.
+**What the page needs to know, the server tells it.** `/api/options` serves
+`stages` from `jobs.stage_sequence()` and `script` from `script_parser`'s own
+`DIRECTIVE_KINDS`, `NOTE_PREFIXES` and `WPS`, so adding a pipeline stage or a
+script directive reaches the page without anyone editing it. Follow this
+whenever the page needs something the server already knows.
 
-The stage stepper is the opposite arrangement, and the better one. `/api/options`
-serves `stages`, built by `jobs.stage_sequence()` from the same table the worker
-reports progress through, so a stage added to the pipeline appears in the page
-without anyone editing it. Copy that pattern rather than `analyse()` whenever the
-page needs to know something the server already knows.
+What is left in JavaScript is the scene-splitting rule itself, in `analyse()`:
+it counts scenes and estimates runtime as you type, and it is reimplemented
+rather than served because asking the server per keystroke would be absurd. It
+is not authoritative and the server still decides, but if the scene-break rule
+changes, `analyse()` changes with it. The regex literals beside it are fallbacks
+for a failed options fetch, not a second source of truth.
 
 ## Deploying
 

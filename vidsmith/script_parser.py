@@ -24,12 +24,18 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List
 
+# Kept as data rather than buried in the pattern: the web page needs the same
+# vocabulary to tell you what it is about to build, and gets it from the server
+# instead of keeping a second copy that can quietly disagree.
+DIRECTIVE_KINDS = ("visual", "b-?roll", "footage", "shot", "hold", "image", "diagram")
+NOTE_PREFIXES = (">", "<!--", "//")
+
 DIRECTIVE = re.compile(
-    r"^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$",
+    r"^\s*\[(" + "|".join(DIRECTIVE_KINDS) + r")\s*:\s*(.+?)\]\s*$",
     re.IGNORECASE,
 )
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
-NOTE = re.compile(r"^\s*(>|<!--|//)")
+NOTE = re.compile(r"^\s*(" + "|".join(re.escape(p) for p in NOTE_PREFIXES) + r")")
 # A rough words-per-second used only to pre-flag scenes that will run long.
 WPS = 2.6
 

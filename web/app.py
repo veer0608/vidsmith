@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from vidsmith import llm
 from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, env
+from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import Busy, Jobs, stage_sequence
@@ -105,7 +106,12 @@ def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
             "busy": jobs.busy(), "auth": bool(TOKEN),
-            "stages": stage_sequence()}
+            "stages": stage_sequence(),
+            # the vocabulary the page needs to count scenes as you type. Served
+            # rather than duplicated, so changing the parser changes the page.
+            "script": {"wps": script_parser.WPS,
+                       "directives": list(script_parser.DIRECTIVE_KINDS),
+                       "notes": list(script_parser.NOTE_PREFIXES)}}
 
 
 @app.get("/api/busy")

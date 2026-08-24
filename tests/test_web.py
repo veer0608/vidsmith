@@ -97,6 +97,25 @@ def test_options_carries_the_stage_order_for_the_stepper(client):
     assert all(s["label"] for s in stages), "a stage with no label cannot be drawn"
 
 
+def test_options_carries_the_parser_vocabulary(client):
+    """The page counts scenes as you type, and must not hold its own copy of
+    the directive set: adding one to the parser has to reach the page."""
+    from vidsmith import script_parser
+
+    rules = client.get("/api/options").json()["script"]
+    assert rules["wps"] == script_parser.WPS
+    assert rules["directives"] == list(script_parser.DIRECTIVE_KINDS)
+    assert rules["notes"] == list(script_parser.NOTE_PREFIXES)
+    assert "diagram" in rules["directives"] and "hold" in rules["directives"]
+
+
+def test_the_page_does_not_hardcode_the_directive_set(client):
+    """The literal fallback in the page is allowed, a second source is not:
+    the page must read the served list, or the two can silently disagree."""
+    page = client.get("/").text
+    assert "adoptScriptRules(o.script)" in page, "the page ignores the served rules"
+
+
 def test_the_page_loads(client):
     r = client.get("/")
     assert r.status_code == 200 and "vidsmith" in r.text
