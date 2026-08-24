@@ -6,13 +6,21 @@ job, and gets a truthful status while a render is in flight.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
+# Skipping is right locally: the CLI does not need fastapi, and someone working
+# on the render should not have to install a web stack. On CI it is wrong. The
+# web dependencies are installed there on purpose, so a skip would drop 39 tests
+# and still report the run green, which is how a suite stops being evidence.
+if os.environ.get("CI"):
+    import fastapi                              # noqa: F401
+else:
+    fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient        # noqa: E402
 
 import web.jobs as jobs_mod                      # noqa: E402
