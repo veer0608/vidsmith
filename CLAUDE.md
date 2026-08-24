@@ -13,7 +13,7 @@ before writing anything. The traps are the reason this file exists.
 | Write a test | Tests | Build scenes with `make_scene()`, never by hand |
 | Add or change a model call | Architecture, `LLMUnavailable` | Raise `LLMUnavailable` or the fallbacks stop working |
 | Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly |
-| Move captions or diagrams | Architecture, karaoke; layers, ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
+| Move captions or diagrams | Architecture, karaoke; Things that have actually broken here, layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Add a config key | Configuration | A misspelled key is ignored in silence |
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
