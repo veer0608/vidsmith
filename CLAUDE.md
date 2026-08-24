@@ -17,8 +17,8 @@ before writing anything. The traps are the reason this file exists.
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Add a config key | Configuration | A misspelled key is ignored in silence |
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
-| Redraft an existing script | Caches go stale | Scene-indexed caches must be invalidated |
-| Publish a video anywhere | Attribution | Crediting the creator is a licence condition |
+| Redraft an existing script | Things that have actually broken here, stale caches | Scene-indexed caches must be invalidated |
+| Publish a video anywhere | Things that have actually broken here, attribution | Crediting the creator is a licence condition |
 | Show it to someone | Deploying | The tunnel beats both hosts |
 
 ## Commands
