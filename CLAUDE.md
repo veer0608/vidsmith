@@ -23,6 +23,35 @@ pure and fast. `--stop-after <stage>` halts a build after any of
 `parse queries voice visuals captions render meta`; `--force voice,visuals,render`
 redoes cached stages.
 
+## The script
+
+`projects/<name>/script.md` is the input contract, parsed by `script_parser.py`:
+
+```markdown
+# Why Your Bank Statement Lies
+
+## The hook
+[visual: paper bank statement on a desk]
+Your bank statement is not a record of what you spent.
+```
+
+A scene breaks on a `##` heading **or** a blank line between paragraphs, so an
+innocent-looking reflow silently re-cuts the video. `[visual: ...]` sets that
+scene's stock-footage query and also answers to `b-roll`, `broll`, `footage` and
+`shot`; `[diagram: ...]` forces a drawn scene, `[image: ...]` a still, and
+`[hold: 3.5]` puts a floor under the on-screen duration. Lines opening with `>`,
+`<!--` or `//` are production notes and never reach the narration. `WPS = 2.6`
+is only a pre-flight estimate of scene length; the real timings come from the
+voice.
+
+**The drafting prompt is under test, not just under review.** `vidsmith new
+--topic` has Gemini write the script, and `tests/test_script_prompt.py` asserts
+what the prompt must still demand: a word budget stated per scene as well as in
+total, derived from the speaking rate; both directives taught; diagrams
+described as diagrams rather than pictures; no invented facts; varied sentence
+rhythm; distinct headings; and a hook-through-takeaway shape. Rewording that
+prompt without reading the tests will quietly drop one of them.
+
 ## Architecture
 
 `pipeline.build()` is the spine: parse → b-roll queries → narration → visuals →
@@ -92,6 +121,15 @@ looks designed rather than assembled.
   video and the worst thumbnail. The search is written from the scenes' visual
   directives, not the hook. Every explainer hook is a frustration, so a hook-fed
   query returns a stressed person every time.
+- **Dashes are kept out by two different mechanisms, and neither covers the
+  script.** The voice reads an em dash as a pause the writing did not ask for.
+  `llm.undash()` turns em and en dashes into commas, a range between digits into
+  `5 to 10` (a comma there is heard as a thousands separator), and leaves
+  hyphens alone, but it is only applied to the YouTube metadata and chapter
+  labels. A *drafted* script stays clean because the prompt forbids dashes, so a
+  draft can still come back with one and nothing downstream will strip it. It
+  must not simply be run over a hand-written script either: `captions.TRAILING`
+  and `visuals.CLAUSE_END` both rely on a dash as a clause boundary.
 - **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
   `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
