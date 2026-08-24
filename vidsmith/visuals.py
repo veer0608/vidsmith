@@ -275,6 +275,37 @@ def pexels_search(query: str, key: str, orientation: str, want_h: int) -> List[D
     return results
 
 
+def pexels_photos(query: str, key: str, orientation: str = "landscape",
+                  count: int = 12) -> List[Dict]:
+    """Stock photographs, for thumbnails.
+
+    A thumbnail wants a photograph, not a frame lifted out of compressed b-roll:
+    stills are shot and graded to be looked at on their own, and come back at a
+    resolution a 1280x720 crop does not have to be upscaled into.
+    """
+    r = requests.get(
+        "https://api.pexels.com/v1/search",
+        params={"query": query, "per_page": count, "orientation": orientation},
+        headers={"Authorization": key},
+        timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    out = []
+    for p in r.json().get("photos", []):
+        src = p.get("src") or {}
+        if not src.get("large2x"):
+            continue
+        out.append({
+            "id": str(p["id"]),
+            "url": src["large2x"],
+            "preview": src.get("medium") or src.get("small") or src["large2x"],
+            "author": p.get("photographer", ""),
+            "page": p.get("url", ""),
+            "alt": (p.get("alt") or "").strip(),
+        })
+    return out
+
+
 def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
     r = requests.get(
         "https://pixabay.com/api/videos/",

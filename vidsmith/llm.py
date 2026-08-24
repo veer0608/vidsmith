@@ -281,6 +281,31 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
     return (pick if 0 <= pick < len(images) else 0), str(verdict.get("why", ""))
 
 
+THUMB_QUERY_PROMPT = """Write ONE stock photo search for a YouTube thumbnail.
+
+TITLE: {title}
+THE VIDEO OPENS: {hook}
+
+The image has to stop someone scrolling, so:
+- A person doing something, or one strong object, shot close. Faces and hands
+  work; empty desks and abstract textures do not.
+- Concrete and photographable in two to four words. No proper nouns, no company
+  names, no words that only exist in software.
+- It must fit the subject. For a video about a technical bottleneck, a person
+  waiting or a jammed mechanism is honest; a generic laptop is not.
+
+Return ONLY the search words, nothing else."""
+
+
+def thumbnail_query(title: str, hook: str, api_key: str,
+                    model: str = DEFAULT_MODEL) -> str:
+    raw = generate(THUMB_QUERY_PROMPT.format(title=title.strip(),
+                                             hook=hook.strip()[:200]),
+                   api_key, model, temperature=0.7)
+    words = re.sub(r"[^A-Za-z \-]", " ", raw).split()
+    return " ".join(words[:5]).strip()
+
+
 def suggest_queries(scenes: Sequence[Scene], api_key: str,
                     model: str = DEFAULT_MODEL, log=print) -> int:
     """Fill in the b-roll query for scenes that have no [visual:] directive."""

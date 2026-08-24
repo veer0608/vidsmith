@@ -258,6 +258,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         f"mixing and encoding")
 
     slug = _slug(cfg.title)
+    thumb_credit = None
     final = proj.out / f"{slug}{tag}.mp4"
     render.master(picture, narration, final, cfg.render, cfg.audio,
                   ass if ass and Path(ass).exists() else None, total,
@@ -267,11 +268,19 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # on a thumbnail. The frame is chosen for relevance, then titled.
     try:
         hook = scenes[0].text if scenes else ""
-        drawn = _drawn_ranges(proj, scenes, intro)
-        frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
-                              hook, keys["gemini"], log=log, include=drawn)
         target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
-        thumbs.titled(frame.path, proj.out / f"{slug}{tag}.jpg", cfg.title,
+        stock = thumbs.from_stock(cfg.title, hook, cfg.size, keys,
+                                  proj.build / ".thumbstock", log=log)
+        if stock:
+            source = stock["path"]
+            thumb_credit = stock
+        else:
+            drawn = _drawn_ranges(proj, scenes, intro)
+            frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
+                                  hook, keys["gemini"], log=log, include=drawn)
+            source = frame.path
+            thumb_credit = None
+        thumbs.titled(source, proj.out / f"{slug}{tag}.jpg", cfg.title,
                       theme, target)
     except Exception as exc:
         log(f"         thumbnail fell back to a plain frame ({exc})")
@@ -282,6 +291,9 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # footage), so attribution is per cut - one shared file would silently drop
     # the creators of whichever aspect was built first.
     credits = credits_block(scenes, cfg.visuals.provider)
+    if credits and thumb_credit and thumb_credit.get("author"):
+        line = f"Thumbnail: {thumb_credit['author']} - {thumb_credit.get('page', '')}"
+        credits += line.rstrip(" -") + "\n"
     if credits:
         (proj.out / f"credits{tag}.txt").write_text(credits, encoding="utf-8")
         log(f"credits  {len(credits.splitlines()) - 1} creators to attribute")

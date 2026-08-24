@@ -17,6 +17,8 @@ from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from io import BytesIO
 
+import requests
+
 from . import cards
 from . import llm
 from . import ffmpeg_util as ff
@@ -155,6 +157,86 @@ def _thumb_bytes(path: Path, width: int = 384) -> bytes:
     buf = BytesIO()
     img.save(buf, "JPEG", quality=74)
     return buf.getvalue()
+
+
+def from_stock(title: str, hook: str, size: Optional[Tuple[int, int]],
+               keys: dict, workdir: Path, log=print) -> Optional[dict]:
+    """A stock photograph for the thumbnail, chosen for this video.
+
+    A frame lifted out of the finished video is the wrong raw material: b-roll is
+    graded to sit behind text at speed, and a diagram is the clearest frame in
+    the video but the worst thing to put on a thumbnail. Stock photographs are
+    composed to be looked at on their own.
+    """
+    pexels_key = keys.get("pexels", "")
+    gemini_key = keys.get("gemini", "")
+    if not pexels_key:
+        return None
+
+    query = ""
+    if gemini_key:
+        try:
+            query = llm.thumbnail_query(title, hook, gemini_key)
+        except Exception as exc:
+            log(f"         thumbnail query fell back to the title ({exc})")
+    if not query:
+        from .visuals import keywords
+        query = " ".join(keywords(f"{title} {hook}", limit=3)) or title
+
+    portrait = bool(size and size[1] > size[0])
+    try:
+        from .visuals import pexels_photos
+        photos = pexels_photos(query, pexels_key,
+                               "portrait" if portrait else "landscape")
+    except Exception as exc:
+        log(f"         stock thumbnail search failed ({exc})")
+        return None
+    if not photos:
+        log(f"         no stock photo for '{query}'")
+        return None
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    previews, kept = [], []
+    for photo in photos[:8]:
+        try:
+            r = requests.get(photo["preview"], timeout=45)
+            r.raise_for_status()
+            img = Image.open(BytesIO(r.content)).convert("RGB")
+            img.thumbnail((384, 384), Image.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, "JPEG", quality=74)
+            previews.append(buf.getvalue())
+            kept.append(photo)
+        except Exception:
+            continue
+    if not kept:
+        return None
+
+    pick = 0
+    if gemini_key and len(kept) > 1:
+        try:
+            # the alt text says what each photo is, which the model cannot always
+            # tell from a 384px preview
+            described = "\n".join(f"{i}: {p['alt'][:90]}"
+                                  for i, p in enumerate(kept) if p["alt"])
+            context = f"{hook}\n\nWHAT EACH PHOTO SHOWS:\n{described}"
+            pick, why = llm.pick_thumbnail(title, context, previews, gemini_key)
+            log(f"         thumbnail: '{query}' -> photo {pick}"
+                + (f" ({why})" if why else ""))
+        except Exception as exc:
+            log(f"         thumbnail pick skipped ({exc}); using the top result")
+    chosen = kept[pick]
+
+    dest = workdir / f"stock_{chosen['id']}.jpg"
+    try:
+        r = requests.get(chosen["url"], timeout=60)
+        r.raise_for_status()
+        dest.write_bytes(r.content)
+    except Exception as exc:
+        log(f"         stock thumbnail download failed ({exc})")
+        return None
+    return {"path": dest, "query": query, "author": chosen["author"],
+            "page": chosen["page"]}
 
 
 def choose(video: Path, workdir: Path, title: str, hook: str = "",
