@@ -139,6 +139,15 @@ competing with the voice.
   video and the worst thumbnail. The search is written from the scenes' visual
   directives, not the hook. Every explainer hook is a frustration, so a hook-fed
   query returns a stressed person every time.
+- **Attribution is a licence condition, and it has broken twice.** The Pexels and
+  Pixabay API terms require naming the creator and linking back, so
+  `pipeline.credits_block()` builds the block from what the search actually
+  returned and `description_box()` folds it into the YouTube description.
+  `visuals` keeps a per-shot ledger in `credits.json` because `scenes.json` is
+  shared across aspects, and `all_credits()` labels each cut's `credits*.txt`.
+  Both past failures were silent: a second aspect overwrote the first's credits
+  file, and a cached rebuild kept the clip but lost the credit. Generated cards
+  need no attribution, so an empty block there is correct rather than a bug.
 - **Dashes are kept out by two different mechanisms, and neither covers the
   script.** The voice reads an em dash as a pause the writing did not ask for.
   `llm.undash()` turns em and en dashes into commas, a range between digits into
