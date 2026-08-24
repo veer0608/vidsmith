@@ -2,6 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Start here
+
+Find the row for what you are about to do, read that section, and note the trap
+before writing anything. The traps are the reason this file exists.
+
+| About to | Read | What bites |
+| --- | --- | --- |
+| Edit a script | The script | A blank line starts a new scene |
+| Write a test | Tests | Build scenes with `make_scene()`, never by hand |
+| Add or change a model call | Architecture, `LLMUnavailable` | Raise `LLMUnavailable` or the fallbacks stop working |
+| Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly |
+| Move captions or diagrams | Architecture, karaoke; layers, ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
+| Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
+| Add a config key | Configuration | A misspelled key is ignored in silence |
+| Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
+| Redraft an existing script | Caches go stale | Scene-indexed caches must be invalidated |
+| Publish a video anywhere | Attribution | Crediting the creator is a licence condition |
+| Show it to someone | Deploying | The tunnel beats both hosts |
+
 ## Commands
 
 This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `;`.
@@ -32,12 +51,11 @@ redoes cached stages.
 the tests that shell out to a real ffmpeg and encode video.
 
 **Build scenes with `make_scene()` from `tests/conftest.py`, never by hand.**
-Word timings drive the edit, the captions and the mix, so a test is only
-meaningful against a Scene whose words are shaped the way edge-tts reports them:
-punctuation stripped, times in seconds from the start of the speech, and a
-`duration` that agrees with the words it contains. Hand-writing a `words` list is
-how you get a test that passes against input the TTS could never produce. The
-`scene` and `scenes` fixtures wrap it for the common cases.
+Word timings drive the edit, the captions and the mix, so a test only means
+something against words shaped the way edge-tts reports them: punctuation
+stripped, times in seconds from the start of the speech, `duration` agreeing with
+the words it holds. A hand-written `words` list passes against input the TTS
+could never produce. The `scene` and `scenes` fixtures wrap it.
 
 ## The script
 
@@ -105,8 +123,8 @@ the floating alias `gemini-flash-lite-latest` rather than a pinned id, because
 pinned ids get retired out from under a key. A call retries four times with
 exponential backoff on `{429, 500, 502, 503, 504}`, and raises `LLMUnavailable`
 on anything else, including a missing key. Every optional feature above is
-optional precisely because it catches that one exception, so a new model call
-must raise it too rather than inventing its own failure mode.
+optional because it catches that one exception; a new model call must raise it
+too, not invent its own failure mode.
 
 **Diagrams exist because some scenes are unfilmable.** "branching tree diagram"
 returns photographs of trees. A scene is drawn when the script says
@@ -114,13 +132,13 @@ returns photographs of trees. A scene is drawn when the script says
 renders a JSON spec (`flow`, `tree`, `stack`, `compare`) in the project theme.
 
 **The music bed is synthesised, not sourced.** There is no free API for licensed
-music and an unlicensed track is a copyright strike, so `music.py` builds the bed
-in ffmpeg itself: detuned sine triads over a four-chord progression (`calm`,
-`warm`, `tense`), low-passed and smeared with an echo until it reads as
-atmosphere rather than as notes. `--music auto` generates it once per mood into
-`build/music-<mood>.wav`, `--music none` drops it, and a path uses that file.
-`render.py` mixes it under the voice through `sidechaincompress` keyed off the
-narration, so it ducks whenever anyone speaks.
+music and an unlicensed track is a copyright strike, so `music.py` builds it in
+ffmpeg: detuned sine triads over a four-chord progression (`calm`, `warm`,
+`tense`), low-passed and echo-smeared until it reads as atmosphere rather than
+notes. `--music auto` generates one per mood into `build/music-<mood>.wav`,
+`--music none` drops it, a path uses that file. `render.py` mixes it under the
+voice with `sidechaincompress` keyed off the narration, so it ducks whenever
+anyone speaks.
 
 **The render is three ffmpeg passes on purpose.** Narration mix (every scene mp3
 delayed to its start time), then the picture cut, then the final master (scrim,
@@ -130,12 +148,11 @@ failure names the stage that broke instead of dumping one enormous filtergraph.
 and `fade` swaps in `xfade` and a re-encode. Do not collapse these into a single
 invocation for speed; the encode dominates either way and you lose the bisect.
 
-**Karaoke captions re-emit the whole line once per word.** That is more events
-than `\k` tags would need, and it is deliberate: it renders identically in every
-libass build and survives re-timing, and holding the line's glyph widths fixed
-means nothing reflows as the highlight moves. Motion lives on the caption group
-instead, as a short scale-up on entry and a fade either side. Tidying this into
-`\k` tags is a regression, not a simplification.
+**Karaoke captions re-emit the whole line once per word.** More events than `\k`
+tags need, and deliberate: it renders identically in every libass build, survives
+re-timing, and fixed glyph widths mean nothing reflows as the highlight moves.
+Motion lives on the caption group instead, a short scale-up on entry and a fade
+either side. Tidying this into `\k` tags is a regression, not a simplification.
 
 **`theme.py` is the single source of colour and type.** Cards, diagrams, captions,
 progress bar and thumbnail all read from one `Theme`, which is why the output
