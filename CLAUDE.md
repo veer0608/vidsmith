@@ -101,6 +101,24 @@ narration, so it ducks whenever anyone speaks.
 progress bar and thumbnail all read from one `Theme`, which is why the output
 looks designed rather than assembled.
 
+## Configuration
+
+The dataclasses in `config.py` are the schema, and `projects/<name>/config.yaml`
+overrides them. `vidsmith new` writes that file fully expanded, so it lists every
+key rather than only the interesting ones. `_merge()` sets a key only when the
+dataclass already has it, which means **a misspelled or invented key is silently
+ignored**: no error, no warning, and the default quietly stands.
+
+`render.aspect` picks from `ASPECTS` (`16:9`, `9:16`, `1:1`, `4:5`) and `cfg.size`
+derives the pixel frame from it. Pixel values in the config are stated against a
+1920-wide frame (`captions.size: 62`, `margin_v: 150`) and scaled by width at
+render time, which is the same rule as the WIDTH bullet below.
+
+The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
+sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at
+`-14`. Raising `music_gain_db` without re-checking the mix is how the bed starts
+competing with the voice.
+
 ## Things that have actually broken here
 
 - **Scene-indexed caches go stale on a redraft.** `diagram_scenes.json`,
@@ -158,3 +176,27 @@ encodes starve each other, so a second caller gets 429. Jobs live in memory unde
 `jobs/<id>/` and are swept an hour after finishing, so anything worth keeping is
 copied into `projects/`. `VIDSMITH_TOKEN` gates the API when set; `/healthz`
 stays open and reports ffmpeg, bundled fonts and which keys resolved.
+
+`VIDSMITH_JOBS` moves the job directory, and `VIDSMITH_MAX_MINUTES` (default 4)
+caps how long a submitted script may run. Both exist because the host, not the
+code, is usually the constraint.
+
+## Deploying
+
+Two hosts are written up, and they solve the ffmpeg problem differently.
+
+**Render** (`render.yaml`) uses the *native Python runtime rather than a
+container*, because ffmpeg and the fonts are fetched in the build step by
+`scripts/fetch-runtime-deps.sh`. Encoding is CPU-bound, so the free instance runs
+10 to 15 minutes for a 90 second video and can exhaust memory at 1080p; the
+blueprint therefore asks for `starter` and holds `VIDSMITH_MAX_MINUTES` at 2,
+with jobs in `/tmp`. `autoDeploy` is off, and the keys are `sync: false` so they
+are set in the dashboard and never committed.
+
+**Hugging Face Spaces** (`deploy/huggingface.md`) is the free option and the
+better machine: 2 vCPU and 16 GB, which does encode 1080p where a 512 MB instance
+does not. It builds the `Dockerfile` on their side, so this stays true even
+though Docker cannot run on this machine. Keys go in Space secrets, and
+`/healthz` is the check that matters after a build: `fonts` should list the two
+DejaVu files and `keys` should show `gemini` and `pexels` true. A free Space
+sleeps after an idle stretch and takes a minute to wake.
