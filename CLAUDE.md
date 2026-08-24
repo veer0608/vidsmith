@@ -198,6 +198,13 @@ competing with the voice.
   query returns a stressed person every time. When `vidsmith thumbs` does sample
   frames, it takes them from the picture track rather than the delivery file,
   which already has captions, watermark and progress bar burned in.
+- **A broad `except` around an optional feature hides typos, not just outages.**
+  `thumbs.from_stock()` ranked its stock photos through a variable that did not
+  exist in that scope. The `except Exception` two lines below caught the
+  `NameError`, logged "thumbnail pick skipped", and shipped whatever Pexels
+  returned first. The feature was dead for every video and nothing went red.
+  When a fallback exists to absorb a network failure, give it a test that proves
+  the good path still runs, or the fallback becomes the only path.
 - **Attribution is a licence condition, and it has broken twice.** The Pexels and
   Pixabay API terms require naming the creator and linking back, so
   `pipeline.credits_block()` builds the block from what the search actually

@@ -219,8 +219,12 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
             # tell from a 384px preview
             described = "\n".join(f"{i}: {p['alt'][:90]}"
                                   for i, p in enumerate(kept) if p["alt"])
-            context = f"{hook}\n\nWHAT EACH PHOTO SHOWS:\n{described}"
-            pick, why = llm.pick_thumbnail(title, context, previews, gemini_key)
+            # what the video shows, which is what a photo has to match. The
+            # scenes' visual directives, never the hook: every explainer hook is
+            # a frustration, and ranking against one rewards a stressed face.
+            pick, why = llm.pick_thumbnail(
+                title, subjects, previews, gemini_key,
+                notes=f"WHAT EACH PHOTO SHOWS:\n{described}" if described else "")
             log(f"         thumbnail: '{query}' -> photo {pick}"
                 + (f" ({why})" if why else ""))
         except Exception as exc:

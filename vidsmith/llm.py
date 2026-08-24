@@ -210,6 +210,7 @@ them on meaning, not on technical quality.
 TITLE: {title}
 IT OPENS: {hook}
 {drawn}
+{notes}
 
 Pick the frame that best represents what the video is about.
 
@@ -253,7 +254,8 @@ NARRATION:
 
 def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
                    model: str = DEFAULT_MODEL,
-                   drawn: Sequence[int] = ()) -> Tuple[int, str]:
+                   drawn: Sequence[int] = (),
+                   notes: str = "") -> Tuple[int, str]:
     """Which candidate frame actually represents the video.
 
     Sharpness and colour find a striking frame, which is not the same thing as a
@@ -268,9 +270,12 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
     # squint at: it read a rusty gear as "matching the indexing mechanism"
     note = (f"DRAWN FOR THIS VIDEO: images {', '.join(str(i) for i in drawn)}"
             if drawn else "")
+    # `hook` is clamped because a scene of narration is long and only its
+    # opening is useful. `notes` is not: it carries a line per candidate, and
+    # truncating it would silently drop the ones at the end of the list.
     prompt = THUMBNAIL_PROMPT.format(n=len(images), last=len(images) - 1,
                                      title=title.strip(), hook=hook.strip()[:220],
-                                     drawn=note)
+                                     drawn=note, notes=notes.strip())
     verdict = _json_block(generate_vision(prompt, images, api_key, model))
     if not isinstance(verdict, dict):
         raise ValueError("no pick returned")
