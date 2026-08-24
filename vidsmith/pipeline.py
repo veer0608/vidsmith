@@ -269,7 +269,11 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     try:
         hook = scenes[0].text if scenes else ""
         target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
-        stock = thumbs.from_stock(cfg.title, hook, cfg.size, keys,
+        # the scenes' own visual directives, which are what the video shows -
+        # not the hook, which is where every script keeps its frustration
+        subjects = ", ".join(dict.fromkeys(
+            visuals.scene_query(s) for s in scenes))
+        stock = thumbs.from_stock(cfg.title, subjects, cfg.size, keys,
                                   proj.build / ".thumbstock", log=log)
         if stock:
             source = stock["path"]

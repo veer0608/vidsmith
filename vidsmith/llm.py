@@ -281,29 +281,57 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
     return (pick if 0 <= pick < len(images) else 0), str(verdict.get("why", ""))
 
 
-THUMB_QUERY_PROMPT = """Write ONE stock photo search for a YouTube thumbnail.
+THUMB_QUERY_PROMPT = """Choose the image for a YouTube thumbnail.
 
 TITLE: {title}
-THE VIDEO OPENS: {hook}
+WHAT THE VIDEO SHOWS: {subjects}
 
-The image has to stop someone scrolling, so:
-- A person doing something, or one strong object, shot close. Faces and hands
-  work; empty desks and abstract textures do not.
-- Concrete and photographable in two to four words. No proper nouns, no company
-  names, no words that only exist in software.
-- It must fit the subject. For a video about a technical bottleneck, a person
-  waiting or a jammed mechanism is honest; a generic laptop is not.
+Decide what KIND of image it should be, then write the stock photo search for
+it. The kinds, roughly in order of how well they work:
 
-Return ONLY the search words, nothing else."""
+  object    one thing at the centre of the topic, close and hard-lit
+  contrast  two things in one frame: full and empty, one and many, stopped and moving
+  action    a person mid-task, doing the thing, hands visible
+  place     a location that carries the idea: a server hall, a sorting office
+  reaction  a person feeling something about it
+
+"reaction" is the obvious answer and almost always the wrong one. Nearly every
+explainer opens by describing a frustration, and writing the search from that
+produces one more photo of somebody holding their head, which is what every
+other thumbnail on the platform already is. Choose it only if nothing else fits.
+
+The search itself must be two to four concrete words naming things a camera can
+see. It must not contain any of the words above, and no proper nouns, no company
+names, and nothing that exists only inside software.
+
+Return ONLY a JSON object: {{"kind": "<one of the five>", "search": "<the words>"}}"""
 
 
-def thumbnail_query(title: str, hook: str, api_key: str,
+def thumbnail_query(title: str, subjects: str, api_key: str,
                     model: str = DEFAULT_MODEL) -> str:
+    """A photo search for the thumbnail, written from what the video shows.
+
+    Deliberately not given the hook. The hook is where the frustration lives,
+    and a model handed it returns "stressed developer" for every video ever made
+    about anything going wrong.
+
+    The kind and the search come back as separate JSON fields for a reason: when
+    the menu of kinds sat in a prompt that asked for prose, the model wrote the
+    menu back out and the search became "Kind two things contrasted in".
+    """
     raw = generate(THUMB_QUERY_PROMPT.format(title=title.strip(),
-                                             hook=hook.strip()[:200]),
-                   api_key, model, temperature=0.7)
-    words = re.sub(r"[^A-Za-z \-]", " ", raw).split()
-    return " ".join(words[:5]).strip()
+                                             subjects=subjects.strip()[:400]),
+                   api_key, model, temperature=0.85)
+    verdict = _json_block(raw)
+    if not isinstance(verdict, dict):
+        raise ValueError("no search returned")
+    words = re.sub(r"[^A-Za-z \-]", " ", str(verdict.get("search", ""))).split()
+    banned = {"kind", "object", "contrast", "action", "place", "reaction"}
+    words = [w for w in words if w.lower() not in banned]
+    query = " ".join(words[:4]).strip()
+    if len(query.split()) < 2:
+        raise ValueError(f"unusable search: {verdict!r}")
+    return query
 
 
 def suggest_queries(scenes: Sequence[Scene], api_key: str,

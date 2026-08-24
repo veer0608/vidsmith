@@ -159,7 +159,7 @@ def _thumb_bytes(path: Path, width: int = 384) -> bytes:
     return buf.getvalue()
 
 
-def from_stock(title: str, hook: str, size: Optional[Tuple[int, int]],
+def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
                keys: dict, workdir: Path, log=print) -> Optional[dict]:
     """A stock photograph for the thumbnail, chosen for this video.
 
@@ -176,12 +176,12 @@ def from_stock(title: str, hook: str, size: Optional[Tuple[int, int]],
     query = ""
     if gemini_key:
         try:
-            query = llm.thumbnail_query(title, hook, gemini_key)
+            query = llm.thumbnail_query(title, subjects, gemini_key)
         except Exception as exc:
             log(f"         thumbnail query fell back to the title ({exc})")
     if not query:
         from .visuals import keywords
-        query = " ".join(keywords(f"{title} {hook}", limit=3)) or title
+        query = " ".join(keywords(f"{title} {subjects}", limit=3)) or title
 
     portrait = bool(size and size[1] > size[0])
     try:
