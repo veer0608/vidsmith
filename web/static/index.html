@@ -98,6 +98,34 @@
   .desc { margin-top: 8px; background: var(--sunk); border: 1px solid var(--edge);
           border-radius: 8px; padding: 12px; max-height: 190px; overflow: auto;
           font-size: 13px; white-space: pre-wrap; color: var(--muted); }
+  /* Live read-out under the script. The server rejects an over-long script with
+     a 400 after you press Render; this says so while there is still time. */
+  .meter { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 10px;
+           font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .meter b { color: var(--text); font-weight: 600; }
+  .meter .over { color: var(--bad); }
+  .warn { margin: 8px 0 0; padding: 0; list-style: none;
+          color: var(--muted); font-size: 12.5px; }
+  .warn li { margin-top: 3px; }
+  .warn li::before { content: "! "; color: var(--accent); font-weight: 700; }
+
+  .banner { display: flex; align-items: center; gap: 10px; background: var(--sunk);
+            border: 1px solid var(--edge); border-radius: 10px; padding: 11px 14px;
+            margin-bottom: 16px; font-size: 13.5px; color: var(--muted); }
+  .banner b { color: var(--text); font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+         flex: 0 0 auto; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+  button.stop { margin: 0; background: transparent; color: var(--bad);
+                border: 1px solid var(--edge); border-radius: 7px; padding: 5px 12px;
+                font: 500 13px var(--font); cursor: pointer; }
+  button.stop:hover:not(:disabled) { border-color: var(--bad); }
+  .bar.cancelled i { background: var(--muted); }
+  .inline { display: flex; gap: 9px; align-items: flex-end; }
+  .inline > :first-child { flex: 1; }
+  .inline input.mins { width: 92px; }
   .hidden { display: none; }
 </style>
 </head>
@@ -116,6 +144,11 @@
        renderer that spends someone else's API quota.</p>
   </div>
 
+  <div class="banner hidden" id="busybanner">
+    <span class="dot"></span>
+    <span id="busytext">a render is already running</span>
+  </div>
+
   <form class="panel" id="form">
     <div class="tabs" role="tablist">
       <button type="button" role="tab" id="tab-script" aria-selected="true">Write a script</button>
@@ -123,8 +156,18 @@
     </div>
 
     <div id="pane-topic" class="hidden">
-      <label for="topic">Topic</label>
-      <input type="text" id="topic" placeholder="why database indexes can make queries slower">
+      <div class="inline">
+        <div>
+          <label for="topic">Topic</label>
+          <input type="text" id="topic"
+                 placeholder="why database indexes can make queries slower">
+        </div>
+        <div>
+          <label for="minutes">Minutes</label>
+          <input type="number" class="mins" id="minutes" value="2"
+                 min="0.5" max="4" step="0.5">
+        </div>
+      </div>
       <button type="button" class="go ghost" id="draft">Draft a script</button>
       <p class="hint" id="draft-hint">Gemini writes it, then you edit it before rendering.</p>
     </div>
@@ -137,6 +180,8 @@
         stock footage; <code>[diagram: three boxes in a row]</code> draws one
         instead, for ideas no camera can point at.
       </p>
+      <div class="meter" id="meter"></div>
+      <ul class="warn" id="warn"></ul>
     </div>
 
     <div class="row">
@@ -149,7 +194,11 @@
            <label for="music">Music bed</label></div>
     </div>
 
-    <button class="go" id="go" type="submit">Render</button>
+    <div class="inline" style="margin-top:18px">
+      <div><button class="go" id="go" type="submit" style="margin:0">Render</button>
+           <button class="go ghost" id="sample" type="button"
+                   style="margin:0 0 0 8px">Load the sample</button></div>
+    </div>
     <p class="hint" id="hint"></p>
   </form>
 
@@ -157,6 +206,7 @@
     <div class="status">
       <span class="stage" id="stage">starting</span>
       <span class="clock" id="clock"></span>
+      <button type="button" class="stop hidden" id="stop">Stop</button>
     </div>
     <div class="bar" id="bar"><i id="fill"></i></div>
 
@@ -193,6 +243,7 @@ The merchant name on a transaction is typed by the payment processor, not the sh
 Reconcile against receipts, not memory. If the two disagree, the receipt is almost always right.`;
 
 let timer = null, needsAuth = false, portrait = false;
+let busyTimer = null, busyElsewhere = false, running = null;
 
 /* The token is only ever held in this browser. It exists so a tunnelled or
    hosted instance is not an open renderer spending the owner's API quota.
@@ -255,14 +306,112 @@ async function loadOptions() {
   $("watermark").value = saved.watermark || "";
   if (saved.music === false) $("music").checked = false;
   $("script").value = localStorage.getItem("vidsmith_script") || SAMPLE;
+  // the server's own limit, so the meter turns red at exactly the word count
+  // that would come back as a 400
+  wordCap = Math.round(o.max_minutes * 150);
+  $("minutes").max = o.max_minutes;
+  $("minutes").value = Math.min(2, o.max_minutes);
   $("hint").textContent =
     `Scripts up to about ${o.max_minutes} minutes. One render at a time. ` +
     `expect roughly five minutes of building per minute of video.`;
+  updateMeter();
+  watchBusy();
+}
+
+/* While this page is idle, someone else's render still owns the box. Polling a
+   tiny endpoint means a second person sees that before writing a script, rather
+   than after pressing Render and collecting a 429. */
+async function watchBusy() {
+  clearInterval(busyTimer);
+  const tick = async () => {
+    if (running) return;                    // our own render reports itself
+    try {
+      const s = await (await fetch("/api/busy")).json();
+      busyElsewhere = !!s.busy;
+      $("busybanner").classList.toggle("hidden", !s.busy);
+      if (s.busy) {
+        $("busytext").innerHTML =
+          `the box is busy: <b>${s.stage || "starting"}</b>, ` +
+          `${fmt(s.elapsed || 0)} in. Render is disabled until it finishes.`;
+      }
+      updateMeter();
+    } catch { /* a failed poll is not worth reporting; the next one will do */ }
+  };
+  await tick();
+  busyTimer = setInterval(tick, 4000);
 }
 
 function fmt(s) {
   s = Math.round(s);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+/* A read-only echo of script_parser.py, so the page can tell you what it is
+   about to build before you spend five minutes finding out. It must stay in
+   step with the real parser: scene breaks, the directive set and WPS all come
+   from there. Nothing here is authoritative; the server still decides. */
+const DIRECTIVE = /^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$/i;
+const HEADING = /^(#{1,6})\s+(.*)$/;
+const NOTE = /^\s*(>|<!--|\/\/)/;
+const WPS = 2.6, LEAD_IN = 0.25, GAP = 0.35;
+
+function analyse(text) {
+  const scenes = [];
+  let cur = null;
+  const flush = () => {
+    if (cur && cur.words.length) scenes.push(cur);
+    cur = null;
+  };
+  const start = (heading) => { cur = {heading: heading || "", words: [], kinds: []}; };
+
+  for (const raw of (text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) { flush(); continue; }
+    if (NOTE.test(line)) continue;
+    const h = line.match(HEADING);
+    if (h) { flush(); if (h[1].length > 1) start(h[2]); continue; }
+    const d = line.match(DIRECTIVE);
+    if (d) {
+      if (!cur) start("");
+      cur.kinds.push(d[1].toLowerCase());
+      continue;
+    }
+    if (!cur) start("");
+    cur.words.push(...line.split(/\s+/).filter(Boolean));
+  }
+  flush();
+
+  let seconds = 0, words = 0;
+  const warnings = [];
+  scenes.forEach((s, i) => {
+    const spoken = s.words.length / WPS;
+    seconds += LEAD_IN + spoken + GAP;
+    words += s.words.length;
+    const shown = s.heading ? `"${s.heading}"` : `scene ${i + 1}`;
+    const pictured = s.kinds.some((k) => k !== "hold");
+    if (!pictured) warnings.push(`${shown} has no [visual:] line, so it is searched on its own words`);
+    else if (spoken > 40) warnings.push(`${shown} runs about ${fmt(spoken)}, long enough to repeat its footage`);
+  });
+  return {scenes: scenes.length, words, seconds, warnings};
+}
+
+let wordCap = 0;
+
+function updateMeter() {
+  const a = analyse($("script").value);
+  const over = wordCap && a.words > wordCap;
+  $("meter").innerHTML = a.scenes
+    ? `<span><b>${a.scenes}</b> scene${a.scenes === 1 ? "" : "s"}</span>` +
+      `<span>about <b>${fmt(a.seconds)}</b> of video</span>` +
+      `<span class="${over ? "over" : ""}"><b>${a.words}</b>` +
+      (wordCap ? ` / ${wordCap}` : "") + ` words</span>`
+    : "";
+  const shown = a.warnings.slice(0, 3);
+  $("warn").innerHTML = shown.map((w) => `<li>${w}</li>`).join("") +
+    (a.warnings.length > shown.length
+      ? `<li>and ${a.warnings.length - shown.length} more like it</li>` : "");
+  $("go").disabled = busyElsewhere || over || !a.scenes;
+  return a;
 }
 
 async function showDescription(id) {
@@ -288,17 +437,23 @@ function render(job) {
   $("log").textContent = job.log.join("\n");
   $("log").scrollTop = $("log").scrollHeight;
   $("bar").className = "bar" + (job.status === "done" ? " done"
-                       : job.status === "failed" ? " failed" : "");
+                       : job.status === "failed" ? " failed"
+                       : job.status === "cancelled" ? " cancelled" : "");
 
-  if (job.status === "failed") {
-    $("stage").textContent = "failed";
-    $("log").classList.add("err");
-    $("logbox").open = true;
-    $("go").disabled = false;
+  const inFlight = job.status === "queued" || job.status === "running";
+  $("stop").classList.toggle("hidden", !inFlight);
+  $("stop").disabled = !!job.cancelling;
+
+  if (job.status === "failed" || job.status === "cancelled") {
+    $("stage").textContent = job.status === "cancelled" ? "stopped" : "failed";
+    if (job.status === "failed") $("log").classList.add("err");
+    $("logbox").open = job.status === "failed";
+    finished();
     return true;
   }
   if (job.status !== "done") {
-    $("stage").textContent = job.stage || "starting";
+    $("stage").textContent = job.cancelling
+      ? "stopping after this stage" : (job.stage || "starting");
     return false;
   }
 
@@ -320,15 +475,24 @@ function render(job) {
     p.classList.remove("hidden");
   }
   showDescription(job.id);
-  $("go").disabled = false;
+  finished();
   return true;
+}
+
+/* One place to hand the box back: the Render button is re-enabled through the
+   meter, so an over-long or empty script stays refused after a run ends. */
+function finished() {
+  running = null;
+  $("stop").classList.add("hidden");
+  updateMeter();
+  watchBusy();
 }
 
 async function poll(id) {
   const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
   if (!r.ok) {
     if (r.status === 401) forgetToken();
-    clearInterval(timer); $("go").disabled = false; return;
+    clearInterval(timer); finished(); return;
   }
   if (render(await r.json())) clearInterval(timer);
 }
@@ -341,11 +505,42 @@ function fail(message) {
   $("log").classList.add("err");
   $("log").textContent = message;
   $("logbox").open = true;
-  $("go").disabled = false;
+  finished();
 }
 
 $("tab-script").onclick = () => showTab("script");
 $("tab-topic").onclick = () => showTab("topic");
+
+$("sample").onclick = () => {
+  $("script").value = SAMPLE;
+  localStorage.setItem("vidsmith_script", SAMPLE);
+  showTab("script");
+  updateMeter();
+  $("script").focus();
+};
+
+/* Stopping is cooperative: the flag is read at the next stage boundary, so an
+   encode already in flight finishes first. Say that, rather than letting the
+   button look broken for the minute it takes. */
+$("stop").onclick = async () => {
+  if (!running) return;
+  $("stop").disabled = true;
+  $("stage").textContent = "stopping after this stage";
+  try {
+    const r = await fetch(`/api/jobs/${running}/cancel`,
+                          {method: "POST", headers: authHeaders()});
+    if (!r.ok && r.status === 401) forgetToken();
+  } catch { $("stop").disabled = false; }
+};
+
+/* Ctrl+Enter from the script box, because the button is a long way down once a
+   script is any real length. */
+$("script").addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("go").disabled) {
+    e.preventDefault();
+    $("form").requestSubmit();
+  }
+});
 
 $("draft").onclick = async () => {
   const topic = $("topic").value.trim();
@@ -356,13 +551,14 @@ $("draft").onclick = async () => {
     const r = await fetch("/api/draft", {
       method: "POST",
       headers: {"Content-Type": "application/json", ...authHeaders()},
-      body: JSON.stringify({topic, minutes: 2}),
+      body: JSON.stringify({topic, minutes: Number($("minutes").value) || 2}),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || "drafting failed");
     $("script").value = d.script;
     localStorage.setItem("vidsmith_script", d.script);
     $("pane-script").classList.remove("hidden");
+    updateMeter();
     $("draft-hint").textContent = "Drafted. Read it through, then render.";
   } catch (e) {
     $("draft-hint").textContent = e.message;
@@ -371,12 +567,18 @@ $("draft").onclick = async () => {
   }
 };
 
-$("script").addEventListener("input", () =>
-  localStorage.setItem("vidsmith_script", $("script").value));
+$("script").addEventListener("input", () => {
+  localStorage.setItem("vidsmith_script", $("script").value);
+  updateMeter();
+});
 
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("go").disabled = true;
+  // our own render reports itself in far more detail than the idle poller can
+  clearInterval(busyTimer);
+  busyElsewhere = false;
+  $("busybanner").classList.add("hidden");
   saveSettings();
   portrait = ["9:16", "4:5"].includes($("aspect").value);
   $("log").classList.remove("err");
@@ -409,6 +611,7 @@ $("form").addEventListener("submit", async (e) => {
     if (r.status === 401) forgetToken();
     return fail(job.detail || "could not start the render");
   }
+  running = job.id;
   render(job);
   timer = setInterval(() => poll(job.id), 1500);
 });

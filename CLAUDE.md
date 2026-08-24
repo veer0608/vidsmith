@@ -249,6 +249,20 @@ stays open and reports ffmpeg, bundled fonts and which keys resolved.
 caps how long a submitted script may run. Both exist because the host, not the
 code, is usually the constraint.
 
+**Stopping a render is cooperative.** `POST /api/jobs/{id}/cancel` sets a flag
+that is read inside the log callback, so the run ends at the next stage boundary
+rather than mid-encode, and the status becomes `cancelled`. `web.jobs.Cancelled`
+derives from `BaseException` on purpose: the pipeline has broad `except
+Exception` handlers that would otherwise swallow the cancellation and finish
+rendering a video nobody is waiting for. `GET /api/busy` is the unguarded
+read-out the idle page polls, so a second visitor learns the slot is taken
+before writing a script instead of collecting a 429 afterwards.
+
+The page mirrors `script_parser.py` in JavaScript to count scenes and estimate
+runtime as you type. That copy is not authoritative, but it must be kept in step
+with the parser: if the scene-break rule, the directive set or `WPS` changes,
+`analyse()` in `web/static/index.html` changes with it.
+
 ## Deploying
 
 Three ways out, and the first is usually the right one for showing someone.

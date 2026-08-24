@@ -107,6 +107,20 @@ def options() -> Dict[str, Any]:
             "busy": jobs.busy(), "auth": bool(TOKEN)}
 
 
+@app.get("/api/busy")
+def busy() -> Dict[str, Any]:
+    """Whether the one render slot is taken, and by what.
+
+    Polled by the page while it is idle, so a second person sees that the box
+    is working before they write a script and get a 429 for their trouble.
+    """
+    active = jobs.active()
+    if active is None:
+        return {"busy": False}
+    return {"busy": True, "stage": active["stage"],
+            "elapsed": active["elapsed"], "progress": active["progress"]}
+
+
 @app.post("/api/jobs", status_code=202)
 def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     _validate(req)
@@ -137,6 +151,16 @@ def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
                 "minutes": minutes}
     except llm.LLMUnavailable as exc:
         raise HTTPException(502, f"the model did not answer: {exc}")
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
+    outcome = jobs.cancel(job_id)
+    if outcome is None:
+        raise HTTPException(404, "no such job")
+    if outcome == "finished":
+        raise HTTPException(409, "that render has already finished")
+    return {"id": job_id, "status": "stopping"}
 
 
 @app.get("/api/jobs/{job_id}/description")

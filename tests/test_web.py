@@ -6,6 +6,7 @@ job, and gets a truthful status while a render is in flight.
 """
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient        # noqa: E402
 
+import web.jobs as jobs_mod                      # noqa: E402
 from web import app as web_app                   # noqa: E402
 from web.jobs import Busy, Jobs                  # noqa: E402
 
@@ -317,3 +319,118 @@ def test_the_description_is_served_when_present(client, tmp_path):
 
 def test_the_description_of_an_unknown_job_is_a_404(client):
     assert client.get("/api/jobs/nope/description").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# stopping a render, and seeing that the box is taken
+# --------------------------------------------------------------------------- #
+def test_the_idle_page_is_told_the_box_is_free(client):
+    assert client.get("/api/busy").json() == {"busy": False}
+
+
+def test_the_idle_page_is_told_what_is_running(tmp_path, monkeypatch):
+    """A second visitor should see the box is taken before writing a script."""
+    monkeypatch.setattr(web_app, "TOKEN", "")
+    jobs = Jobs(tmp_path / "jobs")
+    monkeypatch.setattr(web_app, "jobs", jobs)
+    gate = threading.Event()
+
+    def slow_build(root, **kwargs):
+        kwargs["log"]("voice    recording")
+        gate.wait(5)
+        out = Path(root) / "out"
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+
+    monkeypatch.setattr(jobs_mod.pipeline, "build", slow_build)
+    client = TestClient(web_app.app)
+    client.post("/api/jobs", json={"script": SCRIPT})
+    for _ in range(200):                       # the worker thread needs a moment
+        if client.get("/api/busy").json()["busy"]:
+            break
+        time.sleep(0.02)
+
+    state = client.get("/api/busy").json()
+    assert state["busy"] is True
+    assert state["stage"] == "recording narration"
+    assert state["elapsed"] >= 0
+    gate.set()
+    _settle(jobs)
+
+
+def test_cancelling_an_unknown_job_is_a_404(client):
+    assert client.post("/api/jobs/deadbeef/cancel").status_code == 404
+
+
+def test_a_finished_render_cannot_be_cancelled(client):
+    job_id = client.post("/api/jobs", json={"script": SCRIPT}).json()["id"]
+    _settle(web_app.jobs)
+    assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 409
+
+
+def test_a_cancelled_render_stops_and_frees_the_queue(tmp_path, monkeypatch):
+    """The flag is read in the log callback, so the run ends at a stage edge."""
+    monkeypatch.setattr(web_app, "TOKEN", "")
+    jobs = Jobs(tmp_path / "jobs")
+    monkeypatch.setattr(web_app, "jobs", jobs)
+    seen = threading.Event()
+    stages = []
+
+    def stoppable_build(root, **kwargs):
+        log = kwargs["log"]
+        log("voice    recording")
+        seen.set()
+        for stage in ("visuals", "captions", "render"):
+            time.sleep(0.05)
+            log(f"{stage}   working")         # one of these raises Cancelled
+            stages.append(stage)
+        return Path(root)
+
+    monkeypatch.setattr(jobs_mod.pipeline, "build", stoppable_build)
+    client = TestClient(web_app.app)
+    job_id = client.post("/api/jobs", json={"script": SCRIPT}).json()["id"]
+    assert seen.wait(5)
+
+    assert client.post(f"/api/jobs/{job_id}/cancel").json()["status"] == "stopping"
+    _settle(jobs)
+
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert body["status"] == "cancelled"
+    assert stages != ["visuals", "captions", "render"]      # it really stopped
+    assert not jobs.busy()
+    assert any("cancelled during" in line for line in body["log"])
+
+
+def test_a_cancellation_survives_the_pipeline_catching_exceptions(tmp_path, monkeypatch):
+    """`Cancelled` derives from BaseException for exactly this reason."""
+    monkeypatch.setattr(web_app, "TOKEN", "")
+    jobs = Jobs(tmp_path / "jobs")
+    monkeypatch.setattr(web_app, "jobs", jobs)
+    started = threading.Event()
+
+    def swallowing_build(root, **kwargs):
+        log = kwargs["log"]
+        log("voice    recording")
+        started.set()
+        for _ in range(100):
+            try:
+                time.sleep(0.05)
+                log("visuals  working")
+            except Exception:                 # the shape of pipeline's handlers
+                pass
+        return Path(root)
+
+    monkeypatch.setattr(jobs_mod.pipeline, "build", swallowing_build)
+    client = TestClient(web_app.app)
+    job_id = client.post("/api/jobs", json={"script": SCRIPT}).json()["id"]
+    assert started.wait(5)
+    client.post(f"/api/jobs/{job_id}/cancel")
+    _settle(jobs)
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "cancelled"
+
+
+def test_a_finished_job_is_not_reported_as_stopping(client):
+    job_id = client.post("/api/jobs", json={"script": SCRIPT}).json()["id"]
+    _settle(web_app.jobs)
+    body = client.get(f"/api/jobs/{job_id}").json()
+    assert body["cancelling"] is False       # a finished job is not "stopping"

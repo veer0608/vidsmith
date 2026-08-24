@@ -47,8 +47,9 @@ STAGE_LABELS = {
 @dataclass
 class Job:
     id: str
-    status: str = "queued"          # queued | running | done | failed
+    status: str = "queued"          # queued | running | done | failed | cancelled
     stage: str = ""
+    cancel_requested: bool = False
     progress: float = 0.0
     log: List[str] = field(default_factory=list)
     error: str = ""
@@ -67,11 +68,23 @@ class Job:
             "progress": round(self.progress, 3), "log": self.log[-60:],
             "error": self.error, "outputs": self.outputs, "title": self.title,
             "created": datetime.fromtimestamp(self.created, timezone.utc).isoformat(),
+            # the stop was asked for but the current stage has not returned yet,
+            # so the page can say "stopping" rather than appearing to ignore it
+            "cancelling": self.cancel_requested and self.status == "running",
         }
 
 
 class Busy(RuntimeError):
     """Another render is already running."""
+
+
+class Cancelled(BaseException):
+    """Raised inside the log callback to abandon a run the caller gave up on.
+
+    It derives from BaseException, not Exception, so the pipeline's own broad
+    `except Exception` handlers cannot swallow a cancellation and carry on
+    rendering a video nobody is waiting for.
+    """
 
 
 class Jobs:
@@ -88,6 +101,26 @@ class Jobs:
 
     def busy(self) -> bool:
         return self._active is not None
+
+    def active(self) -> Optional[Dict[str, Any]]:
+        """What the box is doing, for a page deciding whether to offer Render."""
+        job = self._jobs.get(self._active or "")
+        return None if job is None else job.public()
+
+    def cancel(self, job_id: str) -> Optional[str]:
+        """Ask a running job to stop. None when there is no such job.
+
+        Cooperative by necessity: the flag is read in the log callback, so the
+        run ends at the next stage boundary rather than mid-encode. That still
+        frees the queue, which is the thing a waiting caller actually wants.
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+        if job.status in ("done", "failed", "cancelled"):
+            return "finished"
+        job.cancel_requested = True
+        return "stopping"
 
     # -- submission ---------------------------------------------------------- #
     def submit(self, script: str, options: Dict[str, Any]) -> Job:
@@ -143,6 +176,10 @@ class Jobs:
         job.status = "running"
 
         def log(line: str) -> None:
+            # the pipeline reports at every stage boundary, which makes the log
+            # callback the one place a long render reliably passes through
+            if job.cancel_requested:
+                raise Cancelled(job.stage or "starting")
             line = str(line).rstrip()
             if not line:
                 return
@@ -161,6 +198,9 @@ class Jobs:
             job.title = self._title(job)
             job.progress = 1.0
             job.status = "done"
+        except Cancelled as stopped:
+            job.log.append(f"stopped  cancelled during {stopped}")
+            job.status = "cancelled"
         except Exception as exc:                      # a render can fail anywhere
             job.error = f"{type(exc).__name__}: {exc}"
             job.log.append(f"error    {job.error}")
