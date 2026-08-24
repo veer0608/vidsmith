@@ -19,6 +19,7 @@ before writing anything. The traps are the reason this file exists.
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
 | Redraft an existing script | Things that have actually broken here, stale caches | Scene-indexed caches must be invalidated |
 | Publish a video anywhere | Things that have actually broken here, attribution | Crediting the creator is a licence condition |
+| Edit the web page | Web service | Ask the server for what it knows; do not hardcode a second copy |
 | Show it to someone | Deploying | The tunnel beats both hosts |
 
 ## Commands
