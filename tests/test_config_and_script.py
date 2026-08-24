@@ -167,6 +167,19 @@ def test_headings_carry_to_scenes(tmp_path):
     assert scenes[2].heading == "Body"
 
 
+def test_a_heading_covers_every_paragraph_under_it(tmp_path):
+    """A heading is a section, not a label for one paragraph.
+
+    Scene 1 is the second paragraph under `## The hook`, split off by a blank
+    line rather than by a heading of its own. It belongs to that section, so it
+    keeps the heading, and with no directive of its own the heading is also what
+    its b-roll is searched on.
+    """
+    _, scenes = parse_script(_write(tmp_path))
+    assert scenes[1].heading == "The hook"
+    assert scenes[1].query == "The hook"
+
+
 def test_scenes_round_trip_through_json(tmp_path, scenes):
     scenes[0].shots = [{"path": "a.mp4", "duration": 2.5, "credit": "Someone",
                         "credit_url": "http://x.test"}]
