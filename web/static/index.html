@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>vidsmith</title>
+<!-- Inline so there is no second request and no route to serve it from: the
+     app has exactly one static file and this keeps it that way. The `#` in the
+     colours must stay percent-encoded or the browser reads the rest as a
+     fragment and the icon silently does not load. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1020'/><path d='M13 10l9 6-9 6z' fill='%23FFC24B'/></svg>">
 <style>
   :root {
     --bg: #0B1020; --panel: #141A31; --sunk: #0C1226; --edge: #232D4C;
