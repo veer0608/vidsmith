@@ -23,6 +23,19 @@ pure and fast. `--stop-after <stage>` halts a build after any of
 `parse queries voice visuals captions render meta`; `--force voice,visuals,render`
 redoes cached stages.
 
+## Tests
+
+`pytest.ini` sets `pythonpath = . tests` and defines the one marker, `slow`, for
+the tests that shell out to a real ffmpeg and encode video.
+
+**Build scenes with `make_scene()` from `tests/conftest.py`, never by hand.**
+Word timings drive the edit, the captions and the mix, so a test is only
+meaningful against a Scene whose words are shaped the way edge-tts reports them:
+punctuation stripped, times in seconds from the start of the speech, and a
+`duration` that agrees with the words it contains. Hand-writing a `words` list is
+how you get a test that passes against input the TTS could never produce. The
+`scene` and `scenes` fixtures wrap it for the common cases.
+
 ## The script
 
 `projects/<name>/script.md` is the input contract, parsed by `script_parser.py`:
@@ -97,6 +110,21 @@ atmosphere rather than as notes. `--music auto` generates it once per mood into
 `render.py` mixes it under the voice through `sidechaincompress` keyed off the
 narration, so it ducks whenever anyone speaks.
 
+**The render is three ffmpeg passes on purpose.** Narration mix (every scene mp3
+delayed to its start time), then the picture cut, then the final master (scrim,
+progress bar, captions, ducked music, loudnorm). The split is diagnostic: a
+failure names the stage that broke instead of dumping one enormous filtergraph.
+`transition: cut` lets pass two stream-copy the clips with the concat demuxer,
+and `fade` swaps in `xfade` and a re-encode. Do not collapse these into a single
+invocation for speed; the encode dominates either way and you lose the bisect.
+
+**Karaoke captions re-emit the whole line once per word.** That is more events
+than `\k` tags would need, and it is deliberate: it renders identically in every
+libass build and survives re-timing, and holding the line's glyph widths fixed
+means nothing reflows as the highlight moves. Motion lives on the caption group
+instead, as a short scale-up on entry and a fade either side. Tidying this into
+`\k` tags is a regression, not a simplification.
+
 **`theme.py` is the single source of colour and type.** Cards, diagrams, captions,
 progress bar and thumbnail all read from one `Theme`, which is why the output
 looks designed rather than assembled.
@@ -138,7 +166,9 @@ competing with the voice.
   graded to sit behind captions; a diagram frame is the clearest frame in the
   video and the worst thumbnail. The search is written from the scenes' visual
   directives, not the hook. Every explainer hook is a frustration, so a hook-fed
-  query returns a stressed person every time.
+  query returns a stressed person every time. When `vidsmith thumbs` does sample
+  frames, it takes them from the picture track rather than the delivery file,
+  which already has captions, watermark and progress bar burned in.
 - **Attribution is a licence condition, and it has broken twice.** The Pexels and
   Pixabay API terms require naming the creator and linking back, so
   `pipeline.credits_block()` builds the block from what the search actually
