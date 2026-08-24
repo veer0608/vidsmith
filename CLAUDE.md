@@ -12,7 +12,9 @@ cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 179 tests, ~
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
+cd ~/claude/vidsmith; .\vidsmith.cmd new demo --topic "how b-trees work"
 cd ~/claude/vidsmith; .\vidsmith.cmd build demo --provider pexels
+cd ~/claude/vidsmith; .\vidsmith.cmd thumbs demo                  # rank frames from a finished build
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m uvicorn web.app:app --port 8077
 ```
 
@@ -56,6 +58,15 @@ no diagram, no metadata). `llm.generate_vision()` sends downscaled JPEGs inline.
 returns photographs of trees. A scene is drawn when the script says
 `[diagram: ...]` or when reranking rejects nearly every candidate. `diagram.py`
 renders a JSON spec (`flow`, `tree`, `stack`, `compare`) in the project theme.
+
+**The music bed is synthesised, not sourced.** There is no free API for licensed
+music and an unlicensed track is a copyright strike, so `music.py` builds the bed
+in ffmpeg itself: detuned sine triads over a four-chord progression (`calm`,
+`warm`, `tense`), low-passed and smeared with an echo until it reads as
+atmosphere rather than as notes. `--music auto` generates it once per mood into
+`build/music-<mood>.wav`, `--music none` drops it, and a path uses that file.
+`render.py` mixes it under the voice through `sidechaincompress` keyed off the
+narration, so it ducks whenever anyone speaks.
 
 **`theme.py` is the single source of colour and type.** Cards, diagrams, captions,
 progress bar and thumbnail all read from one `Theme`, which is why the output
