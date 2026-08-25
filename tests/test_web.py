@@ -489,3 +489,4 @@ def test_a_finished_job_is_not_reported_as_stopping(client):
     _settle(web_app.jobs)
     body = client.get(f"/api/jobs/{job_id}").json()
     assert body["cancelling"] is False       # a finished job is not "stopping"
+

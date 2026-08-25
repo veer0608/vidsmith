@@ -206,3 +206,52 @@ def test_untitled_script_falls_back_to_the_filename(tmp_path):
     title, scenes = parse_script(path)
     assert title == "My Great Video"
     assert len(scenes) == 1
+
+
+# --------------------------------------------------------------------------- #
+# the title the build settles on
+# --------------------------------------------------------------------------- #
+def _project(tmp_path, heading, configured):
+    from vidsmith.config import write_default_config
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "script.md").write_text(
+        f"# {heading}\n\n## One\nA line of narration for the test.\n", encoding="utf-8")
+    write_default_config(root / "config.yaml", configured)
+    return root
+
+
+def _build_parse_only(root):
+    from vidsmith import pipeline
+
+    pipeline.build(root, stop_after="parse", log=lambda *a: None)
+
+
+def test_a_titled_script_does_not_stay_untitled(tmp_path):
+    """The build named the video from the script's heading while the job kept
+    reporting "Untitled", because the resolved title was never written back."""
+    root = _project(tmp_path, "Why Wealth Explodes Late", "Untitled")
+    _build_parse_only(root)
+
+    raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["title"] == "Why Wealth Explodes Late"
+
+
+def test_a_title_the_user_set_is_never_overwritten(tmp_path):
+    """Only the placeholder is replaced; a chosen title outranks the heading."""
+    root = _project(tmp_path, "Heading Title", "A Title I Chose")
+    _build_parse_only(root)
+
+    raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["title"] == "A Title I Chose"
+
+
+def test_persisting_the_title_leaves_every_other_key_alone(tmp_path):
+    root = _project(tmp_path, "Why Wealth Explodes Late", "Untitled")
+    before = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    _build_parse_only(root)
+    after = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+
+    assert after.pop("title") != before.pop("title")
+    assert after == before, "only the title should have moved"

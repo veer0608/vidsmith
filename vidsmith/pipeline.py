@@ -135,6 +135,10 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     title, scenes = parse_script(proj.script)
     if cfg.title in ("", "Untitled"):
         cfg.title = title
+        # Write it back, or everything that reads the config afterwards still
+        # sees "Untitled" while the video itself is named from the script: the
+        # web job reported exactly that, an untitled render of a titled video.
+        _persist_title(proj.config_path, cfg.title)
     log(f"script   {len(scenes)} scenes, ~{sum(s.est_seconds for s in scenes):.0f}s estimated")
 
     # reuse cached timings/queries unless the script changed under them
@@ -411,6 +415,27 @@ def _readable_meta(meta: Dict) -> str:
     if tags:
         lines.append("\nTAGS\n" + ", ".join(tags))
     return "\n".join(lines) + "\n"
+
+
+def _persist_title(path: Path, title: str) -> None:
+    """Record the title the script gave, leaving every other key alone.
+
+    A failure here must not stop a build: the title is already resolved in
+    memory, and the video it names will come out correct either way.
+    """
+    import yaml
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        if raw.get("title") == title:
+            return
+        raw["title"] = title
+        path.write_text(
+            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+    except (OSError, ValueError, yaml.YAMLError):
+        pass
 
 
 def _slug(title: str) -> str:
