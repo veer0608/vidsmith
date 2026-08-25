@@ -13,8 +13,11 @@ Providers:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -243,7 +246,55 @@ def _download(url: str, out: Path, headers: Optional[Dict[str, str]] = None) -> 
     return out
 
 
+# Pixabay's API terms require a result to be cached for a day rather than
+# re-requested, and Pexels bills a monthly quota that two similar scripts would
+# otherwise spend twice. A day is the number their terms name; the searches this
+# caches are the ones a paid instance repeats most.
+SEARCH_TTL = 24 * 3600
+
+
+def _search_cache_dir() -> Path:
+    return Path(os.environ.get(
+        "VIDSMITH_SEARCH_CACHE",
+        Path(__file__).resolve().parent.parent / ".cache" / "searches",
+    ))
+
+
+def _cached_search(provider: str, parts: Sequence[Any], fetch) -> List[Dict]:
+    """Serve a repeated stock search from disk for `SEARCH_TTL` seconds.
+
+    The key is the query and its parameters, never the API key: the cache is
+    shared across projects and jobs, so a key in the filename would be a secret
+    sitting in a directory nobody thinks of as sensitive. A cache that cannot be
+    read or written is not an error either, because a search that still works is
+    better than a build that stops.
+    """
+    slug = hashlib.sha1(
+        "\x1f".join([provider, *(str(p) for p in parts)]).encode("utf-8")
+    ).hexdigest()[:20]
+    path = _search_cache_dir() / f"{provider}_{slug}.json"
+    try:
+        if path.exists() and time.time() - path.stat().st_mtime < SEARCH_TTL:
+            return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+
+    results = fetch()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(results), encoding="utf-8")
+    except OSError:
+        pass
+    return results
+
+
 def pexels_search(query: str, key: str, orientation: str, want_h: int) -> List[Dict]:
+    return _cached_search("pexels_video", (query, orientation, want_h),
+                          lambda: _pexels_video_fetch(query, key, orientation, want_h))
+
+
+def _pexels_video_fetch(query: str, key: str, orientation: str,
+                        want_h: int) -> List[Dict]:
     r = requests.get(
         "https://api.pexels.com/videos/search",
         params={"query": query, "per_page": 15, "orientation": orientation,
@@ -283,6 +334,12 @@ def pexels_photos(query: str, key: str, orientation: str = "landscape",
     stills are shot and graded to be looked at on their own, and come back at a
     resolution a 1280x720 crop does not have to be upscaled into.
     """
+    return _cached_search("pexels_photo", (query, orientation, count),
+                          lambda: _pexels_photo_fetch(query, key, orientation, count))
+
+
+def _pexels_photo_fetch(query: str, key: str, orientation: str,
+                        count: int) -> List[Dict]:
     r = requests.get(
         "https://api.pexels.com/v1/search",
         params={"query": query, "per_page": count, "orientation": orientation},
@@ -307,6 +364,11 @@ def pexels_photos(query: str, key: str, orientation: str = "landscape",
 
 
 def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
+    return _cached_search("pixabay", (query, want_h),
+                          lambda: _pixabay_fetch(query, key))
+
+
+def _pixabay_fetch(query: str, key: str) -> List[Dict]:
     r = requests.get(
         "https://pixabay.com/api/videos/",
         params={"key": key, "q": query, "per_page": 20, "safesearch": "true"},

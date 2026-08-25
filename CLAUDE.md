@@ -217,6 +217,14 @@ competing with the voice.
   returned first. The feature was dead for every video and nothing went red.
   When a fallback exists to absorb a network failure, give it a test that proves
   the good path still runs, or the fallback becomes the only path.
+- **The stock-search cache is a licence condition too, not an optimisation.**
+  Pixabay's API terms require a result to be cached for 24 hours rather than
+  re-requested, so `visuals._cached_search()` puts every search on disk under
+  `.cache/searches` for `SEARCH_TTL`. It also protects the Pexels quota, which
+  is 200 requests an hour and 20,000 a month against one key no matter how many
+  people are rendering. Do not shorten the TTL to get fresher footage, and note
+  the cache key deliberately excludes the API key: it is shared across jobs, so
+  a key in a filename would be a secret in a directory nobody guards.
 - **Attribution is a licence condition, and it has broken twice.** The Pexels and
   Pixabay API terms require naming the creator and linking back, so
   `pipeline.credits_block()` builds the block from what the search actually

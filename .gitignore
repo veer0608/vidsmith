@@ -13,3 +13,6 @@ bin/
 assets/fonts/
 jobs/
 web/__pycache__/
+
+# Stock-search results, cached for the day Pixabay's terms require.
+.cache/
