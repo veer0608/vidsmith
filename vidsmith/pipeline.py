@@ -225,7 +225,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         return proj.build / f"visuals{tag}"
 
     # ---- captions -------------------------------------------------------- #
-    ass = proj.build / f"captions{tag}.ass"
+    ass: Optional[Path] = proj.build / f"captions{tag}.ass"
     srt = proj.out / f"captions{tag}.srt"
     wants_overlay = cfg.theme.watermark or cfg.theme.lower_thirds
     if (cfg.captions.enabled and cfg.captions.style != "none") or wants_overlay:
@@ -234,9 +234,14 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         cap.write_srt(scenes, srt, cfg.captions, cfg.voice.lead_in)
         log(f"captions {ass.name} + {srt.name}")
     else:
-        ass = Path("")
+        # Nothing is burned in, so there is no subtitle file to hand the render.
+        # This must be None and not Path(""): Path("") is Path("."), which is
+        # both truthy and existing, so the "is there a caption file" guard below
+        # passed and ffmpeg was asked to read the current directory as an ASS
+        # file. Every build made with --captions none died in the master pass.
+        ass = None
     if done("captions"):
-        return ass
+        return ass or proj.build
 
     # ---- render ---------------------------------------------------------- #
     narration = proj.build / "narration.wav"
@@ -265,7 +270,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     thumb_credit = None
     final = proj.out / f"{slug}{tag}.mp4"
     render.master(picture, narration, final, cfg.render, cfg.audio,
-                  ass if ass and Path(ass).exists() else None, total,
+                  ass if ass and ass.exists() else None, total,
                   theme, cfg.theme, cfg.size, scrim=scrim, hold_tail=hold_tail)
     # Sampled from the picture track, not the delivery file: the delivery file
     # has captions, watermark and progress bar burned in, none of which belong
