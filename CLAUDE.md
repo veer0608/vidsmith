@@ -318,9 +318,10 @@ blueprint therefore asks for `starter` and holds `VIDSMITH_MAX_MINUTES` at 2,
 with jobs in `/tmp`. `autoDeploy` is off, and the keys are `sync: false` so they
 are set in the dashboard and never committed.
 
-**Hugging Face Spaces** (`deploy/huggingface.md`) is the free option and the
-better machine: 2 vCPU and 16 GB, which does encode 1080p where a 512 MB instance
-does not. It builds the `Dockerfile` on their side, so this stays true even
+**Hugging Face Spaces** (`deploy/huggingface.md`) is the better machine but no
+longer free: since 2026-08-25 a Docker Space on free cpu-basic is refused with
+`402 Payment Required` and needs PRO. Its 2 vCPU and 16 GB do encode 1080p where
+a 512 MB instance does not. It builds the `Dockerfile` on their side, so this stays true even
 though Docker cannot run on this machine. Keys go in Space secrets, and
 `/healthz` is the check that matters after a build: `fonts` should list the two
 DejaVu files and `keys` should show `gemini` and `pexels` true. A free Space

@@ -27,13 +27,25 @@ if (-not $cloudflared) { throw "cloudflared not found - winget install Cloudflar
 # A public URL with no token is an open renderer spending your Pexels and Gemini
 # quota, so one is minted into .env the first time this runs.
 $envFile = Join-Path $root ".env"
-$envText = if (Test-Path $envFile) { Get-Content $envFile -Raw } else { "" }
-if ($envText -notmatch "VIDSMITH_TOKEN=") {
-    $token = & $python -c "import secrets; print(secrets.token_urlsafe(18))"
-    Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$token" -Encoding utf8
+# Both of these must be anchored and must require a value. An unanchored test
+# here once matched a commented-out `# VIDSMITH_TOKEN=...` line, so no token was
+# minted, none was read, and the tunnel opened with the gate wide open.
+$live = if (Test-Path $envFile) {
+    @(Get-Content $envFile | Where-Object { $_ -match "^\s*VIDSMITH_TOKEN=\S" })
+} else { @() }
+
+if ($live.Count -eq 0) {
+    $fresh = & $python -c "import secrets; print(secrets.token_urlsafe(18))"
+    Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$fresh" -Encoding utf8
     Write-Host "minted a new access token into .env"
+    $live = @("VIDSMITH_TOKEN=$fresh")
 }
-$token = ((Get-Content $envFile) | Where-Object { $_ -match "^VIDSMITH_TOKEN=" }) -replace "^VIDSMITH_TOKEN=", ""
+$token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "").Trim()
+
+# Never expose an ungated renderer, whatever went wrong above.
+if (-not $token) {
+    throw "refusing to open a tunnel with no access token; set VIDSMITH_TOKEN in .env"
+}
 
 Write-Host "starting vidsmith on port $Port"
 $server = Start-Process -FilePath $python `

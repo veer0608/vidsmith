@@ -1,9 +1,14 @@
-# Hosting vidsmith free on Hugging Face Spaces
+# Hosting vidsmith on Hugging Face Spaces
 
-The free CPU tier is **2 vCPU and 16 GB RAM**, enough to encode 1080p, which a
-512 MB instance is not. There is no card required, and `apt` is available, so
-ffmpeg and the fonts install as packages rather than being fetched as static
-builds.
+> **This is no longer free.** As of 2026-08-25 creating a Docker Space returns
+> `402 Payment Required`: "Static Spaces are free for everyone, but hosting
+> Gradio and Docker Spaces on free cpu-basic requires a PRO subscription."
+> vidsmith needs Docker because it needs ffmpeg, so this route now costs a PRO
+> subscription. Everything below still applies once you have one.
+
+The CPU tier is **2 vCPU and 16 GB RAM**, enough to encode 1080p, which a
+512 MB instance is not. `apt` is available, so ffmpeg and the fonts install as
+packages rather than being fetched as static builds.
 
 The Space builds the `Dockerfile` itself. Nothing below asks you to run Docker
 on your own machine.

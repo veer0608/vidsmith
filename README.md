@@ -461,13 +461,18 @@ it for you) and the API refuses anything without it; leave it unset and there is
 no gate at all, which is the right default only on localhost. `/healthz` stays
 open either way so a deploy can be checked without the secret.
 
-### Deploying free
+### Deploying on Hugging Face
 
-Hugging Face Spaces is the one free tier that can actually encode video: 2 vCPU
-and 16 GB on the free CPU plan, against 0.1 vCPU and 512 MB on a free Render
-instance. `Dockerfile` targets it, and the Space builds the image itself - no
-Docker on your machine. Steps and the caveats are in
-[deploy/huggingface.md](deploy/huggingface.md).
+Hugging Face Spaces gives 2 vCPU and 16 GB, comfortably enough to encode 1080p,
+against 0.1 vCPU and 512 MB on a free Render instance. `Dockerfile` targets it
+and the Space builds the image itself, so nothing runs Docker on your machine.
+Steps and caveats are in [deploy/huggingface.md](deploy/huggingface.md).
+
+**It stopped being free.** Since 2026-08-25 a Docker Space on free cpu-basic is
+refused with `402 Payment Required` and needs a PRO subscription; only Static
+Spaces remain free, and a static page cannot run ffmpeg. The measured cost of a
+render is small either way: a 2 vCPU box builds at roughly 2.2x realtime, so a
+five-minute video is about eleven minutes of one instance.
 
 **A public Space is a public renderer**: anyone with the URL spends your Pexels
 and Gemini quota. Keep it private unless you put auth in front of it.
