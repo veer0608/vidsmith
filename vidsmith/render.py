@@ -55,7 +55,7 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
 def _concat_copy(clips: Sequence[Path], out: Path, workdir: Path) -> Path:
     listfile = workdir / "concat.txt"
     listfile.write_text(
-        "\n".join("file '" + str(p.resolve()).replace("\\", "/") + "'" for p in clips),
+        "\n".join("file '" + ff.escape_concat_path(p) + "'" for p in clips),
         encoding="utf-8",
     )
     ff.run([
