@@ -16,6 +16,7 @@ before writing anything. The traps are the reason this file exists.
 | Move captions or diagrams | Architecture, karaoke; Things that have actually broken here, layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Add a config key | Configuration | A misspelled key is ignored in silence |
+| Change the footage source | Configuration | A provider with no key falls back to cards without failing |
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
 | Redraft an existing script | Things that have actually broken here, stale caches | Scene-indexed caches must be invalidated |
 | Publish a video anywhere | Things that have actually broken here, attribution | Crediting the creator is a licence condition |
@@ -28,7 +29,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 199 tests, ~16s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 212 tests, ~17s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -123,11 +124,19 @@ captions, scrim and the delivery file depend on frame size and are suffixed
 model calls. Anything asked of a model once must be cached where both cuts see
 it, or the two cuts disagree about what the video contains.
 
-**Gemini is used four times, all optional and all degrading to something.**
-b-roll search queries, reranking stock candidates by their preview stills,
-designing diagram specs, and writing YouTube metadata plus the thumbnail search.
-Without `GEMINI_API_KEY` each falls back (keyword extraction, provider order,
-no diagram, no metadata). `llm.generate_vision()` sends downscaled JPEGs inline.
+**Gemini is used seven times, all optional and all degrading to something.**
+`suggest_queries` writes a b-roll search per scene, `rank_clips` reranks stock
+candidates by their preview stills, `design_diagram` writes a diagram spec,
+`upload_metadata` writes the YouTube title, description and chapters,
+`thumbnail_query` writes the thumbnail search, `pick_thumbnail` ranks the
+candidates it returns, and `draft_script` writes a whole script from a topic for
+`vidsmith new --topic` and the web page's topic tab. Without `GEMINI_API_KEY`
+each falls back: keyword extraction for both search-writing calls, provider
+order for reranking, the top search result for the thumbnail pick, no diagram
+and no metadata. Only drafting refuses outright, because there is nothing to
+degrade to: the CLI stops and the web page answers 503. `rank_clips` and
+`pick_thumbnail` go through `llm.generate_vision()`, which sends downscaled
+JPEGs inline.
 
 **`LLMUnavailable` is what makes that degradation real.** `llm.py` calls
 `v1beta/generateContent` over plain `requests`, with no SDK. The default model is
@@ -182,6 +191,16 @@ ignored**: no error, no warning, and the default quietly stands.
 derives the pixel frame from it. Pixel values in the config are stated against a
 1920-wide frame (`captions.size: 62`, `margin_v: 150`) and scaled by width at
 render time, which is the same rule as the WIDTH bullet below.
+
+**Footage comes from a provider, and a missing key is not an error.**
+`visuals.provider` defaults to `pexels`; `pixabay` is the same shape against a
+different library, `cards` needs no key at all, and `local` matches your own
+clips in `assets/clips` on filename. When the key for a provider is missing the
+lookup raises, `visuals` logs `falling back to a card`, and the scene gets a
+generated card instead. Nothing fails, so nobody notices until the video is a
+slideshow. That silence is why `/api/options` reports which providers this
+instance can actually reach and the page disables the rest, and why the CLI
+default was moved off `cards`: a deck of cards is not a video.
 
 The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
 sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at
@@ -286,10 +305,11 @@ read-out the idle page polls, so a second visitor learns the slot is taken
 before writing a script instead of collecting a 429 afterwards.
 
 **What the page needs to know, the server tells it.** `/api/options` serves
-`stages` from `jobs.stage_sequence()` and `script` from `script_parser`'s own
-`DIRECTIVE_KINDS`, `NOTE_PREFIXES` and `WPS`, so adding a pipeline stage or a
-script directive reaches the page without anyone editing it. Follow this
-whenever the page needs something the server already knows.
+`stages` from `jobs.stage_sequence()`, `script` from `script_parser`'s own
+`DIRECTIVE_KINDS`, `NOTE_PREFIXES` and `WPS`, and `providers` with a `ready`
+flag per source computed from the keys that actually resolve. So a pipeline
+stage, a script directive or a footage source reaches the page without anyone
+editing it. Follow this whenever the page needs something the server knows.
 
 What is left in JavaScript is the scene-splitting rule itself, in `analyse()`:
 it counts scenes and estimates runtime as you type, and it is reimplemented

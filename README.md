@@ -374,7 +374,7 @@ projects/demo/out/
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest
 ```
 
-184 fast tests run in seconds; 12 more marked `slow` encode real video with
+200 fast tests run in seconds; 12 more marked `slow` encode real video with
 ffmpeg. `-m "not slow"` skips those. GitHub Actions runs the whole suite,
 encodes included, on every push and pull request.
 
