@@ -29,7 +29,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 226 tests, ~17s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 232 tests, ~17s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -279,6 +279,21 @@ competing with the voice.
   ffmpeg and silently dropped the character, looking for `OBrien`. Note the
   original bug was invisible in review: `.replace("'", "\'")` is Python for
   replacing an apostrophe with itself.
+- **The concat demuxer list needs a *different* escape, and only one layer.**
+  `_concat_copy` writes `file '<path>'` and the demuxer reads that list itself,
+  with no filter-option parser underneath, so the drive colon is safe and the
+  apostrophe is spelled `'\''`. Two escapes, two parsers, deliberately not
+  shared: `escape_concat_path()` is not `escape_filter_path()` and a test holds
+  them apart. Unescaped, the stream-copy path - the default, since
+  `transition: cut` - died on any machine whose user folder has an apostrophe.
+- **Attribution is owed per source, not per build.** The thumbnail's
+  photographer was credited only when the *footage* block was already
+  non-empty, so an empty block short-circuited the condition. A `cards` or
+  `local` build owes no footage credit but still pulls a real Pexels
+  photograph for its thumbnail, and that build named nobody and wrote no
+  credits file at all. Third failure in this family, and the same shape as the
+  first two: silent, licence-bearing, and only visible by building the
+  combination nobody builds.
 - **Claim the render slot and you own giving it back.** `Jobs.submit` sets
   `_active` under the lock, but only `_run` clears it, so anything between the
   two that can raise has to release it itself. Writing the job directory did
