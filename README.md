@@ -453,6 +453,12 @@ cd ~/claude/vidsmith; .\scripts\serve-public.ps1
 It starts the server, mints an access token into `.env` on first run, opens the
 tunnel and prints the `https://....trycloudflare.com` URL.
 
+Pass `-NoToken` to open the tunnel with no gate at all, for when you are showing
+one person for ten minutes and a token is friction rather than protection. It
+comments out any token in `.env` so the server does not pick one up, and says in
+red what it has done. Without the flag the script refuses to open an ungated
+tunnel, because that is almost always a mistake rather than a decision.
+
 `cloudflared` comes from `winget install Cloudflare.cloudflared`.
 
 **The token is the point.** Any exposed instance - tunnel or host - is a renderer

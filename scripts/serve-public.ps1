@@ -7,9 +7,15 @@
 #   cd ~/claude/vidsmith; .\scripts\serve-public.ps1
 #
 # Ctrl+C stops the tunnel; the server is stopped on the way out.
+#
+# -NoToken opens the tunnel with no access gate at all. Anyone with the URL can
+# then render, and every render spends this machine's Pexels, Pixabay and Gemini
+# keys. Reasonable for showing one person for ten minutes, since the address is
+# four random words and dies with the window; not for anywhere public.
 
 param(
-    [int]$Port = 8077
+    [int]$Port = 8077,
+    [switch]$NoToken
 )
 
 $ErrorActionPreference = "Stop"
@@ -34,17 +40,32 @@ $live = if (Test-Path $envFile) {
     @(Get-Content $envFile | Where-Object { $_ -match "^\s*VIDSMITH_TOKEN=\S" })
 } else { @() }
 
-if ($live.Count -eq 0) {
-    $fresh = & $python -c "import secrets; print(secrets.token_urlsafe(18))"
-    Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$fresh" -Encoding utf8
-    Write-Host "minted a new access token into .env"
-    $live = @("VIDSMITH_TOKEN=$fresh")
+if ($NoToken) {
+    # asked for deliberately, so the server must not pick a token up from .env
+    # either: it reads that file itself, and a commented line is the only way to
+    # leave the value recoverable without the gate coming back on.
+    if ($live.Count -gt 0) {
+        (Get-Content $envFile) |
+            ForEach-Object { if ($_ -match "^\s*VIDSMITH_TOKEN=\S") { "# $_" } else { $_ } } |
+            Set-Content $envFile -Encoding utf8
+        Write-Host "commented out the token in .env for this run"
+    }
+    $token = ""
+    Write-Host "no access gate: anyone with the URL can render on your keys" -ForegroundColor Red
 }
-$token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "").Trim()
+else {
+    if ($live.Count -eq 0) {
+        $fresh = & $python -c "import secrets; print(secrets.token_urlsafe(18))"
+        Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$fresh" -Encoding utf8
+        Write-Host "minted a new access token into .env"
+        $live = @("VIDSMITH_TOKEN=$fresh")
+    }
+    $token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "").Trim()
 
-# Never expose an ungated renderer, whatever went wrong above.
-if (-not $token) {
-    throw "refusing to open a tunnel with no access token; set VIDSMITH_TOKEN in .env"
+    # Never expose an ungated renderer by accident. -NoToken is the way to mean it.
+    if (-not $token) {
+        throw "refusing to open a tunnel with no access token; pass -NoToken to mean it"
+    }
 }
 
 Write-Host "starting vidsmith on port $Port"
@@ -65,8 +86,13 @@ try {
     if (-not $ready) { throw "the server did not come up on port $Port" }
 
     Write-Host ""
-    Write-Host "access token: $token" -ForegroundColor Yellow
-    Write-Host "the page asks for it once and remembers it in that browser."
+    if ($token) {
+        Write-Host "access token: $token" -ForegroundColor Yellow
+        Write-Host "the page asks for it once and remembers it in that browser."
+    }
+    else {
+        Write-Host "no access token: the page opens straight into the form." -ForegroundColor Red
+    }
     Write-Host ""
     Write-Host "opening a tunnel - the https://...trycloudflare.com line below is your URL"
     Write-Host ""
