@@ -15,12 +15,16 @@ before writing anything. The traps are the reason this file exists.
 | Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly |
 | Move captions or diagrams | Architecture, karaoke; Things that have actually broken here, layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
+| Hand a path to ffmpeg | Things that have actually broken here, escaping | Two escapes, two parsers; never share one helper between them |
+| Pass an optional file between stages | Things that have actually broken here, `Path("")` | `Path("")` is truthy and exists; guard on `is None` |
 | Add a config key | Configuration | A misspelled key is ignored in silence |
 | Change the footage source | Configuration | A provider with no key falls back to cards without failing |
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
+| Repair text a model wrote | Things that have actually broken here, dashes | A repair pass cannot tell its own output from the input |
 | Redraft an existing script | Things that have actually broken here, stale caches | Scene-indexed caches must be invalidated |
-| Publish a video anywhere | Things that have actually broken here, attribution | Crediting the creator is a licence condition |
+| Publish a video anywhere | Things that have actually broken here, attribution | Crediting is a licence condition, and the thumbnail is its own source |
 | Edit the web page | Web service | Ask the server for what it knows; do not hardcode a second copy |
+| Touch the web queue | Web service; Things that have actually broken here, the render slot | Claim the slot and you own giving it back on every path out |
 | Show it to someone | Deploying | The tunnel beats both hosts |
 
 ## Commands
