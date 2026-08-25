@@ -29,7 +29,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 212 tests, ~17s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 226 tests, ~17s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -261,7 +261,30 @@ competing with the voice.
   labels. A *drafted* script stays clean because the prompt forbids dashes, so a
   draft can still come back with one and nothing downstream will strip it. It
   must not simply be run over a hand-written script either: `captions.TRAILING`
-  and `visuals.CLAUSE_END` both rely on a dash as a clause boundary.
+  and `visuals.CLAUSE_END` both rely on a dash as a clause boundary. The range
+  rule keys off the dash and runs *before* the general pass, deliberately: when
+  it matched any digit-comma-digit instead it could not tell a comma `undash`
+  had just made from one the writer typed, and shipped `20,000 requests` into
+  the description as `20 to 000 requests`.
+- **`Path("")` is `Path(".")`, which is truthy and exists.** Every "is there an
+  optional file here" guard has to be `is None`, never a bare truth test. The
+  captions stage used `Path("")` for "no subtitle track", the guard in front of
+  `render.master` let it through, and ffmpeg was handed the current directory as
+  an ASS file: `--captions none` died in the master pass on every project
+  without a watermark.
+- **A filtergraph path needs two layers of escaping, not one.** The drive colon
+  is eaten by the filter's option parser and an apostrophe is eaten by the
+  filtergraph's quoting, so `ffmpeg_util.escape_filter_path()` spells one as
+  `\:` and the other as `\'\''`. Every simpler spelling was tried against real
+  ffmpeg and silently dropped the character, looking for `OBrien`. Note the
+  original bug was invisible in review: `.replace("'", "\'")` is Python for
+  replacing an apostrophe with itself.
+- **Claim the render slot and you own giving it back.** `Jobs.submit` sets
+  `_active` under the lock, but only `_run` clears it, so anything between the
+  two that can raise has to release it itself. Writing the job directory did
+  not, and an unwritable `VIDSMITH_JOBS` wedged the instance: 429 for every
+  later caller, for a render that had never started, until the process
+  restarted.
 - **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
   `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
