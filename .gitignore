@@ -2,7 +2,10 @@
 .scratch/
 __pycache__/
 *.pyc
-.env
+# .env* so a stray .env.local or .env.backup cannot be committed by accident;
+# .env.example is the one that must stay tracked, since it documents the keys.
+.env*
+!.env.example
 projects/*/build/
 projects/*/out/
 assets/clips/
