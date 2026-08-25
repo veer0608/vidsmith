@@ -478,25 +478,53 @@ async function reattach() {
 /* While this page is idle, someone else's render still owns the box. Polling a
    tiny endpoint means a second person sees that before writing a script, rather
    than after pressing Render and collecting a 429. */
+const BUSY_MIN = 4000, BUSY_MAX = 30000;
+let busyDelay = BUSY_MIN;
+
 async function watchBusy() {
-  clearInterval(busyTimer);
-  const tick = async () => {
-    if (running) return;                    // our own render reports itself
-    try {
-      const s = await (await fetch("/api/busy")).json();
-      busyElsewhere = !!s.busy;
-      $("busybanner").classList.toggle("hidden", !s.busy);
-      if (s.busy) {
-        $("busytext").innerHTML =
-          `the box is busy: <b>${s.stage || "starting"}</b>, ` +
-          `${fmt(s.elapsed || 0)} in. Render is disabled until it finishes.`;
-      }
-      updateMeter();
-    } catch { /* a failed poll is not worth reporting; the next one will do */ }
-  };
-  await tick();
-  busyTimer = setInterval(tick, 4000);
+  busyDelay = BUSY_MIN;
+  await busyTick();
 }
+
+/* Paced rather than fixed. A page left open all afternoon used to put a line in
+   the server log every four seconds forever, which buries anything worth
+   reading. It backs off to a minute while nothing is happening, drops back to
+   four seconds the moment something is, and does not poll at all in a hidden
+   tab: nobody is looking, so there is nothing to keep current. */
+async function busyTick() {
+  clearTimeout(busyTimer);
+  if (running) return;                      // our own render reports itself
+  if (document.visibilityState !== "visible") {
+    busyTimer = setTimeout(busyTick, BUSY_MIN);
+    return;
+  }
+  try {
+    const s = await (await fetch("/api/busy")).json();
+    const changed = !!s.busy !== busyElsewhere;
+    busyElsewhere = !!s.busy;
+    $("busybanner").classList.toggle("hidden", !s.busy);
+    if (s.busy) {
+      $("busytext").innerHTML =
+        `the box is busy: <b>${s.stage || "starting"}</b>, ` +
+        `${fmt(s.elapsed || 0)} in. Render is disabled until it finishes.`;
+    }
+    updateMeter();
+    // stay live while a render is running or has just changed state
+    busyDelay = (s.busy || changed) ? BUSY_MIN : Math.min(busyDelay * 2, BUSY_MAX);
+  } catch { /* a failed poll is not worth reporting; the next one will do */ }
+  busyTimer = setTimeout(busyTick, busyDelay);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !running) watchBusy();
+});
+
+/* Backing off trades freshness for quiet, and the moment freshness matters is
+   the moment someone starts working on a script. Touching the form pulls the
+   state back to current, so polling can stay lazy the rest of the time. */
+$("form").addEventListener("focusin", () => {
+  if (!running && busyDelay > BUSY_MIN) watchBusy();
+});
 
 function fmt(s) {
   s = Math.round(s);
@@ -733,6 +761,12 @@ $("draft").onclick = async () => {
       body: JSON.stringify({topic, minutes: Number($("minutes").value) || 2}),
     });
     const d = await r.json();
+    // "bad or missing token" is the server being correct and unhelpful: the
+    // person reads it as the model being down. Send them to the field instead.
+    if (r.status === 401) {
+      forgetToken();
+      throw new Error("this instance needs its access token, at the top of the page");
+    }
     if (!r.ok) throw new Error(d.detail || "drafting failed");
     $("script").value = d.script;
     localStorage.setItem("vidsmith_script", d.script);
@@ -755,7 +789,7 @@ $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("go").disabled = true;
   // our own render reports itself in far more detail than the idle poller can
-  clearInterval(busyTimer);
+  clearTimeout(busyTimer);
   busyElsewhere = false;
   $("busybanner").classList.add("hidden");
   saveSettings();
@@ -788,7 +822,10 @@ $("form").addEventListener("submit", async (e) => {
     return fail("could not reach the server");
   }
   if (!r.ok) {
-    if (r.status === 401) forgetToken();
+    if (r.status === 401) {
+      forgetToken();
+      return fail("this instance needs its access token, at the top of the page");
+    }
     return fail(job.detail || "could not start the render");
   }
   running = job.id;
