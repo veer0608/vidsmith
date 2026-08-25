@@ -304,12 +304,19 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # footage), so attribution is per cut - one shared file would silently drop
     # the creators of whichever aspect was built first.
     credits = credits_block(scenes, cfg.visuals.provider)
-    if credits and thumb_credit and thumb_credit.get("author"):
+    named = len(credits.splitlines()) - 1 if credits else 0
+    # The thumbnail's photographer is credited on their own terms, never the
+    # footage's. Requiring `credits` to be non-empty first meant a cards or
+    # local build - which correctly owes no footage attribution - dropped a
+    # real Pexels photographer and wrote no credits file at all, because an
+    # empty block short-circuits the whole condition.
+    if thumb_credit and thumb_credit.get("author"):
         line = f"Thumbnail: {thumb_credit['author']} - {thumb_credit.get('page', '')}"
         credits += line.rstrip(" -") + "\n"
+        named += 1
     if credits:
         (proj.out / f"credits{tag}.txt").write_text(credits, encoding="utf-8")
-        log(f"credits  {len(credits.splitlines()) - 1} creators to attribute")
+        log(f"credits  {named} creators to attribute")
     log(f"done     {final}  ({ff.duration(final):.1f}s, "
         f"{final.stat().st_size / 1e6:.1f} MB, {time.time() - started:.0f}s to build)")
     if done("render"):

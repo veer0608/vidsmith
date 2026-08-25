@@ -149,6 +149,63 @@ def test_an_overlay_still_needs_the_ass_file_when_captions_are_off(project, rend
     assert "@channel" in captions.read_text(encoding="utf-8")
 
 
+# --------------------------------------------------------------------------- #
+# attribution
+# --------------------------------------------------------------------------- #
+def _stock_thumbnail(monkeypatch, tmp_path):
+    """A real Pexels photograph came back for the thumbnail."""
+    photo = _touch(tmp_path / "stock.jpg")
+    monkeypatch.setattr(pl.thumbs, "from_stock",
+                        lambda *a, **k: {"path": photo, "query": "q",
+                                         "author": "Jane Doe",
+                                         "page": "https://pexels.com/photo/1"})
+
+
+def test_a_stock_thumbnail_is_credited_even_when_the_footage_needs_none(
+        project, rendered, monkeypatch, tmp_path):
+    """Cards owe nobody attribution; the photograph on the thumbnail does.
+
+    The thumbnail credit used to be appended only when the footage block was
+    already non-empty, so an empty block short-circuited the condition and a
+    cards or local build named no one - and wrote no credits file at all -
+    while shipping a real photographer's work on the thumbnail. Pexels' terms
+    require the credit and the link back.
+    """
+    _stock_thumbnail(monkeypatch, tmp_path)
+    _configure(project, visuals={"provider": "cards"})
+    _build(project)
+
+    files = list((project / "out").glob("credits*.txt"))
+    assert files, "a Pexels photograph was used and nothing was written"
+    text = files[0].read_text(encoding="utf-8")
+    assert "Jane Doe" in text and "pexels.com/photo/1" in text
+
+
+def test_footage_and_thumbnail_creators_are_both_named(project, rendered,
+                                                       monkeypatch, tmp_path):
+    _stock_thumbnail(monkeypatch, tmp_path)
+    stubbed = pl.visuals.build_all
+
+    def credited(scenes, cfg, size, fps, workdir, keys, **kwargs):
+        stubbed(scenes, cfg, size, fps, workdir, keys, **kwargs)
+        for scene in scenes:
+            scene.shots[0]["credit"] = "Ada Lovelace"
+            scene.shots[0]["credit_url"] = "https://pexels.com/@ada"
+
+    monkeypatch.setattr(pl.visuals, "build_all", credited)
+    _build(project)
+
+    text = next(iter((project / "out").glob("credits*.txt"))).read_text(encoding="utf-8")
+    assert "Ada Lovelace" in text and "Jane Doe" in text
+
+
+def test_nothing_is_written_when_nobody_is_owed_a_credit(project, rendered):
+    """An empty block over generated cards is correct, not a bug."""
+    _configure(project, visuals={"provider": "cards"})
+    _build(project)
+    assert not list((project / "out").glob("credits*.txt"))
+
+
 def test_stopping_after_captions_returns_a_real_path(project, rendered):
     """--stop-after captions has to name something on disk either way."""
     _configure(project, captions={"enabled": False, "style": "none"},
