@@ -78,3 +78,54 @@ def test_ffmpeg_opens_a_subtitle_file_under_an_apostrophe(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr.strip()[:400]
     assert out.exists()
+
+
+# --------------------------------------------------------------------------- #
+# the concat demuxer list
+# --------------------------------------------------------------------------- #
+def test_a_concat_path_escapes_the_quote_but_not_the_colon():
+    """One layer here, unlike a filtergraph path.
+
+    The demuxer reads the list file itself and no filter-option parser sits
+    under it, so the drive colon is safe and only the apostrophe needs closing,
+    escaping and reopening.
+    """
+    escaped = ff.escape_concat_path(Path("C:/tmp/O'Brien/clip.mp4"))
+    assert "C:/tmp/" in escaped, "the colon must be left alone"
+    assert "O'\\''Brien" in escaped
+
+
+def test_the_two_escapes_do_not_agree(tmp_path):
+    """They are different rules for different parsers; keep them apart."""
+    subject = tmp_path / "O'Brien" / "clip.mp4"
+    assert ff.escape_concat_path(subject) != ff.escape_filter_path(subject)
+
+
+@pytest.mark.slow
+def test_ffmpeg_concatenates_clips_under_an_apostrophe(tmp_path):
+    """The default transition stream-copies through the concat demuxer.
+
+    An unescaped apostrophe ended the quoted section early and ffmpeg reported
+    "Impossible to open" against a path with the character missing, so the
+    common render path died outright on a machine whose user folder has one.
+    """
+    from vidsmith.render import _concat_copy
+
+    try:
+        ff.ffmpeg_bin()
+    except RuntimeError:
+        pytest.skip("ffmpeg not installed")
+
+    root = tmp_path / "O'Brien"
+    root.mkdir()
+    clips = []
+    for i, colour in enumerate(("red", "green")):
+        clip = root / f"clip{i}.mp4"
+        ff.run(["-f", "lavfi", "-i", f"color=c={colour}:s=320x240:d=1",
+                "-r", "24", "-c:v", "libx264", "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p", str(clip)])
+        clips.append(clip)
+
+    out = _concat_copy(clips, root / "joined.mp4", root)
+    assert out.exists()
+    assert ff.duration(out) == pytest.approx(2.0, abs=0.2)

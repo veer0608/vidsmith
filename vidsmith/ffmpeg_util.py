@@ -134,3 +134,16 @@ def escape_filter_path(path: Path) -> str:
     """
     p = str(path.resolve()).replace("\\", "/")
     return p.replace(":", "\\:").replace("'", "\\'\\''")
+
+
+def escape_concat_path(path: Path) -> str:
+    """Escape a path for a `file '...'` line in a concat demuxer list.
+
+    One layer of escaping, not the two `escape_filter_path` needs: the demuxer
+    reads the list file itself and no filter-option parser sits underneath it,
+    so the drive colon is safe and only the apostrophe has to close the quoted
+    section, escape itself and reopen. Left unescaped it ended the quoted
+    section early and ffmpeg reported `Impossible to open` against a path with
+    the character missing.
+    """
+    return str(path.resolve()).replace("\\", "/").replace("'", "'\\''")
