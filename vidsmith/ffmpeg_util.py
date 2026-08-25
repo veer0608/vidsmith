@@ -116,6 +116,21 @@ def has_audio(path: Path) -> bool:
 
 
 def escape_filter_path(path: Path) -> str:
-    """Windows paths inside filtergraphs need the drive colon and backslashes escaped."""
+    """Escape a path for use inside a single-quoted filtergraph option.
+
+    Callers wrap the result in single quotes, as `subtitles='...'` does. Two
+    layers of ffmpeg parsing sit under that, and each eats something different:
+
+      the drive colon  separates options at the filter level, so it needs `\\:`
+      an apostrophe    ends the filtergraph's quoted section
+
+    The apostrophe therefore has to satisfy both layers at once: `\\'\\''` leaves
+    a literal backslash inside the quotes, closes them, escapes a quote outside
+    them, and reopens - so the filter level receives `\\'` and reads one quote.
+    Every simpler spelling was tried against real ffmpeg and silently dropped
+    the character instead, turning `O'Brien` into `OBrien` and failing to open
+    the file. The previous `.replace("'", "\\'")` here was a no-op: in Python
+    that string is just an apostrophe, so it replaced the character with itself.
+    """
     p = str(path.resolve()).replace("\\", "/")
-    return p.replace(":", "\\:").replace("'", "\'")
+    return p.replace(":", "\\:").replace("'", "\\'\\''")
