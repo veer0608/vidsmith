@@ -725,6 +725,11 @@ class VisualBuilder:
                 self.log("    diagram spec unavailable; falling back to footage")
 
         if spec is not None:
+            # An explicit [diagram:] is a decision the script already made, so
+            # it is deliberately not written to diagram_scenes.json - that file
+            # records what the model decided, and the script is re-read every
+            # build. _drawn_ranges() therefore reads `or s.diagram` as well, so
+            # a thumbnail can still consider these scenes.
             sources = []
         elif self.cfg.provider in ("pexels", "pixabay"):
             sources = self._stock_batch(query, len(plan), scene)
@@ -742,9 +747,6 @@ class VisualBuilder:
                     sources = []
             if decided is None:
                 self._decide(scene, spec is not None)
-        elif decided is None and spec is not None:
-            # an explicit directive is a decision too, even though no search ran
-            self._decide(scene, True)
         elif self.cfg.provider == "local":
             sources = self._local_batch(scene, query, len(plan))
         else:
