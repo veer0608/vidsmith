@@ -151,12 +151,27 @@ class Jobs:
             self._jobs[job.id] = job
             self._active = job.id
 
+        # The slot is claimed above and only _run gives it back, so everything
+        # between here and a started thread has to hand it back itself. A job
+        # that is set up but never runs would hold the one render slot for the
+        # life of the process: a full disk or an unwritable VIDSMITH_JOBS took
+        # the instance down with a 429 for every later caller, and only a
+        # restart cleared it.
         job.root = self.workdir / job.id
-        job.root.mkdir(parents=True, exist_ok=True)
-        (job.root / "script.md").write_text(script, encoding="utf-8")
-        self._write_config(job.root, options)
-
-        threading.Thread(target=self._run, args=(job, options), daemon=True).start()
+        try:
+            job.root.mkdir(parents=True, exist_ok=True)
+            (job.root / "script.md").write_text(script, encoding="utf-8")
+            self._write_config(job.root, options)
+            threading.Thread(target=self._run, args=(job, options),
+                             daemon=True).start()
+        except BaseException as exc:
+            job.status = "failed"
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.log.append(f"error    could not start the render: {job.error}")
+            job.finished = time.time()
+            with self._lock:
+                self._active = None
+            raise
         return job
 
     def _write_config(self, root: Path, options: Dict[str, Any]) -> None:

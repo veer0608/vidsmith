@@ -10,6 +10,7 @@ import os
 import threading
 import time
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -179,6 +180,40 @@ def test_only_one_render_runs_at_a_time(tmp_path):
 
     _settle(jobs)
     assert started.status in ("done", "failed")
+
+
+def test_a_failed_setup_gives_the_render_slot_back(tmp_path):
+    """The slot is claimed before the job directory is written.
+
+    Nothing between claiming it and starting the worker thread used to hand it
+    back, so an unwritable jobs directory or a full disk wedged the instance:
+    every later caller got 429 for a render that was never running, and only a
+    restart cleared it.
+    """
+    jobs = Jobs(tmp_path)
+    # scoped, not monkeypatch.undo(): undo would also tear down the autouse
+    # pipeline stub and send the recovery render at the real encoder
+    with mock.patch.object(Jobs, "_write_config", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            jobs.submit(SCRIPT, {})
+
+    assert not jobs.busy()
+    recovered = jobs.submit(SCRIPT, {})
+    _settle(jobs)
+    assert recovered.status in ("done", "failed")
+
+
+def test_a_render_that_never_starts_is_recorded_as_failed(tmp_path):
+    """A job that could not be set up is finished, not left queued forever."""
+    jobs = Jobs(tmp_path)
+    with mock.patch.object(Jobs, "_write_config", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            jobs.submit(SCRIPT, {})
+
+    job = next(iter(jobs._jobs.values()))
+    assert job.status == "failed"
+    assert "disk full" in job.error
+    assert job.finished > 0
 
 
 def test_a_second_caller_gets_429(client, monkeypatch):
