@@ -13,7 +13,7 @@ cd ~/claude/vidsmith; .\vidsmith.cmd build demo
 ```
 script   4 scenes, ~35s estimated
 voice    en-US-AndrewNeural at +8%
-visuals  provider=cards 1920x1080
+visuals  provider=pexels 1920x1080
 captions captions.ass + captions.srt
 render   28.1s of picture, mixing and encoding
 done     out/why-your-bank-statement-lies.mp4  (29.1s, 4.2 MB, 22s to build)
@@ -93,7 +93,7 @@ Useful `build` flags:
 
 ```
 --aspect 9:16              vertical cut for Shorts (16:9, 9:16, 1:1, 4:5)
---provider pexels          real stock footage instead of generated cards
+--provider cards           generated cards instead of stock footage (needs no key)
 --voice en-IN-PrabhatNeural
 --music path/to/bed.mp3    ducked under the narration automatically
 --captions block           no karaoke highlight
@@ -314,9 +314,9 @@ Override any of it per build:
 
 | provider | key needed | what you get |
 | --- | --- | --- |
-| `cards` (default) | none | generated gradient cards with Ken Burns motion |
-| `pexels` | free `PEXELS_API_KEY` | real stock video, one clip per scene, no repeats |
+| `pexels` (default) | free `PEXELS_API_KEY` | real stock video, one clip per scene, no repeats |
 | `pixabay` | free `PIXABAY_API_KEY` | same, different library |
+| `cards` | none | generated gradient cards with Ken Burns motion |
 | `local` | none | your own clips in `assets/clips`, matched on filename |
 
 Without a stock key the build does not fail. It logs the fallback and renders

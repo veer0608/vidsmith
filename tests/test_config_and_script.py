@@ -48,6 +48,17 @@ def test_written_config_covers_every_field(tmp_path):
             assert set(raw[section]) == set(values), f"{section} is missing keys"
 
 
+def test_stock_footage_is_the_default_provider(tmp_path):
+    """Untested until it drifted: `vidsmith new` wrote `cards` while the web
+    page defaulted to stock, so the same script gave two different videos."""
+    from vidsmith.config import Config
+
+    assert Config().visuals.provider == "pexels"
+    write_default_config(tmp_path / "config.yaml", "T")
+    raw = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["visuals"]["provider"] == "pexels"
+
+
 def test_missing_keys_keep_code_defaults(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text("title: Partial\naudio:\n  mood: tense\n", encoding="utf-8")

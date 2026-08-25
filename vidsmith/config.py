@@ -29,7 +29,10 @@ class VoiceConfig:
 
 @dataclass
 class VisualConfig:
-    provider: str = "cards"            # cards | pexels | pixabay | local
+    # pexels | pixabay | cards | local. Stock is the default because a video of
+    # generated cards is a slideshow; with no key the lookup fails per scene and
+    # falls back to a card anyway, so the no-key path still produces a video.
+    provider: str = "pexels"
     local_dir: str = "assets/clips"
     orientation: str = "landscape"     # passed to stock providers
     ken_burns: bool = True             # pan/zoom for stills and cards
