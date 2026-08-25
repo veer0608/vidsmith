@@ -108,6 +108,26 @@ def test_a_number_range_becomes_a_word():
     assert undash(f"Wait 5{EN}10 seconds.") == "Wait 5 to 10 seconds."
 
 
+@pytest.mark.parametrize("text", [
+    "We handled 20,000 requests an hour.",
+    "It costs 1,250 rupees a month.",
+    "Between 1,000 and 10,000 rows.",
+])
+def test_a_thousands_separator_is_not_read_as_a_range(text):
+    """Only a dash makes a range; a comma the writer typed is already correct.
+
+    The range rule used to fire on any digit-comma-digit, which meant it could
+    not tell a comma it had just made from one that was always there, and
+    "20,000 requests" shipped into the description as "20 to 000 requests".
+    """
+    assert undash(text) == text
+
+
+def test_a_range_still_converts_next_to_a_separated_number():
+    assert (undash(f"Between 5{EN}10 of the 20,000 rows.")
+            == "Between 5 to 10 of the 20,000 rows.")
+
+
 def test_hyphens_are_left_alone():
     text = "A delivery-ready mp4 with word-level timings."
     assert undash(text) == text
