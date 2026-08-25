@@ -177,9 +177,13 @@ def undash(text: str) -> str:
     treats it as a clause break. Instructing the model is not enough on its own,
     so the output is repaired as well.
     """
-    out = re.sub(r"\s*[" + DASHES + r"]\s*", lambda m: ", ", text)
-    # a range between numbers wants a word, not a comma
-    out = re.sub(r"(\d),\s*(?=\d)", r"\1 to ", out)
+    # A range between digits wants a word, not a comma, because a comma there is
+    # heard as a thousands separator. It keys off the dash itself and runs first:
+    # repairing a digit-comma afterwards cannot tell a comma this function just
+    # made from one the writer typed, and it turned "20,000 requests" into
+    # "20 to 000 requests" in every description that quoted a round number.
+    out = re.sub(r"(\d)\s*[" + DASHES + r"]\s*(?=\d)", r"\1 to ", text)
+    out = re.sub(r"\s*[" + DASHES + r"]\s*", ", ", out)
     out = re.sub(r",\s*([,.;:!?])", r"\1", out)  # a dash before a full stop
     return re.sub(r"\s{2,}", " ", out)
 
