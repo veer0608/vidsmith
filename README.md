@@ -509,3 +509,21 @@ a free instance is roughly ten times slower than a laptop.
 - Crossfades (`transition: fade`) re-encode the whole picture track and are much
   slower than the default hard cuts.
 - `local` provider matching is filename keyword overlap, not content matching.
+
+## Licence
+
+Source-available under [PolyForm Noncommercial 1.0.0](LICENSE.md): personal use,
+study, hobby projects, non-profits and public institutions are all covered, and
+you may read, change and redistribute the source for those purposes.
+
+Making money with it is not covered: a channel carrying ads or sponsorship,
+client work, resale, or running it as a service. [COMMERCIAL.md](COMMERCIAL.md)
+says how to licence that, and lists the third-party terms a licence to this code
+does not grant you.
+
+One of those is worth repeating here rather than leaving in a file nobody opens:
+**the narration path is not cleared for commercial use.** `edge-tts` is an
+unofficial client for the endpoint behind Edge's Read Aloud, Microsoft publishes
+no terms permitting commercial use of it, and their support answers point
+commercial users at Azure Speech. Personal use is uncontroversial. Anything with
+revenue attached is not, and `voice.py` has no Azure provider yet.
