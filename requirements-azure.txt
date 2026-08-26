@@ -1,0 +1,14 @@
+# Optional: the licensed narration path.
+#
+# edge-tts is the default and needs nothing installed, but it is an unofficial
+# client for the endpoint behind Edge's Read Aloud and Microsoft grants no
+# commercial use of it. Anything with revenue attached wants this instead - see
+# COMMERCIAL.md.
+#
+#   pip install -r requirements-azure.txt
+#   AZURE_SPEECH_KEY=...  AZURE_SPEECH_REGION=eastus
+#   voice.provider: azure
+#
+# Deliberately not in requirements.txt: it ships native binaries, and nobody on
+# the free path should have to build or download them.
+azure-cognitiveservices-speech>=1.40

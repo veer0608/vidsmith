@@ -61,7 +61,7 @@ def rendered(monkeypatch):
     monkeypatch.setattr(pl, "find_keys",
                         lambda root: {"gemini": "", "pexels": "", "pixabay": ""})
 
-    def fake_narrate(scenes, audio_dir, cfg, force=False, log=print):
+    def fake_narrate(scenes, audio_dir, cfg, force=False, log=print, keys=None):
         clock = 0.0
         for scene in scenes:
             scene.audio = str(_touch(audio_dir / f"scene_{scene.index:03d}.mp3"))

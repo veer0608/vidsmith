@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import edge_tts
 
@@ -22,7 +22,43 @@ MAX_CONCURRENCY = 3
 RETRIES = 3
 
 
-async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig) -> List[Dict[str, Any]]:
+async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig,
+                          keys: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    if cfg.provider == "azure":
+        # Imported here, not at the top: the Speech SDK ships native binaries,
+        # is not in requirements.txt, and nobody on the default provider should
+        # have to install it. The import is also one-way this direction, which
+        # is what lets voice_azure share TICKS from this module.
+        from . import voice_azure
+
+        keys = keys or {}
+        return await _retrying(
+            scene,
+            lambda: voice_azure.synthesize(scene.text, out, cfg,
+                                           keys.get("azure_speech", ""),
+                                           keys.get("azure_region", "")),
+        )
+    return await _edge(scene, out, cfg)
+
+
+async def _retrying(scene: Scene, attempt_fn):
+    """The same three attempts the edge path gets.
+
+    A hosted speech endpoint drops connections too, and a scene that fails once
+    should not cost the whole build - which by then has usually already paid for
+    every other scene's audio.
+    """
+    last_err: Exception | None = None
+    for attempt in range(RETRIES):
+        try:
+            return await attempt_fn()
+        except Exception as exc:
+            last_err = exc
+            await asyncio.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"TTS failed for scene {scene.index}: {last_err}")
+
+
+async def _edge(scene: Scene, out: Path, cfg: VoiceConfig) -> List[Dict[str, Any]]:
     last_err: Exception | None = None
     for attempt in range(RETRIES):
         words: List[Dict[str, Any]] = []
@@ -58,7 +94,8 @@ async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig) -> List[Dic
 
 
 async def _synthesize_all(scenes: Sequence[Scene], audio_dir: Path, cfg: VoiceConfig,
-                          force: bool, log) -> None:
+                          force: bool, log,
+                          keys: Optional[Dict[str, str]] = None) -> None:
     sem = asyncio.Semaphore(MAX_CONCURRENCY)
 
     async def worker(scene: Scene):
@@ -66,7 +103,7 @@ async def _synthesize_all(scenes: Sequence[Scene], audio_dir: Path, cfg: VoiceCo
         if mp3.exists() and not force and scene.words:
             return
         async with sem:
-            words = await _synthesize_one(scene, mp3, cfg)
+            words = await _synthesize_one(scene, mp3, cfg, keys)
         scene.audio = str(mp3)
         scene.words = words
         log(f"  voiced scene {scene.index:>3}  {len(scene.text.split()):>4}w")
@@ -75,10 +112,11 @@ async def _synthesize_all(scenes: Sequence[Scene], audio_dir: Path, cfg: VoiceCo
 
 
 def narrate(scenes: List[Scene], audio_dir: Path, cfg: VoiceConfig,
-            force: bool = False, log=print) -> List[Scene]:
+            force: bool = False, log=print,
+            keys: Optional[Dict[str, str]] = None) -> List[Scene]:
     """Synthesize every scene and stamp durations + absolute start times."""
     audio_dir.mkdir(parents=True, exist_ok=True)
-    asyncio.run(_synthesize_all(scenes, audio_dir, cfg, force, log))
+    asyncio.run(_synthesize_all(scenes, audio_dir, cfg, force, log, keys))
 
     clock = 0.0
     for scene in scenes:
