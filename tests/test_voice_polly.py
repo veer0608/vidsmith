@@ -1,11 +1,11 @@
 """The Polly narration provider.
 
-The second licensed path, and it exists for the same reason as the Azure one:
-edge-tts is unofficial and Microsoft grants no commercial use of it.
+The licensed path: edge-tts is unofficial and Microsoft grants no commercial
+use of it, so anything with revenue attached needs this one.
 
-Polly differs from both other engines in a way that matters, and most of this
-file is about that difference. A Polly word mark carries a start time and
-nothing else - no duration - so an end has to be constructed rather than read.
+Polly differs from edge-tts in a way that matters, and most of this file is
+about that difference. A Polly word mark carries a start time and nothing else -
+no duration - so an end has to be constructed rather than read.
 Get that wrong and every caption is the wrong length, silently, in a way that
 only shows up on screen.
 
@@ -144,7 +144,7 @@ def test_the_audio_is_written(boto, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# SSML, which Polly reads differently from Azure
+# SSML, which Polly reads its own way
 # --------------------------------------------------------------------------- #
 def test_no_voice_element():
     """Polly takes the voice as a parameter and rejects it in the document."""

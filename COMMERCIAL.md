@@ -29,17 +29,17 @@ users at Azure Speech instead. Personal use is uncontroversial; commercial use
 is not settled, and the risk is yours. See
 [Microsoft's answer on the question](https://learn.microsoft.com/en-us/answers/questions/2088770/are-opensource-edge-tts-free-for-commercial-use).
 
-Azure Speech is the supported path, and vidsmith speaks it:
+Amazon Polly is the supported path, and vidsmith speaks it:
 
 ```
-pip install -r requirements-azure.txt
+pip install -r requirements-polly.txt
 ```
 
-then `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` in the environment or any
-`.env` the build reads, and `voice.provider: azure` in the project config.
-Azure reports word boundaries in the same 100-nanosecond ticks edge-tts does,
-so the captions, the shot plan and the mix are identical in shape. You are
-changing who licenses you, not how the video is cut.
+then `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` in the
+environment or any `.env` the build reads, and `voice.provider: polly` in the
+project config. Polly reports word timings, so the captions, the shot plan and
+the mix are identical in shape. You are changing who licenses you, not how the
+video is cut.
 
 **Footage.** Pexels and Pixabay both permit commercial use of API results and
 both require you to credit the creator and link back. vidsmith already builds

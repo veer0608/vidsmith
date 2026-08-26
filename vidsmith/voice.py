@@ -24,23 +24,9 @@ RETRIES = 3
 
 async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig,
                           keys: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    if cfg.provider == "azure":
-        # Imported here, not at the top: the Speech SDK ships native binaries,
-        # is not in requirements.txt, and nobody on the default provider should
-        # have to install it. The import is also one-way this direction, which
-        # is what lets voice_azure share TICKS from this module.
-        from . import voice_azure
-
-        keys = keys or {}
-        return await _retrying(
-            scene,
-            lambda: voice_azure.synthesize(scene.text, out, cfg,
-                                           keys.get("azure_speech", ""),
-                                           keys.get("azure_region", "")),
-        )
     if cfg.provider == "polly":
-        # lazily imported for the same reason as azure: boto3 is not in
-        # requirements.txt and the default path must not need it
+        # Imported here, not at the top: boto3 is not in requirements.txt
+        # and nobody on the default provider should have to install it.
         from . import voice_polly
 
         keys = keys or {}

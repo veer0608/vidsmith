@@ -1,8 +1,8 @@
 """Narration through Amazon Polly, the other licensed path.
 
-Same purpose as `voice_azure`: edge-tts is an unofficial client for the endpoint
-behind Edge's Read Aloud and Microsoft grants no commercial use of it, so
-anything with revenue attached needs a service that licenses what it sells.
+edge-tts is an unofficial client for the endpoint behind Edge's Read Aloud and
+Microsoft grants no commercial use of it, so anything with revenue attached
+needs a service that licenses what it sells.
 
 Polly qualifies because it reports word timings, which almost nothing else does.
 The contract is `voice._synthesize_one`'s: write an mp3 and return one dict per
@@ -10,15 +10,16 @@ spoken word, `{"text", "start", "end"}`, seconds from the start of that scene.
 Get that right and the captions, the shot plan and the mix cannot tell which
 engine spoke.
 
-Three things differ from Azure and are the whole reason this is a separate
-module rather than a parameter:
+Three things about it shape this module, and each is a way a naive adapter
+would be wrong:
 
-**Two calls, not one.** Azure emits boundaries alongside the audio. Polly does
-not: audio and speech marks are separate `synthesize_speech` requests, and each
-is billed its own characters. A video therefore costs its script length twice.
+**Two calls, not one.** Audio and speech marks are separate
+`synthesize_speech` requests, each billed its own characters, so a video costs
+its script length twice.
 
-**No durations, only starts.** A Polly word mark carries `time` in milliseconds
-and nothing about how long the word lasts. See `_timings` for what that forces.
+**No durations, only starts.** A word mark carries `time` in milliseconds and
+nothing about how long the word lasts, while edge-tts reports both. See
+`_timings` for what that forces.
 
 **Neural voices ignore pitch.** `prosody` supports rate and volume on neural,
 long-form and generative engines and silently drops pitch, so a project moving
@@ -73,7 +74,7 @@ def ssml(text: str, cfg: VoiceConfig, engine: str = DEFAULT_ENGINE) -> str:
     """The scene as SSML, carrying whatever prosody this engine honours.
 
     No `<voice>` element: Polly takes the voice as a request parameter and does
-    not support selecting one in the document, unlike Azure.
+    not support selecting one in the document.
 
     The text is escaped because SSML is XML and a script is arbitrary prose. An
     ampersand would otherwise end the document, and this is the only place in
@@ -153,7 +154,7 @@ def _synthesize_blocking(text: str, out: Path, cfg: VoiceConfig, key: str,
 async def synthesize(text: str, out: Path, cfg: VoiceConfig, key: str,
                      secret: str, region: str,
                      engine: str = DEFAULT_ENGINE) -> List[Dict[str, Any]]:
-    """Async face on a synchronous SDK, as with Azure.
+    """Async face on a synchronous SDK.
 
     boto3 is blocking, and voice.py is asyncio because edge-tts is. A worker
     thread keeps the scene concurrency the module already manages rather than

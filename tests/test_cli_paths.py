@@ -182,9 +182,9 @@ def test_nothing_built_for_this_aspect_is_none(project):
 def test_doctor_reports_every_key_the_build_reads(capsys, tmp_path):
     """It kept its own list of three and stayed at three.
 
-    The azure provider added two keys to find_keys() and `doctor` - the command
-    whose entire job is "which keys resolve" - went on answering for three, with
-    nothing to show it was incomplete. /healthz was right the whole time,
+    A new voice provider added keys to find_keys() and `doctor` - the command
+    whose entire job is "which keys resolve" - went on answering for three,
+    with nothing to show it was incomplete. /healthz was right the whole time,
     because it derives from find_keys() rather than repeating it.
     """
     from vidsmith import cli as cli_mod
