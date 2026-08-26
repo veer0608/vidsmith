@@ -316,3 +316,45 @@ def test_the_configured_engine_reaches_polly(boto, tmp_path, monkeypatch):
 def test_an_empty_mark_stream_yields_no_words():
     """What generative would have produced, stated so the refusal has a reason."""
     assert voice_polly._timings(b"", 5.0) == []
+
+
+# --------------------------------------------------------------------------- #
+# volume, where the two services disagree about the unit
+# --------------------------------------------------------------------------- #
+def test_a_percentage_volume_becomes_decibels():
+    """edge-tts writes percent; Polly rejects it outright.
+
+    Measured against the live service, not read off the docs: rate="+8%" is
+    accepted and volume="+0%" returns InvalidSsmlException - a bare "Invalid
+    SSML request" that names no attribute, so the failure points nowhere. Every
+    scene of a project switching provider would have died on it.
+    """
+    assert voice_polly.polly_volume("+0%").endswith("dB")
+    assert voice_polly.polly_volume("+0%").startswith("+0")
+
+
+def test_the_conversion_is_a_conversion_not_a_relabel():
+    """A percentage is linear gain and a decibel is logarithmic."""
+    assert voice_polly.polly_volume("+50%") == "+3.5dB"
+    assert voice_polly.polly_volume("-50%") == "-6.0dB"
+
+
+@pytest.mark.parametrize("value", ["+6dB", "-3dB", "loud", "x-soft", "medium"])
+def test_pollys_own_vocabulary_passes_through(value):
+    assert voice_polly.polly_volume(value) == value
+
+
+@pytest.mark.parametrize("value", ["", "nonsense", "++%"])
+def test_anything_unreadable_falls_back_to_no_change(value):
+    """A bad volume must not cost a build that has already paid for a script."""
+    assert voice_polly.polly_volume(value) == "+0dB"
+
+
+def test_silence_is_named_rather_than_negative_infinity():
+    assert voice_polly.polly_volume("-100%") == "silent"
+
+
+def test_the_ssml_carries_the_converted_volume():
+    doc = voice_polly.ssml("hi", VoiceConfig(volume="+0%"), engine="long-form")
+    assert "+0%" not in doc
+    assert "dB" in doc
