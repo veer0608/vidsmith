@@ -331,8 +331,15 @@ def pexels_photos(query: str, key: str, orientation: str = "landscape",
     """Stock photographs, for thumbnails.
 
     A thumbnail wants a photograph, not a frame lifted out of compressed b-roll:
-    stills are shot and graded to be looked at on their own, and come back at a
-    resolution a 1280x720 crop does not have to be upscaled into.
+    stills are shot and graded to be looked at on their own.
+
+    `large2x` is a fixed-height render, so that resolution promise only holds
+    one way round. Measured: a landscape result arrives 1880x1253 and crops to
+    1280x720 with pixels to spare, while a portrait one arrives 731x1300 - over
+    YouTube's 640px minimum and under its 1280px recommendation, which uploads
+    without complaint and can look soft. `original` would be larger if that ever
+    matters; it is not worth the download until someone says a portrait
+    thumbnail looked bad.
     """
     return _cached_search("pexels_photo", (query, orientation, count),
                           lambda: _pexels_photo_fetch(query, key, orientation, count))
