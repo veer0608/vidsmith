@@ -4,12 +4,15 @@
 # encodes, because those are the tests that catch drift between picture and
 # voice.
 #
-# Two platforms, and they cover different things. Linux runs the encodes.
-# Windows exists because this is developed on Windows and a whole class of fault
-# is invisible to ubuntu: path separators, the drive colon inside a filtergraph,
-# and the console encoding. `vidsmith meta` once wrote every file correctly and
-# then died printing a Pexels photographer's name, and nothing on Linux could
-# ever have caught it.
+# Two platforms, because a whole class of fault is invisible to ubuntu on a
+# project developed against Windows: path separators, the drive colon inside a
+# filtergraph, and the console encoding. `vidsmith meta` once wrote every file
+# correctly and then died printing a Pexels photographer's name, and nothing on
+# Linux could ever have caught it.
+#
+# Both jobs run the encodes, and they are not redundant: the escaping tests take
+# their paths from tmp_path, so only the Windows runner ever hands ffmpeg a
+# drive letter - which is the thing that escaping exists for.
 name: tests
 
 on:
@@ -54,14 +57,26 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # The encodes run here too, and it matters more than it looks. The slow
+      # tests build their paths from tmp_path, which on Linux has no drive
+      # letter - so `escape_filter_path`, whose entire subject is the drive
+      # colon, has never met one under a real ffmpeg. This is the only runner
+      # where that assertion means anything.
+      #
+      # It also keeps test_health_reports_ffmpeg honest: /healthz reports ok
+      # false without a binary, and the test carries no marker and no skip, so
+      # it fails rather than skips on a runner that has none. That is the test
+      # being right about its environment and the job being wrong.
+      - name: Install ffmpeg
+        run: choco install ffmpeg --no-progress -y
+
       - name: Install dependencies
         run: pip install -r requirements-dev.txt -r requirements-web.txt
 
-      # Deselected rather than left to skip themselves: there is no ffmpeg on
-      # this runner and a silent skip would report green over nothing. Linux
-      # owns the encodes; this job owns the platform.
+      # Windows ships the families the themes name (Segoe UI Black, Bahnschrift),
+      # so unlike the Linux job this one needs no font installed.
       - name: Run the suite
-        run: python -m pytest -m "not slow"
+        run: python -m pytest
 
       # pytest is not enough on its own. Its capture is utf-8 on every platform,
       # so the console-encoding fault cannot reach it - only a real entry point
