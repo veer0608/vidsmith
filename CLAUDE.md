@@ -17,7 +17,9 @@ before writing anything. The traps are the reason this file exists.
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Hand a path to ffmpeg | Things that have actually broken here, escaping | Two escapes, two parsers; never share one helper between them |
 | Pass an optional file between stages | Things that have actually broken here, `Path("")` | `Path("")` is truthy and exists; guard on `is None` |
-| Add a config key | Configuration | A misspelled key is ignored in silence |
+| Add a config key | Configuration | A misspelled key is ignored in silence; a closed-set value is refused on load |
+| Reach for a build's output file | Things that have actually broken here, an empty tag | 16:9 has no suffix, so `*{tag}.mp4` matches every other cut |
+| Write an artifact a second way | Things that have actually broken here, two writers | Call the one writer; a second copy is how credits go missing |
 | Change the footage source | Configuration | A provider with no key falls back to cards without failing |
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
 | Repair text a model wrote | Things that have actually broken here, dashes | A repair pass cannot tell its own output from the input |
@@ -33,7 +35,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 232 tests, ~17s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 264 tests, ~18s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -89,8 +91,10 @@ Your bank statement is not a record of what you spent.
 A scene breaks on a `##` heading **or** a blank line between paragraphs, so an
 innocent-looking reflow silently re-cuts the video. `[visual: ...]` sets that
 scene's stock-footage query and also answers to `b-roll`, `broll`, `footage` and
-`shot`; `[diagram: ...]` forces a drawn scene, `[image: ...]` a still, and
-`[hold: 3.5]` puts a floor under the on-screen duration. Lines opening with `>`,
+`shot`. It answers to `image` as well, which is an alias too rather than a "use
+a still" switch, whatever the name suggests: a still only enters through the
+`local` provider matching an image file on disk. `[diagram: ...]` forces a drawn
+scene, and `[hold: 3.5]` puts a floor under the on-screen duration. Lines opening with `>`,
 `<!--` or `//` are production notes and never reach the narration. `WPS = 2.6`
 is only a pre-flight estimate of scene length; the real timings come from the
 voice.
@@ -304,6 +308,29 @@ competing with the voice.
   not, and an unwritable `VIDSMITH_JOBS` wedged the instance: 429 for every
   later caller, for a render that had never started, until the process
   restarted.
+- **A closed-set value outside its set used to fall back in silence.** Survivable
+  when the fallback is visible: an unknown `theme.preset` is obvious the moment
+  you look at the video. Not survivable for `render.aspect`, where `cfg.size`
+  fell back to 16:9 while the *filename* was built from the string you typed, so
+  `aspect: 9x16` rendered a landscape video into `-9x16.mp4` and nothing said
+  otherwise. `9x16` is the likely typo precisely because that is the suffix
+  convention. `config._check()` now refuses every closed set on load, because
+  argparse and the web's `_validate` already did and `config.yaml` - the surface
+  `vidsmith new` writes out in full - validated nothing. Contrast
+  `music.ensure_bed`, which gets it right: normalise the mood, *then* name the
+  file, so the name cannot lie about the contents.
+- **Two writers for one artifact is how attribution goes missing.** `vidsmith
+  meta` kept its own copy of the metadata write that omitted the credits block
+  and left `description.txt` stale, so regenerating a description stripped the
+  attribution out of the exact file you paste into YouTube. There is now one
+  `pipeline.write_metadata()` and the CLI calls it. Fourth failure in this
+  family; every one of them was a second code path, never the first.
+- **An empty tag makes `*{tag}.mp4` match everything.** 16:9 is the unsuffixed
+  default, so the pattern collapsed to `*.mp4`, and `demo-1x1.mp4` sorts before
+  `demo.mp4` - asking for widescreen thumbnails sampled the square cut without
+  a word. Reachable once `build/picture.mp4` is gone, which `invalidate()` does
+  on every redraft. `aspect_tag()` is one definition in `config.py` now, because
+  the same expression living in two modules is what let this drift.
 - **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
   `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
