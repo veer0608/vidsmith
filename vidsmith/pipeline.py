@@ -105,6 +105,9 @@ def find_keys(project_root: Path) -> Dict[str, str]:
         "gemini": env("GEMINI_API_KEY", *dotenvs),
         "pexels": env("PEXELS_API_KEY", *dotenvs),
         "pixabay": env("PIXABAY_API_KEY", *dotenvs),
+        # only the azure voice provider reads these; edge needs no key
+        "azure_speech": env("AZURE_SPEECH_KEY", *dotenvs),
+        "azure_region": env("AZURE_SPEECH_REGION", *dotenvs),
     }
 
 
@@ -166,9 +169,9 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         return scenes_json
 
     # ---- narration ------------------------------------------------------- #
-    log(f"voice    {cfg.voice.name} at {cfg.voice.rate}")
+    log(f"voice    {cfg.voice.name} at {cfg.voice.rate} via {cfg.voice.provider}")
     voice.narrate(scenes, proj.build / "audio", cfg.voice,
-                  force="voice" in force, log=log)
+                  force="voice" in force, log=log, keys=keys)
 
     # A scene's clip is exactly its narration slot, so any floor on clip length
     # has to be applied to the slot itself - otherwise the picture runs longer

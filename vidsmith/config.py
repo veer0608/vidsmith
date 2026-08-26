@@ -19,6 +19,11 @@ ASPECTS = {
 
 @dataclass
 class VoiceConfig:
+    # edge is free and needs no key, but it is an unofficial client for the
+    # endpoint behind Edge's Read Aloud and Microsoft grants no commercial
+    # use of it. azure is the licensed path: same word boundaries, so the
+    # captions and the cut are identical. See COMMERCIAL.md.
+    provider: str = "edge"             # edge | azure
     name: str = "en-US-AndrewNeural"   # warm male narrator; see `vidsmith voices`
     rate: str = "+8%"                  # slightly brisk reads better on YouTube
     pitch: str = "+0Hz"
@@ -155,6 +160,7 @@ _CLOSED_SETS = {
     ("captions", "style"): ("karaoke", "block", "none"),
     ("visuals", "provider"): ("pexels", "pixabay", "cards", "local"),
     ("visuals", "card_text"): ("auto", "heading", "query", "none"),
+    ("voice", "provider"): ("edge", "azure"),
 }
 
 
