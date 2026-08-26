@@ -35,7 +35,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 300 tests, ~19s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 308 tests, ~19s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -341,6 +341,15 @@ competing with the voice.
   `youtube.txt` promising chapters that will never appear is worse than one
   admitting the video has none. Filtered once in `upload_metadata`, so all three
   written files agree.
+- **The upload form's caps are limits; the prompt is a request.** `META_PROMPT`
+  asks for a title under 70 characters and twelve tags, and the model has
+  complied every time so far. YouTube refuses a title over 100 characters or
+  tags totalling over 500, at upload, after the render is paid for.
+  `llm.within_youtube_limits()` trims title and description at a word boundary
+  and drops whole tags from the end - half a tag is not a tag, and the model
+  writes them most relevant first. Unlike the chapter rule this guards a risk
+  nothing here has been seen to hit; it is in because the failure lands at the
+  destination, which is where this project keeps getting bitten.
 - **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
   `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or

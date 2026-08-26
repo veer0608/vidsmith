@@ -118,3 +118,61 @@ def test_no_internal_bookkeeping_leaks_into_the_output():
 @pytest.mark.parametrize("chapters", [None, [], [{"label": "no time"}]])
 def test_nothing_usable_is_an_empty_list(chapters):
     assert usable_chapters(chapters, 90.0) == []
+
+
+# --------------------------------------------------------------------------- #
+# the upload form's hard caps
+# --------------------------------------------------------------------------- #
+from vidsmith.llm import (MAX_TAGS_TOTAL, MAX_TITLE,           # noqa: E402
+                          within_youtube_limits)
+
+
+def test_a_long_title_is_cut_to_the_limit():
+    """100 characters is a refusal at upload, after the render is paid for."""
+    meta = within_youtube_limits({"title": "word " * 40})
+    assert len(meta["title"]) <= MAX_TITLE
+
+
+def test_a_title_is_cut_at_a_word():
+    meta = within_youtube_limits({"title": "supercalifragilistic " * 8})
+    assert not meta["title"].endswith("supercalifragilis")
+    assert " " in meta["title"]
+
+
+def test_a_short_title_is_untouched():
+    """The common case, and it must not acquire an ellipsis or lose a full stop."""
+    assert within_youtube_limits({"title": "Why Your First PR Gets Rejected"}) \
+        ["title"] == "Why Your First PR Gets Rejected"
+
+
+def test_tags_are_dropped_whole_not_truncated():
+    """Half a tag is not a tag, and the model writes them most relevant first."""
+    meta = within_youtube_limits({"tags": ["x" * 200, "y" * 200, "z" * 200]})
+    assert meta["tags"] == ["x" * 200, "y" * 200]
+    assert all(len(t) == 200 for t in meta["tags"])
+
+
+def test_the_tag_budget_counts_the_separators():
+    """500 characters is the total across all tags, commas included."""
+    meta = within_youtube_limits({"tags": [f"tag{i:03d}" for i in range(200)]})
+    rendered = ", ".join(meta["tags"])
+    assert len(rendered) <= MAX_TAGS_TOTAL
+
+
+def test_ordinary_tags_all_survive():
+    real = ["pull request", "open source", "coding", "git", "github",
+            "software engineering", "programming", "code review",
+            "developer tips", "junior developer", "tech careers",
+            "coding advice"]
+    assert within_youtube_limits({"tags": real})["tags"] == real
+
+
+def test_blank_tags_are_dropped():
+    assert within_youtube_limits({"tags": ["real", "", "  ", "also real"]}) \
+        ["tags"] == ["real", "also real"]
+
+
+def test_a_metadata_block_without_the_keys_survives():
+    """upload_metadata runs this on whatever the model returned."""
+    assert within_youtube_limits({})["tags"] == []
+    assert "title" not in within_youtube_limits({})
