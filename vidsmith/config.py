@@ -127,11 +127,49 @@ class Config:
         return asdict(self)
 
 
+def aspect_tag(aspect: str) -> str:
+    """The filename suffix for an aspect; 16:9 is the default and unsuffixed.
+
+    One definition, because two copies of it drifting is how `vidsmith thumbs`
+    ended up sampling the wrong cut.
+    """
+    return "" if aspect == "16:9" else "-" + aspect.replace(":", "x")
+
+
 def _merge(dc, data: Dict[str, Any]):
     for k, v in (data or {}).items():
         if hasattr(dc, k):
             setattr(dc, k, v)
     return dc
+
+
+# Keys whose value is drawn from a closed set. A value outside it used to fall
+# back silently, which is only survivable when the fallback is visible: an
+# unknown theme is obvious the moment you look at the video, but an unknown
+# `aspect` renders 16:9 into a file *named* for the shape you asked for, so you
+# get a landscape video called `-9x16.mp4` and nothing anywhere says otherwise.
+# `9x16` is the likely typo precisely because that is the suffix convention.
+_CLOSED_SETS = {
+    ("render", "aspect"): tuple(ASPECTS),
+    ("render", "transition"): ("cut", "fade"),
+    ("captions", "style"): ("karaoke", "block", "none"),
+    ("visuals", "provider"): ("pexels", "pixabay", "cards", "local"),
+    ("visuals", "card_text"): ("auto", "heading", "query", "none"),
+}
+
+
+def _check(cfg: "Config", path: Path) -> None:
+    from .theme import PRESETS
+
+    checks = dict(_CLOSED_SETS)
+    checks[("theme", "preset")] = tuple(PRESETS)
+    for (section, key), allowed in checks.items():
+        value = getattr(getattr(cfg, section), key)
+        if value not in allowed:
+            raise ValueError(
+                f"{path}: {section}.{key} is {value!r}; "
+                f"expected one of {', '.join(sorted(allowed))}"
+            )
 
 
 def load_config(path: Path) -> Config:
@@ -146,6 +184,10 @@ def load_config(path: Path) -> Config:
     _merge(cfg.captions, raw.get("captions"))
     _merge(cfg.audio, raw.get("audio"))
     _merge(cfg.render, raw.get("render"))
+    # The CLI rejects these through argparse and the web front through
+    # _validate; config.yaml is the surface `vidsmith new` writes out in full
+    # and invites you to edit, and it validated nothing at all.
+    _check(cfg, path)
     return cfg
 
 
