@@ -266,3 +266,53 @@ def test_the_fake_matches_the_real_api():
     for engine in voice_polly.PITCHLESS_ENGINES:
         assert engine in op.input_shape.members["Engine"].enum
     assert "AudioStream" in op.output_shape.members
+
+
+# --------------------------------------------------------------------------- #
+# the engine, which decides whether timings exist at all
+# --------------------------------------------------------------------------- #
+def test_generative_is_refused_because_it_has_no_speech_marks(boto, tmp_path):
+    """AWS lists speech marks on standard, neural and long-form. Not generative.
+
+    It synthesizes perfectly and reports no word timings, which here means a
+    finished video with no captions and one held shot per scene. Silent, at the
+    end of a paid render. Exactly the failure this project keeps having.
+    """
+    boto()
+    with pytest.raises(RuntimeError, match="no speech marks"):
+        asyncio.run(voice_polly.synthesize("x", tmp_path / "s.mp3", VoiceConfig(),
+                                           "k", "s", "r", engine="generative"))
+
+
+def test_generative_is_not_even_a_configurable_value():
+    from vidsmith.config import _CLOSED_SETS
+    assert "generative" not in _CLOSED_SETS[("voice", "engine")]
+
+
+@pytest.mark.parametrize("engine", ["standard", "neural", "long-form"])
+def test_every_configurable_engine_can_report_marks(boto, tmp_path, engine):
+    boto()
+    words = asyncio.run(voice_polly.synthesize("x", tmp_path / "s.mp3",
+                                               VoiceConfig(), "k", "s", "r",
+                                               engine=engine))
+    assert [w["text"] for w in words] == ["Your", "bank", "statement"]
+
+
+def test_the_configured_engine_reaches_polly(boto, tmp_path, monkeypatch):
+    """A long-form voice fails on the neural engine, so this must be honoured."""
+    module = boto()
+    monkeypatch.setattr(voice_polly, "_client", lambda *a, **k: module.client())
+
+    from vidsmith.script_parser import Scene
+    asyncio.run(voice._synthesize_one(
+        Scene(index=0, text="x"), tmp_path / "s.mp3",
+        VoiceConfig(provider="polly", engine="long-form", name="Gregory"),
+        {"aws_key": "k", "aws_secret": "s", "aws_region": "us-east-1"}))
+
+    assert module.calls[0]["Engine"] == "long-form"
+    assert module.calls[0]["VoiceId"] == "Gregory"
+
+
+def test_an_empty_mark_stream_yields_no_words():
+    """What generative would have produced, stated so the refusal has a reason."""
+    assert voice_polly._timings(b"", 5.0) == []
