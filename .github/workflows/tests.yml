@@ -3,6 +3,13 @@
 # failing. So the runner installs ffmpeg and runs everything, including the
 # encodes, because those are the tests that catch drift between picture and
 # voice.
+#
+# Two platforms, and they cover different things. Linux runs the encodes.
+# Windows exists because this is developed on Windows and a whole class of fault
+# is invisible to ubuntu: path separators, the drive colon inside a filtergraph,
+# and the console encoding. `vidsmith meta` once wrote every file correctly and
+# then died printing a Pexels photographer's name, and nothing on Linux could
+# ever have caught it.
 name: tests
 
 on:
@@ -36,3 +43,38 @@ jobs:
 
       - name: Run the suite
         run: python -m pytest
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      # Deselected rather than left to skip themselves: there is no ffmpeg on
+      # this runner and a silent skip would report green over nothing. Linux
+      # owns the encodes; this job owns the platform.
+      - name: Run the suite
+        run: python -m pytest -m "not slow"
+
+      # pytest is not enough on its own. Its capture is utf-8 on every platform,
+      # so the console-encoding fault cannot reach it - only a real entry point
+      # writing to a real pipe can. These need no key and touch no network.
+      - name: Walk the CLI through a pipe
+        run: |
+          python -m vidsmith doctor
+          python -m vidsmith new ci-probe
+          python -m vidsmith build ci-probe --provider cards --stop-after parse
+
+      # The regression itself, in the form it actually shipped: a stock credit
+      # printed to a pipe after the files were already written. A module rather
+      # than a one-liner so the name stays literal utf-8 source instead of
+      # crossing two levels of shell quoting.
+      - name: A name outside cp1252 must survive a piped console
+        run: python -m scripts.console_probe
