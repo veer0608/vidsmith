@@ -129,6 +129,12 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
                     flush()
                 cur_diagram = value
             else:
+                # visual, b-roll, footage, shot and image all mean the same
+                # thing: the search that fills this scene. `image` is an alias,
+                # not a "use a still" switch - a still only enters through the
+                # `local` provider matching an image file on disk. The README
+                # and CLAUDE.md both claimed otherwise for a while, which is a
+                # directive that reads as doing something and quietly does not.
                 # A directive starts a new scene if narration is already buffered.
                 if buf:
                     flush()
