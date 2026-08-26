@@ -8,7 +8,7 @@ from pathlib import Path
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
-from .pipeline import Project, find_keys
+from .pipeline import KEY_ENV, KEY_NOTES, Project, find_keys
 
 STARTER = """# {title}
 
@@ -177,18 +177,17 @@ def cmd_doctor(args) -> int:
         ok = False
         print("[MISS] edge-tts  pip install edge-tts")
 
+    # Iterated from pipeline.KEY_ENV rather than a list kept here. The list kept
+    # here reported three keys and stayed at three when the azure provider added
+    # two, so `doctor` answered "which keys resolve" incompletely and with no
+    # sign that it had.
     keys = find_keys(Path.cwd())
-    for name, label in (("gemini", "GEMINI_API_KEY "), ("pexels", "PEXELS_API_KEY "),
-                        ("pixabay", "PIXABAY_API_KEY")):
-        if keys[name]:
-            print(f"[ok]   {label} found ({keys[name][:6]}...)")
+    width = max(len(v) for v in KEY_ENV.values())
+    for name, var in KEY_ENV.items():
+        if keys.get(name):
+            print(f"[ok]   {var:<{width}} found ({keys[name][:6]}...)")
         else:
-            note = {
-                "gemini": "optional - b-roll queries + YouTube metadata",
-                "pexels": "optional - real stock footage; free at pexels.com/api",
-                "pixabay": "optional - alternative stock source",
-            }[name]
-            print(f"[--]   {label} not set ({note})")
+            print(f"[--]   {var:<{width}} not set ({KEY_NOTES.get(name, 'optional')})")
 
     print("\nprovider fallback: without a stock key, scenes render as generated cards.")
     return 0 if ok else 1

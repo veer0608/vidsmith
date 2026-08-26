@@ -13,6 +13,8 @@ import sys
 import pytest
 import yaml
 
+from pathlib import Path
+
 from vidsmith import cli, pipeline
 from vidsmith.config import write_default_config
 
@@ -172,3 +174,33 @@ def test_nothing_built_for_this_aspect_is_none(project):
     cfg.render.aspect = "9:16"
     _cut(project, "a-test-video.mp4")
     assert cli._delivery_file(project, cfg, "-9x16") is None
+
+
+# --------------------------------------------------------------------------- #
+# doctor answers the question it is asked
+# --------------------------------------------------------------------------- #
+def test_doctor_reports_every_key_the_build_reads(capsys, tmp_path):
+    """It kept its own list of three and stayed at three.
+
+    The azure provider added two keys to find_keys() and `doctor` - the command
+    whose entire job is "which keys resolve" - went on answering for three, with
+    nothing to show it was incomplete. /healthz was right the whole time,
+    because it derives from find_keys() rather than repeating it.
+    """
+    from vidsmith import cli as cli_mod
+
+    cli_mod.cmd_doctor(object())
+    printed = capsys.readouterr().out
+    for var in pipeline.KEY_ENV.values():
+        assert var in printed, f"doctor never mentions {var}"
+
+
+def test_the_key_mapping_is_the_only_list():
+    """find_keys returns exactly the keys KEY_ENV names, and no others."""
+    resolved = pipeline.find_keys(Path(__file__).parent)
+    assert set(resolved) == set(pipeline.KEY_ENV)
+
+
+def test_every_key_has_a_note_for_doctor_to_print():
+    missing = set(pipeline.KEY_ENV) - set(pipeline.KEY_NOTES)
+    assert not missing, f"no doctor note for {missing}"

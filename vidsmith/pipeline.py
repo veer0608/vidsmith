@@ -87,6 +87,28 @@ def invalidate(proj: "Project", log=print) -> None:
         log(f"script   changed since the last build; dropped {removed} stale artifacts")
 
 
+# The keys this project reads, and the variable each comes from. One mapping,
+# because `doctor` grew its own hardcoded list of three and then did not learn
+# about the two the azure provider added - so the command whose entire job is
+# "which keys resolve" answered the question incompletely and confidently.
+# /healthz was right the whole time because it derives from find_keys() instead.
+KEY_ENV = {
+    "gemini": "GEMINI_API_KEY",
+    "pexels": "PEXELS_API_KEY",
+    "pixabay": "PIXABAY_API_KEY",
+    "azure_speech": "AZURE_SPEECH_KEY",
+    "azure_region": "AZURE_SPEECH_REGION",
+}
+
+KEY_NOTES = {
+    "gemini": "optional - b-roll queries, diagrams and YouTube metadata",
+    "pexels": "optional - real stock footage; free at pexels.com/api",
+    "pixabay": "optional - alternative stock source",
+    "azure_speech": "only for voice.provider: azure - see COMMERCIAL.md",
+    "azure_region": "required alongside AZURE_SPEECH_KEY, e.g. eastus",
+}
+
+
 def find_keys(project_root: Path) -> Dict[str, str]:
     from .config import env
 
@@ -101,14 +123,7 @@ def find_keys(project_root: Path) -> Dict[str, str]:
         home / "claude" / "schemablind" / ".env",
         home / "claude" / "moneytrail" / ".env",
     ]
-    return {
-        "gemini": env("GEMINI_API_KEY", *dotenvs),
-        "pexels": env("PEXELS_API_KEY", *dotenvs),
-        "pixabay": env("PIXABAY_API_KEY", *dotenvs),
-        # only the azure voice provider reads these; edge needs no key
-        "azure_speech": env("AZURE_SPEECH_KEY", *dotenvs),
-        "azure_region": env("AZURE_SPEECH_REGION", *dotenvs),
-    }
+    return {name: env(var, *dotenvs) for name, var in KEY_ENV.items()}
 
 
 def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
