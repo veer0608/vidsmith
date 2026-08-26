@@ -216,7 +216,29 @@ def cmd_meta(args) -> int:
     return 0
 
 
+def _printable_console() -> None:
+    """Stop a name this tool did not choose from killing a command.
+
+    A Windows console is cp1252 and almost nothing here is: stock creators,
+    edge-tts voice names, and any drafted script are all arbitrary Unicode. The
+    files are written as utf-8 throughout, so the only thing that ever breaks is
+    the print - and it breaks *after* the work is done, which is the worst
+    possible time. `vidsmith meta` died on a Pexels photographer with U+1ECB in
+    their name having already written every file correctly.
+
+    errors="replace" rather than a narrower fix: a mangled character in the
+    terminal is a cosmetic problem, and a traceback over a finished build is
+    not.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 def main(argv=None) -> int:
+    _printable_console()
     p = argparse.ArgumentParser(prog="vidsmith", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
