@@ -528,14 +528,14 @@ no terms permitting commercial use of it, and their support answers point
 commercial users at Azure Speech. Personal use is uncontroversial. Anything with
 revenue attached is not.
 
-There are two licensed paths, and `voice.py` speaks both. Azure Speech:
-install `requirements-azure.txt`, set `AZURE_SPEECH_KEY` and
-`AZURE_SPEECH_REGION`, `voice.provider: azure`. Amazon Polly:
-`requirements-polly.txt`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
-`AWS_REGION`, `voice.provider: polly`, and `voice.name` becomes a Polly VoiceId
-rather than an edge-tts name.
+Amazon Polly is the licensed path and `voice.py` speaks it: install
+`requirements-polly.txt`, set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and
+`AWS_REGION`, and put `voice.provider: polly` in the project config.
+`voice.name` becomes a Polly VoiceId rather than an edge-tts name, and
+`voice.engine` picks `standard`, `neural` or `long-form`.
 
-Both report word timings, so the cut and the captions are unchanged either way.
-Azure emits them alongside the audio; Polly needs a second request and bills it,
-so a video spends its script length twice there. `vidsmith doctor` says which
-keys resolve.
+Polly reports word timings too, so the cut and the captions are unchanged. Two
+things to know: it bills audio and speech marks as separate requests, so a video
+spends its script length twice, and its `generative` engine returns no speech
+marks at all, which is why it is not a selectable value. `vidsmith doctor` says
+which keys resolve.

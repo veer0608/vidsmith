@@ -89,15 +89,13 @@ def invalidate(proj: "Project", log=print) -> None:
 
 # The keys this project reads, and the variable each comes from. One mapping,
 # because `doctor` grew its own hardcoded list of three and then did not learn
-# about the two the azure provider added - so the command whose entire job is
+# about the ones a new voice provider added - so the command whose entire job is
 # "which keys resolve" answered the question incompletely and confidently.
 # /healthz was right the whole time because it derives from find_keys() instead.
 KEY_ENV = {
     "gemini": "GEMINI_API_KEY",
     "pexels": "PEXELS_API_KEY",
     "pixabay": "PIXABAY_API_KEY",
-    "azure_speech": "AZURE_SPEECH_KEY",
-    "azure_region": "AZURE_SPEECH_REGION",
     "aws_key": "AWS_ACCESS_KEY_ID",
     "aws_secret": "AWS_SECRET_ACCESS_KEY",
     "aws_region": "AWS_REGION",
@@ -107,8 +105,6 @@ KEY_NOTES = {
     "gemini": "optional - b-roll queries, diagrams and YouTube metadata",
     "pexels": "optional - real stock footage; free at pexels.com/api",
     "pixabay": "optional - alternative stock source",
-    "azure_speech": "only for voice.provider: azure - see COMMERCIAL.md",
-    "azure_region": "required alongside AZURE_SPEECH_KEY, e.g. eastus",
     "aws_key": "only for voice.provider: polly - see COMMERCIAL.md",
     "aws_secret": "the secret half of the polly access key",
     "aws_region": "required alongside the AWS key, e.g. ap-south-1",

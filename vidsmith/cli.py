@@ -178,9 +178,9 @@ def cmd_doctor(args) -> int:
         print("[MISS] edge-tts  pip install edge-tts")
 
     # Iterated from pipeline.KEY_ENV rather than a list kept here. The list kept
-    # here reported three keys and stayed at three when the azure provider added
-    # two, so `doctor` answered "which keys resolve" incompletely and with no
-    # sign that it had.
+    # here reported three keys and stayed at three when a new voice provider added
+    # more, so `doctor` answered "which keys resolve" incompletely and with
+    # no sign that it had.
     keys = find_keys(Path.cwd())
     width = max(len(v) for v in KEY_ENV.values())
     for name, var in KEY_ENV.items():
