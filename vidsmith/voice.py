@@ -49,7 +49,8 @@ async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig,
             lambda: voice_polly.synthesize(scene.text, out, cfg,
                                            keys.get("aws_key", ""),
                                            keys.get("aws_secret", ""),
-                                           keys.get("aws_region", "")),
+                                           keys.get("aws_region", ""),
+                                           cfg.engine),
         )
     return await _edge(scene, out, cfg)
 

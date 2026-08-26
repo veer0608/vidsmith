@@ -49,6 +49,14 @@ KEY_HINT = (
 PITCHLESS_ENGINES = ("neural", "long-form", "generative")
 DEFAULT_ENGINE = "neural"
 
+# The engine that cannot do the one thing this pipeline needs. AWS documents
+# speech marks as available on standard, neural and long-form, and generative is
+# absent from that list - it synthesises fine and reports no word timings at all,
+# which here means a finished video with no captions and a single held shot per
+# scene, and nothing to say why. config.py keeps it out of the closed set; this
+# catches an engine passed directly.
+NO_SPEECH_MARKS = ("generative",)
+
 
 def _client(key: str, secret: str, region: str):
     if not (key and secret and region):
@@ -117,6 +125,12 @@ def _synthesize_blocking(text: str, out: Path, cfg: VoiceConfig, key: str,
                          secret: str, region: str,
                          engine: str = DEFAULT_ENGINE) -> Tuple[bytes, bytes]:
     """Audio and marks, in that order, as two billed requests."""
+    if engine in NO_SPEECH_MARKS:
+        raise RuntimeError(
+            f"polly's {engine} engine returns no speech marks, so there would be "
+            f"no word timings: the video would render with no captions and one "
+            f"shot per scene. Use standard, neural or long-form."
+        )
     if engine in PITCHLESS_ENGINES and cfg.pitch.strip() not in ("", "+0Hz", "0Hz"):
         raise RuntimeError(
             f"polly's {engine} engine does not support prosody pitch, and would "

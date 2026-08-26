@@ -24,6 +24,9 @@ class VoiceConfig:
     # use of it. azure is the licensed path: same word boundaries, so the
     # captions and the cut are identical. See COMMERCIAL.md.
     provider: str = "edge"             # edge | azure | polly
+    # polly only. generative is deliberately absent: it is the one engine
+    # that returns no speech marks, so it cannot time captions or the cut.
+    engine: str = "neural"             # standard | neural | long-form
     name: str = "en-US-AndrewNeural"   # warm male narrator; see `vidsmith voices`
     rate: str = "+8%"                  # slightly brisk reads better on YouTube
     pitch: str = "+0Hz"
@@ -161,6 +164,7 @@ _CLOSED_SETS = {
     ("visuals", "provider"): ("pexels", "pixabay", "cards", "local"),
     ("visuals", "card_text"): ("auto", "heading", "query", "none"),
     ("voice", "provider"): ("edge", "azure", "polly"),
+    ("voice", "engine"): ("standard", "neural", "long-form"),
 }
 
 
