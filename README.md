@@ -526,4 +526,10 @@ One of those is worth repeating here rather than leaving in a file nobody opens:
 unofficial client for the endpoint behind Edge's Read Aloud, Microsoft publishes
 no terms permitting commercial use of it, and their support answers point
 commercial users at Azure Speech. Personal use is uncontroversial. Anything with
-revenue attached is not, and `voice.py` has no Azure provider yet.
+revenue attached is not.
+
+Azure Speech is the licensed path and `voice.py` speaks it: install
+`requirements-azure.txt`, set `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION`, and
+put `voice.provider: azure` in the project config. Azure reports word
+boundaries in the same ticks edge-tts does, so nothing about the cut or the
+captions changes.

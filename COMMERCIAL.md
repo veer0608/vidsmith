@@ -1,7 +1,7 @@
 # Commercial use
 
 `LICENSE.md` (PolyForm Noncommercial 1.0.0) covers personal use, study, hobby
-projects and non-profits. It does not cover using vidsmith to make money —
+projects and non-profits. It does not cover using vidsmith to make money:
 channels that carry ads or sponsorship, client work, or anything you resell or
 run as a service.
 
@@ -21,14 +21,25 @@ A licence to this code is not a licence to the services it calls. Whoever runs
 vidsmith commercially has to satisfy these themselves, and two of them matter
 more than they look.
 
-**Narration — read this before selling anything made with it.** `voice.py`
+**Narration, and read this before selling anything made with it.** `voice.py`
 speaks through `edge-tts`, an unofficial client for the text-to-speech service
 behind Microsoft Edge's Read Aloud. Microsoft publishes no terms granting
 commercial use of that endpoint, and their own support answers point commercial
 users at Azure Speech instead. Personal use is uncontroversial; commercial use
-is not settled, and the risk is yours. Azure Speech is the supported path and
-the intended home for a `voice.py` provider that does not exist yet — see
+is not settled, and the risk is yours. See
 [Microsoft's answer on the question](https://learn.microsoft.com/en-us/answers/questions/2088770/are-opensource-edge-tts-free-for-commercial-use).
+
+Azure Speech is the supported path, and vidsmith speaks it:
+
+```
+pip install -r requirements-azure.txt
+```
+
+then `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` in the environment or any
+`.env` the build reads, and `voice.provider: azure` in the project config.
+Azure reports word boundaries in the same 100-nanosecond ticks edge-tts does,
+so the captions, the shot plan and the mix are identical in shape. You are
+changing who licenses you, not how the video is cut.
 
 **Footage.** Pexels and Pixabay both permit commercial use of API results and
 both require you to credit the creator and link back. vidsmith already builds
