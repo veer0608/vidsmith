@@ -38,6 +38,19 @@ async def _synthesize_one(scene: Scene, out: Path, cfg: VoiceConfig,
                                            keys.get("azure_speech", ""),
                                            keys.get("azure_region", "")),
         )
+    if cfg.provider == "polly":
+        # lazily imported for the same reason as azure: boto3 is not in
+        # requirements.txt and the default path must not need it
+        from . import voice_polly
+
+        keys = keys or {}
+        return await _retrying(
+            scene,
+            lambda: voice_polly.synthesize(scene.text, out, cfg,
+                                           keys.get("aws_key", ""),
+                                           keys.get("aws_secret", ""),
+                                           keys.get("aws_region", "")),
+        )
     return await _edge(scene, out, cfg)
 
 

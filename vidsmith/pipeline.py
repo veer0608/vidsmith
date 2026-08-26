@@ -98,6 +98,9 @@ KEY_ENV = {
     "pixabay": "PIXABAY_API_KEY",
     "azure_speech": "AZURE_SPEECH_KEY",
     "azure_region": "AZURE_SPEECH_REGION",
+    "aws_key": "AWS_ACCESS_KEY_ID",
+    "aws_secret": "AWS_SECRET_ACCESS_KEY",
+    "aws_region": "AWS_REGION",
 }
 
 KEY_NOTES = {
@@ -106,6 +109,9 @@ KEY_NOTES = {
     "pixabay": "optional - alternative stock source",
     "azure_speech": "only for voice.provider: azure - see COMMERCIAL.md",
     "azure_region": "required alongside AZURE_SPEECH_KEY, e.g. eastus",
+    "aws_key": "only for voice.provider: polly - see COMMERCIAL.md",
+    "aws_secret": "the secret half of the polly access key",
+    "aws_region": "required alongside the AWS key, e.g. ap-south-1",
 }
 
 

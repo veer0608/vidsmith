@@ -1,0 +1,14 @@
+# Optional: the other licensed narration path.
+#
+# Same purpose as requirements-azure.txt. Polly reports word timings, which is
+# what this pipeline needs from a TTS engine, and licenses what it sells - see
+# COMMERCIAL.md for why the default provider cannot be sold against.
+#
+#   pip install -r requirements-polly.txt
+#   AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...  AWS_REGION=ap-south-1
+#   voice.provider: polly
+#   voice.name: Matthew        # a Polly VoiceId, not an edge-tts name
+#
+# Note it bills audio and speech marks as separate requests, so a video spends
+# its script length twice against the free tier.
+boto3>=1.34
