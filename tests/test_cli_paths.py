@@ -6,7 +6,9 @@ written, not what the encoder does with it.
 """
 from __future__ import annotations
 
+import io
 import json
+import sys
 
 import pytest
 import yaml
@@ -77,6 +79,45 @@ def test_the_cli_and_the_pipeline_share_one_writer():
         text = fh.read()
     assert "write_metadata" in text
     assert "_readable_meta" not in text, "cmd_meta must not format metadata itself"
+
+
+# --------------------------------------------------------------------------- #
+# printing what a stock library gives you
+# --------------------------------------------------------------------------- #
+CREATOR = "Nguyễn Thị Hồng"          # a real Pexels credit; U+1ECB is not cp1252
+
+
+def test_a_creator_name_is_written_as_utf8(project):
+    """The files are utf-8 throughout, whatever the console is."""
+    (project.out / "credits.txt").write_text(
+        f"Footage from Pexels (https://www.pexels.com)\n{CREATOR} - http://x.test/1\n",
+        encoding="utf-8")
+    pipeline.write_metadata(project.out, META)
+    assert CREATOR in (project.out / "youtube.txt").read_text(encoding="utf-8")
+
+
+def test_printing_a_creator_name_does_not_kill_the_command(monkeypatch):
+    """A Windows console is cp1252 and a photographer's name is not.
+
+    `vidsmith meta` wrote every file correctly and then died printing the
+    credits block, which is the worst possible moment to fail: the work was
+    done and the exit code said otherwise.
+    """
+    raw = io.BytesIO()
+    monkeypatch.setattr(
+        sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252", write_through=True))
+    with pytest.raises(UnicodeEncodeError):
+        print(CREATOR)
+
+    cli._printable_console()
+    print(CREATOR)                    # must not raise
+    assert "Nguy" in raw.getvalue().decode("utf-8", "replace")
+
+
+def test_reconfiguring_a_stream_that_cannot_be_reconfigured_is_survivable(monkeypatch):
+    """Under pytest's capture, or a pipe, stdout may not offer reconfigure."""
+    monkeypatch.setattr(sys, "stdout", object())
+    cli._printable_console()          # must not raise
 
 
 # --------------------------------------------------------------------------- #
