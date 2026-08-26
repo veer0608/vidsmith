@@ -459,6 +459,63 @@ SCRIPT WITH SCENE START TIMES:
 """
 
 
+# YouTube's rules for description chapters, and it enforces them by silently
+# ignoring the entire list rather than the offending line: the first must be at
+# 0:00, there must be at least three, and none may be shorter than ten seconds.
+# So a video with one six-second chapter gets no chapters at all, and nothing
+# anywhere says why - you find out by looking at the published video.
+MIN_CHAPTER_SECONDS = 10.0
+MIN_CHAPTERS = 3
+
+
+def _seconds(stamp: str) -> Optional[float]:
+    parts = str(stamp).strip().split(":")
+    if not 2 <= len(parts) <= 3:
+        return None
+    try:
+        values = [float(p) for p in parts]
+    except ValueError:
+        return None
+    seconds = 0.0
+    for v in values:
+        seconds = seconds * 60 + v
+    return seconds
+
+
+def usable_chapters(chapters: Sequence[Dict[str, Any]],
+                    runtime: float) -> List[Dict[str, Any]]:
+    """The chapters YouTube will actually render, or none at all.
+
+    A short chapter is folded into the one before it rather than dropped on its
+    own: the earlier label still describes the span, and the alternative is a
+    gap. The last one is measured against the runtime, because a final chapter
+    six seconds from the end breaks the list exactly as an interior one does.
+
+    Returning nothing when fewer than three survive is deliberate. YouTube would
+    discard the list anyway, and a `youtube.txt` showing chapters that will never
+    appear is worse than one that admits the video has none.
+    """
+    parsed: List[Dict[str, Any]] = []
+    for chapter in chapters or []:
+        at = _seconds(chapter.get("time", ""))
+        if at is not None:
+            parsed.append({**chapter, "_at": at})
+    parsed.sort(key=lambda c: c["_at"])
+    if not parsed or parsed[0]["_at"] > 0:
+        return []
+
+    kept: List[Dict[str, Any]] = []
+    for chapter in parsed:
+        if not kept or chapter["_at"] - kept[-1]["_at"] >= MIN_CHAPTER_SECONDS:
+            kept.append(chapter)
+    while len(kept) > 1 and runtime - kept[-1]["_at"] < MIN_CHAPTER_SECONDS:
+        kept.pop()
+
+    if len(kept) < MIN_CHAPTERS:
+        return []
+    return [{k: v for k, v in c.items() if k != "_at"} for c in kept]
+
+
 def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
                     model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     def stamp(t: float) -> str:
@@ -476,6 +533,10 @@ def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
     for chapter in meta.get("chapters") or []:
         if isinstance(chapter.get("label"), str):
             chapter["label"] = undash(chapter["label"])
+    # Filtered here, once, so youtube.json, youtube.txt and description.txt all
+    # carry the same list and none of them promises a chapter YouTube will drop.
+    meta["chapters"] = usable_chapters(meta.get("chapters") or [],
+                                       sum(s.duration for s in scenes))
     return meta
 
 

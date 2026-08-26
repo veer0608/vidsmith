@@ -24,7 +24,7 @@ before writing anything. The traps are the reason this file exists.
 | Reword the drafting prompt | The script | `test_script_prompt.py` says what it must still demand |
 | Repair text a model wrote | Things that have actually broken here, dashes | A repair pass cannot tell its own output from the input |
 | Redraft an existing script | Things that have actually broken here, stale caches | Scene-indexed caches must be invalidated |
-| Publish a video anywhere | Things that have actually broken here, attribution | Crediting is a licence condition, and the thumbnail is its own source |
+| Publish a video anywhere | Things that have actually broken here, attribution and chapters | Crediting is a licence condition; YouTube drops a chapter list rather than the bad line |
 | Edit the web page | Web service | Ask the server for what it knows; do not hardcode a second copy |
 | Touch the web queue | Web service; Things that have actually broken here, the render slot | Claim the slot and you own giving it back on every path out |
 | Show it to someone | Deploying | The tunnel beats both hosts |
@@ -35,7 +35,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 267 tests, ~19s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 300 tests, ~19s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -331,6 +331,16 @@ competing with the voice.
   a word. Reachable once `build/picture.mp4` is gone, which `invalidate()` does
   on every redraft. `aspect_tag()` is one definition in `config.py` now, because
   the same expression living in two modules is what let this drift.
+- **YouTube drops a whole chapter list rather than the bad line.** The first
+  must be at 0:00, there must be at least three, and none may be shorter than
+  ten seconds - break one rule and the video has no chapters at all, with no
+  error anywhere. A real 60.8s build emitted a six-second chapter and would have
+  published a description whose entire list was ignored. `llm.usable_chapters()`
+  folds a short chapter into the one before it, measures the last against the
+  runtime, and returns nothing when fewer than three survive, because a
+  `youtube.txt` promising chapters that will never appear is worse than one
+  admitting the video has none. Filtered once in `upload_metadata`, so all three
+  written files agree.
 - **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
   `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
