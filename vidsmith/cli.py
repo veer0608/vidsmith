@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from . import llm, music, pipeline, thumbs, voice
-from .config import ASPECTS, load_config, write_default_config
+from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
 from .pipeline import Project, find_keys
 
@@ -104,6 +104,31 @@ def cmd_voices(args) -> int:
     return 0
 
 
+def _delivery_file(proj, cfg, tag: str):
+    """The finished mp4 for this aspect, and no other cut's.
+
+    A bare `*{tag}.mp4` glob is wrong exactly where it matters: 16:9 has an
+    empty tag, so the pattern collapsed to `*.mp4` and matched every cut in
+    out/. `demo-1x1.mp4` sorts before `demo.mp4`, so asking for the widescreen
+    thumbnails sampled the square video and said nothing about it. Only
+    reachable once build/picture.mp4 is gone, which invalidate() does on every
+    redraft.
+    """
+    exact = proj.out / f"{pipeline._slug(cfg.title)}{tag}.mp4"
+    if exact.exists():
+        return exact
+    # the title may have moved since the build, so fall back to a scan that
+    # still refuses the other aspects by name
+    others = {aspect_tag(a) for a in ASPECTS if a != cfg.render.aspect} - {""}
+    for path in sorted(proj.out.glob("*.mp4")):
+        if any(path.stem.endswith(other) for other in others):
+            continue
+        if tag and not path.stem.endswith(tag):
+            continue
+        return path
+    return None
+
+
 def cmd_thumbs(args) -> int:
     from .theme import resolve as resolve_theme
 
@@ -112,12 +137,12 @@ def cmd_thumbs(args) -> int:
     cfg = load_config(proj.config_path)
     if args.aspect:
         cfg.render.aspect = args.aspect
-    tag = "" if cfg.render.aspect == "16:9" else "-" + cfg.render.aspect.replace(":", "x")
+    tag = aspect_tag(cfg.render.aspect)
 
     # the picture track has no captions or watermark burned into it
     source = proj.build / f"picture{tag}.mp4"
     if not source.exists():
-        source = next(iter(proj.out.glob(f"*{tag}.mp4")), None)
+        source = _delivery_file(proj, cfg, tag)
         if source is None:
             print(f"nothing built for {cfg.render.aspect} yet - run: vidsmith build {args.name}")
             return 1
@@ -184,9 +209,10 @@ def cmd_meta(args) -> int:
         return 1
     cfg = load_config(proj.config_path)
     meta = llm.upload_metadata(cfg.title, load_scenes(scenes_json), keys["gemini"])
-    text = pipeline._readable_meta(meta)
-    (proj.out / "youtube.txt").write_text(text, encoding="utf-8")
-    print(text)
+    # Through the pipeline's own writer, not a second copy of it: the copy that
+    # used to live here omitted the credits block, so regenerating a description
+    # stripped the attribution out of the file you paste into YouTube.
+    print(pipeline.write_metadata(proj.out, meta))
     return 0
 
 
