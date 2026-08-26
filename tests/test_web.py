@@ -117,6 +117,41 @@ def test_the_page_does_not_hardcode_the_directive_set(client):
     assert "adoptScriptRules(o.script)" in page, "the page ignores the served rules"
 
 
+def test_the_page_takes_a_token_from_the_link(client):
+    """So the owner can send one URL instead of a URL and a string to paste.
+
+    `?t=` already existed in the outgoing direction - authQuery() puts it on
+    media and download URLs, because a <video> element cannot set a header -
+    but nothing read it back, so a link carrying a token still met an empty
+    field.
+    """
+    page = client.get("/").text
+    assert "tokenFromUrl()" in page, "the page never reads the link"
+    assert 'searchParams' in page and '"t"' in page or "'t'" in page
+
+
+def test_the_page_strips_the_token_from_the_address_bar(client):
+    """Not secrecy - it travelled in a chat message and the server logs it.
+
+    It keeps the token out of the tab the visitor leaves open, out of anything
+    they screenshot, and out of the Referer on any link they click.
+    """
+    page = client.get("/").text
+    assert "replaceState" in page, "the token would sit in the address bar"
+    assert "searchParams.delete" in page
+
+
+def test_a_linked_token_outranks_a_stored_one(client):
+    """A stored token may be from a tunnel that no longer exists.
+
+    The link is the more recent instruction, so it has to win - otherwise
+    sharing a fresh URL with someone who used an older one silently fails.
+    """
+    page = client.get("/").text
+    assert "linked || localStorage.getItem" in page, \
+        "a stale stored token would beat the link"
+
+
 def test_options_says_which_footage_sources_this_instance_can_reach(client):
     """A provider without its key does not error, it falls back to cards. The
     page has to know that before offering it, or a render finishes looking

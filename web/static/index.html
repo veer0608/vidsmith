@@ -359,6 +359,36 @@ function forgetToken() {
 }
 const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
 
+/* A token carried in the link, so the owner can send one URL rather than a URL
+   and a string to paste. Only ever a convenience: the field and localStorage
+   remain the source of truth, and an instance with no token configured ignores
+   this entirely.
+
+   It is removed from the address bar immediately, with replaceState so there is
+   no history entry holding it. That does not make the link secret - it was in
+   the chat it arrived in, and the server logs it - but it keeps the token out
+   of the tab the visitor then leaves open, out of anything they screenshot, and
+   out of the Referer on any link they click. The tunnel's whole premise is a
+   URL that dies with the window, so this is the right size of protection for
+   it: worth doing, not worth pretending is more than it is. */
+function tokenFromUrl() {
+  let supplied = null;
+  try {
+    supplied = new URLSearchParams(window.location.search).get("t");
+  } catch (e) {
+    return null;
+  }
+  if (!supplied) return null;
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("t");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  } catch (e) {
+    /* a browser that refuses replaceState still gets a working page */
+  }
+  return supplied.trim() || null;
+}
+
 function fillSelect(el, values, selected) {
   el.innerHTML = "";
   for (const v of values) {
@@ -416,9 +446,16 @@ async function loadOptions() {
   needsAuth = !!o.auth;
   stages = o.stages || [];
   adoptScriptRules(o.script);
+  // read unconditionally, so `?t=` never survives in the address bar of an
+  // instance that happens to have no gate configured
+  const linked = tokenFromUrl();
   if (needsAuth) {
     $("authpanel").classList.remove("hidden");
-    $("tokenfield").value = localStorage.getItem("vidsmith_token") || "";
+    // a token in the link wins: it is the more recent instruction, and the
+    // stored one may be a stale token from a tunnel that no longer exists
+    const supplied = linked || localStorage.getItem("vidsmith_token") || "";
+    $("tokenfield").value = supplied;
+    if (supplied) localStorage.setItem("vidsmith_token", supplied);
     $("tokenfield").addEventListener("input", () =>
       localStorage.setItem("vidsmith_token", $("tokenfield").value.trim()));
   }
