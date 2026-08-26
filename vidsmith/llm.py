@@ -516,6 +516,58 @@ def usable_chapters(chapters: Sequence[Dict[str, Any]],
     return [{k: v for k, v in c.items() if k != "_at"} for c in kept]
 
 
+# YouTube's hard caps on the upload form. The prompt asks for a title under 70
+# characters and twelve tags, but a prompt is a request and these are limits: a
+# title over 100 characters or tags totalling over 500 are refused at upload,
+# after the render is already paid for.
+#
+# Unlike the chapter rule above, no build here has been seen to exceed these -
+# the model has complied every time. This is a guard on an unobserved risk, not
+# a fix for an observed failure, and it is cheap enough to be worth having
+# anyway: the failure it prevents happens at the destination, where this project
+# has been bitten repeatedly.
+MAX_TITLE = 100
+MAX_DESCRIPTION = 5000
+MAX_TAGS_TOTAL = 500
+
+
+def _clip_words(text: str, limit: int) -> str:
+    """Cut to `limit`, at a word boundary when there is one to cut at."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:-")
+    return cut or text[:limit]
+
+
+def within_youtube_limits(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """Trim a metadata block to what the upload form will accept.
+
+    Tags are dropped from the end rather than truncated: half a tag is not a
+    tag, and the model writes them in descending relevance, so the tail is the
+    right thing to lose.
+    """
+    out = dict(meta)
+    if isinstance(out.get("title"), str):
+        out["title"] = _clip_words(out["title"], MAX_TITLE)
+    if isinstance(out.get("description"), str):
+        out["description"] = _clip_words(out["description"], MAX_DESCRIPTION)
+
+    tags, total, kept = out.get("tags") or [], 0, []
+    for tag in tags if isinstance(tags, list) else []:
+        tag = str(tag).strip()
+        if not tag:
+            continue
+        # the separator counts against the budget for every tag after the first
+        cost = len(tag) + (2 if kept else 0)
+        if total + cost > MAX_TAGS_TOTAL:
+            break
+        kept.append(tag)
+        total += cost
+    out["tags"] = kept
+    return out
+
+
 def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
                     model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     def stamp(t: float) -> str:
@@ -537,7 +589,7 @@ def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
     # carry the same list and none of them promises a chapter YouTube will drop.
     meta["chapters"] = usable_chapters(meta.get("chapters") or [],
                                        sum(s.duration for s in scenes))
-    return meta
+    return within_youtube_limits(meta)
 
 
 SCRIPT_PROMPT = """Write the narration for a YouTube explainer video.
