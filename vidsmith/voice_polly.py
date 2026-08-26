@@ -21,11 +21,11 @@ its script length twice.
 nothing about how long the word lasts, while edge-tts reports both. See
 `_timings` for what that forces.
 
-**Neural voices ignore pitch.** `prosody` supports rate and volume on neural,
-long-form and generative engines and silently drops pitch, so a project moving
-here from edge would quietly lose its pitch setting. That is refused loudly
-instead - this project has been bitten too many times by settings that appear
-to apply and do not.
+**Prosody is not written the way edge-tts writes it.** `rate` happily takes
+`+8%`, but `volume` is decibels or a named level and rejects a percentage
+outright, and `pitch` is refused on the engines that do not support it. All
+three were measured against the live service rather than read off the docs,
+which describe pitch as unsupported without saying it is a hard error.
 """
 from __future__ import annotations
 
@@ -70,6 +70,42 @@ def _client(key: str, secret: str, region: str):
                         aws_secret_access_key=secret, region_name=region)
 
 
+NAMED_VOLUMES = ("default", "silent", "x-soft", "soft", "medium", "loud", "x-loud")
+
+
+def polly_volume(volume: str) -> str:
+    """Translate an edge-tts volume into one Polly will accept.
+
+    The two services do not agree on the unit. edge-tts writes a percentage and
+    Polly takes decibels or a named level, rejecting `+0%` with a bare "Invalid
+    SSML request" that names no attribute - so a project switching provider hits
+    a failure whose message points nowhere. Measured against the live service:
+    `rate="+8%"` is fine and `volume="+0%"` is not.
+
+    A percentage is a linear gain and a decibel is logarithmic, so this is a
+    real conversion rather than a relabel: +0% is +0dB, and +50% is about
+    +3.5dB. Anything already in Polly's own vocabulary is passed through
+    untouched.
+    """
+    import math
+
+    v = (volume or "").strip()
+    if not v:
+        return "+0dB"
+    if v.lower() in NAMED_VOLUMES or v.lower().endswith("db"):
+        return v
+    if v.endswith("%"):
+        try:
+            pct = float(v.rstrip("%"))
+        except ValueError:
+            return "+0dB"
+        gain = 1.0 + pct / 100.0
+        if gain <= 0:
+            return "silent"
+        return f"{20 * math.log10(gain):+.1f}dB"
+    return "+0dB"
+
+
 def ssml(text: str, cfg: VoiceConfig, engine: str = DEFAULT_ENGINE) -> str:
     """The scene as SSML, carrying whatever prosody this engine honours.
 
@@ -80,7 +116,8 @@ def ssml(text: str, cfg: VoiceConfig, engine: str = DEFAULT_ENGINE) -> str:
     ampersand would otherwise end the document, and this is the only place in
     the pipeline where narration is parsed rather than spoken.
     """
-    attrs = [f'rate="{escape(cfg.rate)}"', f'volume="{escape(cfg.volume)}"']
+    attrs = [f'rate="{escape(cfg.rate)}"',
+             f'volume="{escape(polly_volume(cfg.volume))}"']
     if engine not in PITCHLESS_ENGINES:
         attrs.append(f'pitch="{escape(cfg.pitch)}"')
     return (f'<speak><prosody {" ".join(attrs)}>{escape(text)}'
