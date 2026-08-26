@@ -9,12 +9,12 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from . import captions as cap
 from . import ffmpeg_util as ff
 from . import cards, llm, music, render, thumbs, visuals, voice
-from .config import Config, load_config
+from .config import Config, aspect_tag, load_config
 from .theme import resolve as resolve_theme
 from .script_parser import Scene, load_scenes, parse_script, save_scenes
 
@@ -122,7 +122,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     _apply_overrides(cfg, overrides or {})
     # Picture, captions and the delivery file all depend on frame size, so each
     # aspect gets its own artifacts. Narration is shape-independent and shared.
-    tag = "" if cfg.render.aspect == "16:9" else "-" + cfg.render.aspect.replace(":", "x")
+    tag = aspect_tag(cfg.render.aspect)
     theme = resolve_theme(cfg.theme.preset, cfg.theme.accent, cfg.theme.font)
     keys = find_keys(project_root)
     force = set(force)
@@ -326,16 +326,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if keys["gemini"]:
         try:
             meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"])
-            (proj.out / "youtube.json").write_text(
-                json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-            text = _readable_meta(meta)
-            block = all_credits(proj.out)
-            if block:
-                text += "\nCREDITS\n" + block
-            (proj.out / "youtube.txt").write_text(text, encoding="utf-8")
-            (proj.out / "description.txt").write_text(
-                description_box(meta, block), encoding="utf-8")
+            write_metadata(proj.out, meta)
             log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
         except Exception as exc:
             log(f"meta     skipped ({exc})")
@@ -365,6 +356,29 @@ def credits_block(scenes: Sequence[Scene], provider: str) -> str:
     site = {"pexels": "Pexels (https://www.pexels.com)",
             "pixabay": "Pixabay (https://pixabay.com)"}.get(provider, provider)
     return f"Footage from {site}\n" + "\n".join(rows) + "\n"
+
+
+def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:
+    """Write youtube.json, youtube.txt and description.txt for one build.
+
+    The single writer, deliberately. `vidsmith meta` used to keep its own copy
+    that wrote youtube.txt without the credits block and left the other two
+    files stale beside it, so regenerating a description silently stripped the
+    attribution out of the exact file you paste into YouTube - a licence
+    condition, lost by a command whose whole job is to rewrite that file.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "youtube.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    block = all_credits(out_dir)
+    text = _readable_meta(meta)
+    if block:
+        text += "\nCREDITS\n" + block
+    (out_dir / "youtube.txt").write_text(text, encoding="utf-8")
+    (out_dir / "description.txt").write_text(
+        description_box(meta, block), encoding="utf-8")
+    return text
 
 
 def all_credits(out_dir: Path) -> str:
