@@ -147,6 +147,31 @@ def _write(tmp_path, text=SCRIPT):
     return path
 
 
+@pytest.mark.parametrize("kind", ["visual", "b-roll", "broll", "footage",
+                                  "shot", "image"])
+def test_every_footage_directive_is_the_same_directive(tmp_path, kind):
+    """`image` included, which is the one that reads as if it did more.
+
+    It sets the scene's search and nothing else: there is no `image` field on
+    Scene and nothing downstream looks for one, so a still only ever enters
+    through the `local` provider matching an image file on disk. CLAUDE.md
+    claimed it forced a still, which is a directive that appears to do
+    something and quietly does not. This test is what keeps the two in step.
+    """
+    path = _write(tmp_path, f"# T\n\n## One\n[{kind}: a quiet desk]\nNarration here.\n")
+    _, scenes = parse_script(path)
+    assert len(scenes) == 1
+    assert scenes[0].query == "a quiet desk"
+    assert scenes[0].diagram == "", "only [diagram:] forces a drawn scene"
+
+
+def test_a_diagram_directive_is_not_a_footage_directive(tmp_path):
+    path = _write(tmp_path, "# T\n\n## One\n[diagram: how a b-tree splits]\nNarration.\n")
+    _, scenes = parse_script(path)
+    assert scenes[0].diagram == "how a b-tree splits"
+    assert scenes[0].query != "how a b-tree splits"
+
+
 def test_title_and_scene_count(tmp_path):
     title, scenes = parse_script(_write(tmp_path))
     assert title == "My Video"
