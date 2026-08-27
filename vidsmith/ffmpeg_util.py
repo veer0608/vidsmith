@@ -115,6 +115,35 @@ def has_audio(path: Path) -> bool:
     return any(s.get("codec_type") == "audio" for s in probe(path).get("streams", []))
 
 
+# A filtergraph path is parsed by two layers whose escaping rules have moved
+# between ffmpeg builds, and the apostrophe is where they disagree: the spelling
+# that works on the Windows and Debian builds is rejected by Homebrew's newer
+# one, which reads the same bytes and reports "No option name near". Rather than
+# hunt for a spelling that satisfies every build, hand the parser a path that
+# has nothing in it to argue about.
+UNSAFE_IN_FILTERGRAPH = set("'\[],;:=")
+
+
+def filtergraph_safe(path: Path, staging: Path) -> Path:
+    """A path ffmpeg's filtergraph can take, copying the file if it must.
+
+    Only the characters the parser fights over matter; a drive colon is fine
+    because escape_filter_path handles it, so it is not counted here.
+    """
+    resolved = path.resolve()
+    awkward = set(resolved.parent.as_posix()) & (UNSAFE_IN_FILTERGRAPH - {":"})
+    if not awkward:
+        return resolved
+
+    staging.mkdir(parents=True, exist_ok=True)
+    if set(staging.resolve().as_posix()) & (UNSAFE_IN_FILTERGRAPH - {":"}):
+        # nowhere better to put it; the escaping is still the best we have
+        return resolved
+    dest = staging / resolved.name
+    shutil.copy2(resolved, dest)
+    return dest.resolve()
+
+
 def escape_filter_path(path: Path) -> str:
     """Escape a path for use inside a single-quoted filtergraph option.
 

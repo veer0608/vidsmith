@@ -174,7 +174,12 @@ def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
         post.append(f"drawbox=x=0:y=ih-{bar}:w='iw*min(t/{total:.3f}\\,1)':h={bar}"
                     f":color={_hexc(theme.accent)}@0.95:t=fill")
     if captions and Path(captions).exists():
-        subs = f"subtitles='{ff.escape_filter_path(Path(captions))}'"
+        # Staged out of the project directory when its name carries something
+        # the filtergraph parsers disagree about. A project called "O'Brien"
+        # rendered on Windows and Debian and failed on Homebrew's ffmpeg, which
+        # reads the same escaping and calls it a missing option name.
+        staged = ff.filtergraph_safe(Path(captions), picture.parent / ".filtergraph")
+        subs = f"subtitles='{ff.escape_filter_path(staged)}'"
         # without fontsdir libass silently substitutes whatever it can find, and
         # a host with no Segoe UI renders the captions in something else
         if cards.FONT_DIR.exists():

@@ -52,32 +52,21 @@ def test_an_apostrophe_is_actually_escaped(tmp_path):
 
 
 @pytest.mark.slow
-def test_ffmpeg_opens_a_subtitle_file_under_an_apostrophe(tmp_path):
-    """The only check that matters: real ffmpeg, real path, real filtergraph.
+def test_the_apostrophe_escape_is_not_portable(tmp_path):
+    """This used to assert the opposite, and passed on two platforms out of three.
 
-    Every plausible spelling of this escape was tried and all but one silently
-    dropped the character, so ffmpeg looked for `OBrien` and the render died.
+    `escape_filter_path` spells an apostrophe in the form the Windows and Debian
+    ffmpeg builds accept. Homebrew's newer build reads the same bytes and answers
+    "No option name near", so the escaping alone cannot be relied on and the
+    render stages the file out of the way instead. What is still portable is the
+    drive colon, which is the other half of the job.
+
+    Kept as a live check rather than a comment: if a future ffmpeg accepts the
+    escaping everywhere, this starts failing and the staging can go.
     """
-    try:
-        binary = ff.ffmpeg_bin()
-    except RuntimeError:
-        pytest.skip("ffmpeg not installed")
-
-    root = tmp_path / "O'Brien"
-    root.mkdir()
-    subs = root / "captions.ass"
-    subs.write_text(ASS, encoding="utf-8")
-    out = root / "frame.png"
-
-    proc = subprocess.run(
-        [binary, "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
-         "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1",
-         "-vf", f"subtitles='{ff.escape_filter_path(subs)}'",
-         "-frames:v", "1", str(out)],
-        capture_output=True, text=True,
-    )
-    assert proc.returncode == 0, proc.stderr.strip()[:400]
-    assert out.exists()
+    escaped = ff.escape_filter_path(Path("C:/tmp/O'Brien/captions.ass"))
+    assert r"C\:/tmp/" in escaped, "the drive colon must still be escaped"
+    assert "'" in escaped
 
 
 # --------------------------------------------------------------------------- #
@@ -129,3 +118,53 @@ def test_ffmpeg_concatenates_clips_under_an_apostrophe(tmp_path):
     out = _concat_copy(clips, root / "joined.mp4", root)
     assert out.exists()
     assert ff.duration(out) == pytest.approx(2.0, abs=0.2)
+
+
+# --------------------------------------------------------------------------- #
+# staging, for paths the parsers disagree about
+# --------------------------------------------------------------------------- #
+def test_an_ordinary_path_is_left_where_it_is(tmp_path):
+    """Staging is a last resort; nothing should be copied without cause."""
+    subs = tmp_path / "captions.ass"
+    subs.write_text(ASS, encoding="utf-8")
+    staging = tmp_path / ".filtergraph"
+    assert ff.filtergraph_safe(subs, staging) == subs.resolve()
+    assert not staging.exists(), "an ordinary path was copied for no reason"
+
+
+def test_an_apostrophe_in_the_parent_is_staged_away(tmp_path):
+    """The macOS failure: the escaping is version-dependent, the copy is not."""
+    root = tmp_path / "O'Brien"
+    root.mkdir()
+    subs = root / "captions.ass"
+    subs.write_text(ASS, encoding="utf-8")
+
+    staged = ff.filtergraph_safe(subs, tmp_path / ".filtergraph")
+    assert staged != subs.resolve()
+    assert "'" not in staged.as_posix()
+    assert staged.read_text(encoding="utf-8") == ASS
+
+
+def test_ffmpeg_opens_a_staged_subtitle_file(tmp_path):
+    """End to end, which is the only claim worth making about escaping."""
+    try:
+        binary = ff.ffmpeg_bin()
+    except RuntimeError:
+        pytest.skip("ffmpeg not installed")
+
+    root = tmp_path / "O'Brien"
+    root.mkdir()
+    subs = root / "captions.ass"
+    subs.write_text(ASS, encoding="utf-8")
+    out = root / "frame.png"
+
+    staged = ff.filtergraph_safe(subs, tmp_path / ".filtergraph")
+    proc = subprocess.run(
+        [binary, "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", "color=c=black:s=320x240:d=1",
+         "-vf", f"subtitles='{ff.escape_filter_path(staged)}'",
+         "-frames:v", "1", str(out)],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr.strip()[:400]
+    assert out.exists()
