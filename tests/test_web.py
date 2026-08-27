@@ -637,3 +637,26 @@ def test_drafting_without_a_key_says_so(client, monkeypatch):
     r = client.post("/api/draft", json={"topic": "a topic worth explaining"})
     assert r.status_code == 503
     assert "GEMINI_API_KEY" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("call", [
+    lambda llm: llm.generate("hello", "key"),
+    lambda llm: llm.generate_vision("hello", [b"a", b"b"], "key"),
+])
+def test_no_request_path_retries_a_spent_quota(monkeypatch, call):
+    """The guard was added to the text path and not the vision one, so every
+    thumbnail went on spending three requests against a number that only the
+    next day restores."""
+    from vidsmith import llm
+
+    calls = []
+
+    class Spent:
+        status_code = 429
+        text = '{"error": {"status": "RESOURCE_EXHAUSTED"}}'
+
+    monkeypatch.setattr(llm.requests, "post",
+                        lambda *a, **k: (calls.append(1), Spent())[1])
+    with pytest.raises(llm.QuotaExhausted):
+        call(llm)
+    assert len(calls) == 1, f"retried a spent quota {len(calls)} times"

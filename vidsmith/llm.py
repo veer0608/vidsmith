@@ -26,6 +26,19 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+def _refuse_if_spent(r) -> None:
+    """Stop the moment the day's allowance is gone.
+
+    Retrying a spent quota just burns more requests against a number that only
+    time restores. This lives outside the request loops because it was added to
+    the text path and not the vision one, and the vision path went on retrying
+    three times per thumbnail.
+    """
+    if r.status_code == 429 and "RESOURCE_EXHAUSTED" in r.text:
+        raise QuotaExhausted(
+            "the Gemini free tier is out of quota for now; it resets daily")
+
+
 class QuotaExhausted(LLMUnavailable):
     """The key is fine, the day's allowance is not. Distinct because it is the
     one failure that waiting fixes, and the only sensible advice differs."""
@@ -47,10 +60,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
             json=body,
             timeout=120,
         )
-        if r.status_code == 429 and "RESOURCE_EXHAUSTED" in r.text:
-            # retrying a spent daily quota just burns four more requests
-            raise QuotaExhausted(
-                "the Gemini free tier is out of quota for now; it resets daily")
+        _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
             time.sleep(2 ** attempt)
@@ -90,6 +100,7 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
     for attempt in range(retries):
         r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
                           json=body, timeout=180)
+        _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
             time.sleep(2 ** attempt)
