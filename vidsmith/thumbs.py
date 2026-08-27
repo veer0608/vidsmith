@@ -160,7 +160,8 @@ def _thumb_bytes(path: Path, width: int = 384) -> bytes:
 
 
 def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
-               keys: dict, workdir: Path, log=print) -> Optional[dict]:
+               keys: dict, workdir: Path, log=print,
+               strict: bool = False) -> Optional[dict]:
     """A stock photograph for the thumbnail, chosen for this video.
 
     A frame lifted out of the finished video is the wrong raw material: b-roll is
@@ -178,6 +179,11 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
         try:
             query = llm.thumbnail_query(title, subjects, gemini_key)
         except Exception as exc:
+            # A build must never fail over a thumbnail, so it degrades. A
+            # deliberate refresh is the opposite: producing the same keyword
+            # fallback again is worse than leaving what is already there.
+            if strict:
+                raise
             log(f"         thumbnail query fell back to the title ({exc})")
     if not query:
         from .visuals import keywords
