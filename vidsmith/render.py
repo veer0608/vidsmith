@@ -174,6 +174,7 @@ def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
         post.append(f"drawbox=x=0:y=ih-{bar}:w='iw*min(t/{total:.3f}\\,1)':h={bar}"
                     f":color={_hexc(theme.accent)}@0.95:t=fill")
     if captions and Path(captions).exists():
+        ff.require_filter("subtitles")
         subs = f"subtitles='{ff.escape_filter_path(Path(captions))}'"
         # without fontsdir libass silently substitutes whatever it can find, and
         # a host with no Segoe UI renders the captions in something else

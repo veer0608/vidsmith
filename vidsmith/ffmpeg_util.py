@@ -115,6 +115,36 @@ def has_audio(path: Path) -> bool:
     return any(s.get("codec_type") == "audio" for s in probe(path).get("streams", []))
 
 
+_FILTERS: Optional[set] = None
+
+
+def filters() -> set:
+    """Every filter this ffmpeg was built with.
+
+    Worth asking rather than assuming. Homebrew's ffmpeg 8.1.2 is built without
+    libass, so `subtitles` is simply absent, and the parser's answer to that is
+    "No option name near <path>" - which reads like a quoting fault and sent a
+    whole afternoon into escaping rules that were never wrong.
+    """
+    global _FILTERS
+    if _FILTERS is None:
+        proc = subprocess.run([ffmpeg_bin(), "-hide_banner", "-filters"],
+                              capture_output=True, text=True)
+        _FILTERS = {line.split()[1] for line in proc.stdout.splitlines()
+                    if line.startswith(" ") and len(line.split()) > 2}
+    return _FILTERS
+
+
+def require_filter(name: str) -> None:
+    if name in filters():
+        return
+    raise RuntimeError(
+        f"this ffmpeg has no '{name}' filter, so captions cannot be burned in. "
+        f"It was built without the library that provides it: {ffmpeg_bin()}. "
+        "A full build (evermeet.cx on macOS, or a static build) has it."
+    )
+
+
 def escape_filter_path(path: Path) -> str:
     """Escape a path for use inside a single-quoted filtergraph option.
 

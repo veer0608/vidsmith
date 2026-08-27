@@ -9,6 +9,7 @@
 # filtergraph, and the console encoding. `vidsmith meta` once wrote every file
 # correctly and then died printing a Pexels photographer's name, and nothing on
 # Linux could ever have caught it.
+
 #
 # Both jobs run the encodes, and they are not redundant: the escaping tests take
 # their paths from tmp_path, so only the Windows runner ever hands ffmpeg a

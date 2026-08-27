@@ -223,6 +223,15 @@ def cmd_doctor(args) -> int:
 
         print(f"[ok]   ffmpeg    {ff.ffmpeg_bin()}")
         print(f"[ok]   ffprobe   {ff.ffprobe_bin()}")
+        # A build without libass has no subtitles filter, and ffmpeg answers a
+        # request for one with "No option name near <path>", which reads like a
+        # quoting fault. Say it here, where someone looks before rendering.
+        if "subtitles" in ff.filters():
+            print("[ok]   libass    the subtitles filter is present")
+        else:
+            ok = False
+            print("[MISS] libass    this ffmpeg has no subtitles filter, so "
+                  "captions cannot be burned in")
     except RuntimeError as exc:
         ok = False
         print(f"[MISS] ffmpeg    {exc}")

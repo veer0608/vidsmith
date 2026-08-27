@@ -62,6 +62,8 @@ def test_ffmpeg_opens_a_subtitle_file_under_an_apostrophe(tmp_path):
         binary = ff.ffmpeg_bin()
     except RuntimeError:
         pytest.skip("ffmpeg not installed")
+    if "subtitles" not in ff.filters():
+        pytest.skip("this ffmpeg was built without libass")
 
     root = tmp_path / "O'Brien"
     root.mkdir()
@@ -129,3 +131,37 @@ def test_ffmpeg_concatenates_clips_under_an_apostrophe(tmp_path):
     out = _concat_copy(clips, root / "joined.mp4", root)
     assert out.exists()
     assert ff.duration(out) == pytest.approx(2.0, abs=0.2)
+
+
+# --------------------------------------------------------------------------- #
+# builds without libass
+# --------------------------------------------------------------------------- #
+def test_a_missing_subtitles_filter_is_named_plainly(monkeypatch):
+    """Homebrew's ffmpeg 8.1.2 has no libass, so `subtitles` does not exist.
+
+    ffmpeg's own answer to that is "No option name near <path>", which reads
+    like a quoting fault and cost an afternoon in escaping rules that were never
+    wrong. The message has to say what is actually missing.
+    """
+    monkeypatch.setattr(ff, "_FILTERS", {"drawbox", "overlay"})
+    with pytest.raises(RuntimeError) as exc:
+        ff.require_filter("subtitles")
+    assert "no 'subtitles' filter" in str(exc.value)
+    assert "captions cannot be burned in" in str(exc.value)
+
+
+def test_a_present_filter_passes_silently(monkeypatch):
+    monkeypatch.setattr(ff, "_FILTERS", {"subtitles"})
+    ff.require_filter("subtitles")
+
+
+def test_the_filter_list_is_read_from_the_binary():
+    """Not hardcoded: the whole point is that builds differ."""
+    try:
+        ff.ffmpeg_bin()
+    except RuntimeError:
+        pytest.skip("ffmpeg not installed")
+    ff._FILTERS = None
+    found = ff.filters()
+    assert len(found) > 100, "that is not a real filter list"
+    assert "overlay" in found and "scale" in found
