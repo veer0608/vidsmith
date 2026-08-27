@@ -6,18 +6,27 @@ You write a markdown script. vidsmith speaks it in a neural voice, finds a shot
 for every scene, burns word-timed captions, mixes music under the narration, and
 encodes a delivery-ready mp4, plus an `.srt` and a draft title/description/chapters.
 
-```powershell
-cd ~/claude/vidsmith; .\vidsmith.cmd build demo
+```bash
+git clone https://github.com/veer0608/vidsmith.git
+cd vidsmith
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m vidsmith build demo
 ```
 
 ```
 script   4 scenes, ~35s estimated
 voice    en-US-AndrewNeural at +8%
-visuals  provider=pexels 1920x1080
+visuals  provider=cards 1920x1080
 captions captions.ass + captions.srt
-render   28.1s of picture, mixing and encoding
-done     out/why-your-bank-statement-lies.mp4  (29.1s, 4.2 MB, 22s to build)
+render   32.7s of picture, mixing and encoding
+done     out/why-your-bank-statement-lies.mp4  (32.7s, 6.5 MB, 62s to build)
 ```
+
+That run needs no API keys and no account: measured from a clean clone. ffmpeg
+is the only thing to install yourself, everything else comes from pip, and the
+narration voice is a free Microsoft endpoint. Stock footage and a written
+description are upgrades, not requirements.
 
 ## Why the captions are exact
 
@@ -33,24 +42,32 @@ a full stop.
 
 ## Install
 
-This is a PowerShell 5.1 machine: `&&` is a parser error there, so the commands
-below chain with `;`.
+ffmpeg is the only non-Python dependency.
 
-```powershell
-cd ~/claude/vidsmith; python -m venv .venv; .venv\Scripts\python.exe -m pip install -r requirements.txt
-```
+| | |
+| --- | --- |
+| macOS | `brew install ffmpeg` |
+| Debian, Ubuntu | `sudo apt install ffmpeg` |
+| Windows | `winget install Gyan.FFmpeg` |
 
-ffmpeg is the only non-Python dependency:
+Then the package:
 
 ```bash
-winget install Gyan.FFmpeg
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-Check everything at once:
+On Windows the interpreter is `.venv\Scripts\python.exe`, and `.\vidsmith.cmd` wraps it, so
+commands read as `.\vidsmith.cmd build demo`. PowerShell 5.1 has no `&&`; chain with `;`.
 
-```powershell
-cd ~/claude/vidsmith; .\vidsmith.cmd doctor
+Check what this machine can actually do:
+
+```bash
+.venv/bin/python -m vidsmith doctor
 ```
+
+It reports whether ffmpeg was found, which keys resolved, and what each missing
+key would have added. None of them are required to render a video.
 
 ## Writing a script
 
@@ -75,7 +92,7 @@ shop. That is why a coffee costs money at a company you have never heard of.
 Or have Gemini draft one:
 
 ```powershell
-cd ~/claude/vidsmith; .\vidsmith.cmd new gil --topic "why Python's GIL still matters" --minutes 3
+.venv/bin/python -m vidsmith new gil --topic "why Python's GIL still matters" --minutes 3
 ```
 
 ## Commands
@@ -254,7 +271,7 @@ frame, so the second cut costs no extra calls.
 ## Thumbnails
 
 ```powershell
-cd ~/claude/vidsmith; .\vidsmith.cmd thumbs demo
+.venv/bin/python -m vidsmith thumbs demo
 ```
 
 A build prefers a **stock photograph** over anything cut from the video. A frame
@@ -338,9 +355,9 @@ PEXELS_API_KEY=...
 GEMINI_API_KEY=...
 ```
 
-`GEMINI_API_KEY` is also picked up from `~/claude/schemablind/.env` if it is not
-set here. Everything key-dependent is optional; narration and captions need no
-key at all.
+Keys are read from the environment first, then from `.env` beside the project,
+its parent, and the repository root. Everything key-dependent is optional:
+narration, captions, cards, music and the encode need no key at all.
 
 ## How a build is staged
 
@@ -371,7 +388,7 @@ projects/demo/out/
 ## Tests
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest
+.venv/bin/python -m pytest
 ```
 
 200 fast tests run in seconds; 12 more marked `slow` encode real video with
@@ -402,7 +419,7 @@ and to an arithmetic split if there is not even one of those.
 download the mp4. Locally:
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m uvicorn web.app:app --port 8077
+.venv/bin/python -m uvicorn web.app:app --port 8077
 ```
 
 Renders happen on a worker thread, not in the request, because a video takes
@@ -447,7 +464,7 @@ machine - so it runs at full local speed instead of a hosted instance's fraction
 of a CPU. The URL lasts as long as the window stays open.
 
 ```powershell
-cd ~/claude/vidsmith; .\scripts\serve-public.ps1
+.\scripts\serve-public.ps1
 ```
 
 It starts the server, mints an access token into `.env` on first run, opens the
