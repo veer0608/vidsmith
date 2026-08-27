@@ -36,9 +36,14 @@ $envFile = Join-Path $root ".env"
 # Both of these must be anchored and must require a value. An unanchored test
 # here once matched a commented-out `# VIDSMITH_TOKEN=...` line, so no token was
 # minted, none was read, and the tunnel opened with the gate wide open.
-$live = if (Test-Path $envFile) {
-    @(Get-Content $envFile | Where-Object { $_ -match "^\s*VIDSMITH_TOKEN=\S" })
-} else { @() }
+# Assigned in two statements, not as the output of an if. PowerShell unrolls a
+# single-element array when it comes out of a statement, so the `if` form handed
+# back a String, $live[-1] indexed that string, and the token printed as its last
+# character: "c". Count stayed 1 either way, so nothing looked wrong.
+$live = @()
+if (Test-Path $envFile) {
+    $live = @(Get-Content $envFile | Where-Object { $_ -match "^\s*VIDSMITH_TOKEN=\S" })
+}
 
 if ($NoToken) {
     # asked for deliberately, so the server must not pick a token up from .env
@@ -55,18 +60,19 @@ if ($NoToken) {
 }
 else {
     if ($live.Count -eq 0) {
-        # A native command's output can arrive with a trailing carriage return.
-        # Left in, it travels into the .env line and into every later print of
-        # the token, where the CR returns the cursor to column zero and the
-        # displayed value collapses to its last character. Strip to printable
-        # ASCII at the source, which is all token_urlsafe ever produces.
+        # Native command output can arrive with a trailing carriage return, and
+        # token_urlsafe only ever emits printable ASCII, so anything else came
+        # from the pipe rather than from the token.
         $fresh = (& $python -c "import secrets; print(secrets.token_urlsafe(18))") `
                  -replace "[^\x21-\x7E]", ""
         Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$fresh" -Encoding utf8
         Write-Host "minted a new access token into .env"
         $live = @("VIDSMITH_TOKEN=$fresh")
     }
-    $token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "") -replace "[^\x21-\x7E]", ""
+    # Select-Object behaves the same whether PowerShell hands back an array or a
+    # bare string, so the value no longer depends on which one it chose.
+    $last = $live | Select-Object -Last 1
+    $token = ($last -replace "^\s*VIDSMITH_TOKEN=", "") -replace "[^\x21-\x7E]", ""
 
     # Never expose an ungated renderer by accident. -NoToken is the way to mean it.
     if (-not $token) {
