@@ -169,6 +169,10 @@ def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     try:
         return {"script": llm.draft_script(req.topic.strip(), minutes, key),
                 "minutes": minutes}
+    except llm.QuotaExhausted as exc:
+        # 429, not 502: a spent quota is not a broken gateway, and a 5xx invites
+        # a proxy to substitute its own HTML page, which the page cannot parse
+        raise HTTPException(429, str(exc))
     except llm.LLMUnavailable as exc:
         raise HTTPException(502, f"the model did not answer: {exc}")
 
