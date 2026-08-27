@@ -615,3 +615,25 @@ def test_a_quota_error_is_not_retried(monkeypatch):
     with pytest.raises(llm.QuotaExhausted):
         llm.generate("hello", "key")
     assert len(calls) == 1, f"retried a spent quota {len(calls)} times"
+
+
+def test_every_route_reads_keys_through_one_helper():
+    """A route calling find_keys itself cannot be stubbed.
+
+    Both quota tests below passed locally and failed on CI for exactly that
+    reason: the machine had a real key, so the endpoint's own lookup succeeded
+    and the stub was never consulted.
+    """
+    import inspect
+
+    source = inspect.getsource(web_app)
+    body = source.replace(inspect.getsource(web_app._keys), "")
+    assert "find_keys(" not in body, \
+        "a route calls find_keys directly; go through _keys() so it can be stubbed"
+
+
+def test_drafting_without_a_key_says_so(client, monkeypatch):
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": ""})
+    r = client.post("/api/draft", json={"topic": "a topic worth explaining"})
+    assert r.status_code == 503
+    assert "GEMINI_API_KEY" in r.json()["detail"]

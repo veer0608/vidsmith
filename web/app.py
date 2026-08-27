@@ -81,7 +81,14 @@ def _validate(req: BuildRequest) -> None:
 
 
 def _keys() -> Dict[str, str]:
-    """Which stock and model keys this instance actually resolves."""
+    """Which stock and model keys this instance actually resolves.
+
+    Every route goes through here rather than calling find_keys directly, so
+    there is one place to look and one place to stub. Two routes used to call it
+    themselves, which meant a test that stubbed this still hit the real lookup:
+    it passed on a machine with a key and failed on CI, having never exercised
+    the branch it named.
+    """
     return find_keys(Path.cwd())
 
 
@@ -104,8 +111,7 @@ def healthz() -> Dict[str, Any]:
         return {"ok": False, "ffmpeg": str(exc), "fonts": bundled}
     return {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
             "busy": jobs.busy(), "max_minutes": MAX_MINUTES,
-            "keys": {name: bool(value) for name, value
-                     in find_keys(Path.cwd()).items()}}
+            "keys": {name: bool(value) for name, value in _keys().items()}}
 
 
 @app.get("/api/options")
@@ -162,7 +168,7 @@ class DraftRequest(BaseModel):
 @app.post("/api/draft")
 def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     """Write a script from a topic, so the page is usable without one."""
-    key = find_keys(Path.cwd()).get("gemini", "")
+    key = _keys().get("gemini", "")
     if not key:
         raise HTTPException(503, "drafting needs GEMINI_API_KEY on this instance")
     minutes = max(0.5, min(MAX_MINUTES, req.minutes))
