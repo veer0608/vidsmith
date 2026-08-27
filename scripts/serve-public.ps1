@@ -55,12 +55,18 @@ if ($NoToken) {
 }
 else {
     if ($live.Count -eq 0) {
-        $fresh = & $python -c "import secrets; print(secrets.token_urlsafe(18))"
+        # A native command's output can arrive with a trailing carriage return.
+        # Left in, it travels into the .env line and into every later print of
+        # the token, where the CR returns the cursor to column zero and the
+        # displayed value collapses to its last character. Strip to printable
+        # ASCII at the source, which is all token_urlsafe ever produces.
+        $fresh = (& $python -c "import secrets; print(secrets.token_urlsafe(18))") `
+                 -replace "[^\x21-\x7E]", ""
         Add-Content -Path $envFile -Value "VIDSMITH_TOKEN=$fresh" -Encoding utf8
         Write-Host "minted a new access token into .env"
         $live = @("VIDSMITH_TOKEN=$fresh")
     }
-    $token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "").Trim()
+    $token = ($live[-1] -replace "^\s*VIDSMITH_TOKEN=", "") -replace "[^\x21-\x7E]", ""
 
     # Never expose an ungated renderer by accident. -NoToken is the way to mean it.
     if (-not $token) {
@@ -87,7 +93,10 @@ try {
 
     Write-Host ""
     if ($token) {
-        Write-Host "access token: $token" -ForegroundColor Yellow
+        # Delimited and counted: if this line is ever truncated again, it is
+        # visible here rather than being discovered by someone locked out of
+        # their own tunnel.
+        Write-Host "access token: [$token] ($($token.Length) chars)" -ForegroundColor Yellow
         Write-Host "the page asks for it once and remembers it in that browser."
     }
     else {

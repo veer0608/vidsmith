@@ -352,6 +352,24 @@ function drawSteps(current, status) {
    refused outright by embedded browsers and some mobile views. */
 const token = () => $("tokenfield").value.trim();
 const authHeaders = () => needsAuth && token() ? {"X-Vidsmith-Token": token()} : {};
+
+/* The app always answers in JSON. Whatever sits in front of it may not: a
+   tunnel or a proxy substitutes its own HTML page for a 5xx, and calling
+   .json() on that throws `Unexpected token '<'`, which tells the reader
+   nothing about what went wrong. Read the body once, and if it is not JSON,
+   turn the status into a sentence. */
+async function readBody(r) {
+  const text = await r.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const gateway = {502: "the server is not reachable through the tunnel right now",
+                     503: "the server is not accepting work right now",
+                     504: "the request took longer than the tunnel allows"};
+    return {detail: gateway[r.status]
+            || `unexpected ${r.status} response from whatever is in front of the app`};
+  }
+}
 function forgetToken() {
   localStorage.removeItem("vidsmith_token");
   $("tokenfield").value = "";
@@ -738,7 +756,7 @@ async function poll(id) {
     if (r.status === 401) forgetToken();
     clearInterval(timer); finished(); return;
   }
-  if (render(await r.json())) clearInterval(timer);
+  if (render(await readBody(r))) clearInterval(timer);
 }
 
 function fail(message) {
@@ -797,7 +815,7 @@ $("draft").onclick = async () => {
       headers: {"Content-Type": "application/json", ...authHeaders()},
       body: JSON.stringify({topic, minutes: Number($("minutes").value) || 2}),
     });
-    const d = await r.json();
+    const d = await readBody(r);
     // "bad or missing token" is the server being correct and unhelpful: the
     // person reads it as the model being down. Send them to the field instead.
     if (r.status === 401) {
@@ -854,7 +872,7 @@ $("form").addEventListener("submit", async (e) => {
       headers: {"Content-Type": "application/json", ...authHeaders()},
       body: JSON.stringify(body),
     });
-    job = await r.json();
+    job = await readBody(r);
   } catch (err) {
     return fail("could not reach the server");
   }

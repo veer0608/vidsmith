@@ -560,3 +560,80 @@ def test_a_finished_job_is_not_reported_as_stopping(client):
     body = client.get(f"/api/jobs/{job_id}").json()
     assert body["cancelling"] is False       # a finished job is not "stopping"
 
+
+
+# --------------------------------------------------------------------------- #
+# upstream failures the page has to survive
+# --------------------------------------------------------------------------- #
+def test_a_spent_quota_is_429_not_502(client, monkeypatch):
+    """A 5xx invites a tunnel to substitute its own HTML page, and the page
+    then reports `Unexpected token '<'` instead of what actually happened."""
+    from vidsmith import llm
+
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": "k"})
+    monkeypatch.setattr(web_app.llm, "draft_script",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            llm.QuotaExhausted("out of quota for now")))
+    r = client.post("/api/draft", json={"topic": "a topic worth explaining"})
+    assert r.status_code == 429
+    assert "quota" in r.json()["detail"]
+
+
+def test_other_model_failures_stay_502(client, monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": "k"})
+    monkeypatch.setattr(web_app.llm, "draft_script",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            llm.LLMUnavailable("connection reset")))
+    assert client.post("/api/draft",
+                       json={"topic": "a topic worth explaining"}).status_code == 502
+
+
+def test_the_page_does_not_assume_every_response_is_json(client):
+    """Whatever sits in front of the app may answer in HTML."""
+    page = client.get("/").text
+    assert "async function readBody(r)" in page
+    assert "await readBody(r)" in page, "the draft handler still calls .json() directly"
+
+
+def test_a_quota_error_is_not_retried(monkeypatch):
+    """Four retries against a spent daily allowance is four wasted requests."""
+    from vidsmith import llm
+
+    calls = []
+
+    class Spent:
+        status_code = 429
+        text = '{"error": {"status": "RESOURCE_EXHAUSTED"}}'
+
+    def fake_post(*a, **k):
+        calls.append(1)
+        return Spent()
+
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    with pytest.raises(llm.QuotaExhausted):
+        llm.generate("hello", "key")
+    assert len(calls) == 1, f"retried a spent quota {len(calls)} times"
+
+
+def test_every_route_reads_keys_through_one_helper():
+    """A route calling find_keys itself cannot be stubbed.
+
+    Both quota tests below passed locally and failed on CI for exactly that
+    reason: the machine had a real key, so the endpoint's own lookup succeeded
+    and the stub was never consulted.
+    """
+    import inspect
+
+    source = inspect.getsource(web_app)
+    body = source.replace(inspect.getsource(web_app._keys), "")
+    assert "find_keys(" not in body, \
+        "a route calls find_keys directly; go through _keys() so it can be stubbed"
+
+
+def test_drafting_without_a_key_says_so(client, monkeypatch):
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": ""})
+    r = client.post("/api/draft", json={"topic": "a topic worth explaining"})
+    assert r.status_code == 503
+    assert "GEMINI_API_KEY" in r.json()["detail"]

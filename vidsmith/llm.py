@@ -26,6 +26,11 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
+class QuotaExhausted(LLMUnavailable):
+    """The key is fine, the day's allowance is not. Distinct because it is the
+    one failure that waiting fixes, and the only sensible advice differs."""
+
+
 def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
              temperature: float = 0.4, retries: int = 4) -> str:
     if not api_key:
@@ -42,6 +47,10 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
             json=body,
             timeout=120,
         )
+        if r.status_code == 429 and "RESOURCE_EXHAUSTED" in r.text:
+            # retrying a spent daily quota just burns four more requests
+            raise QuotaExhausted(
+                "the Gemini free tier is out of quota for now; it resets daily")
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
             time.sleep(2 ** attempt)
