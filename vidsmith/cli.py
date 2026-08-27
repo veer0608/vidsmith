@@ -8,7 +8,7 @@ from pathlib import Path
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
-from .pipeline import KEY_ENV, KEY_NOTES, Project, find_keys
+from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys
 
 STARTER = """# {title}
 
@@ -132,6 +132,9 @@ def _delivery_file(proj, cfg, tag: str):
 def cmd_thumbs(args) -> int:
     from .theme import resolve as resolve_theme
 
+    if args.refresh:
+        return _refresh_thumbnails(args)
+
     root = _project_dir(args.name)
     proj = Project(root)
     cfg = load_config(proj.config_path)
@@ -155,6 +158,61 @@ def cmd_thumbs(args) -> int:
         cfg.title, theme, count=args.count, with_title=not args.no_title,
     )
     print(f"\n{len(files)} files in {proj.out / ('thumbs' + tag)}")
+    return 0
+
+
+def _refresh_thumbnails(args) -> int:
+    """Redo the delivery thumbnails for every cut that exists.
+
+    Separate from a rebuild on purpose: the thumbnail is the one output that
+    does not depend on the render, so it can be redone in seconds. That matters
+    when it was first made with the model out of quota, where the search falls
+    back to keywords and nothing picks between the candidates.
+    """
+    from . import visuals
+    from .script_parser import load_scenes
+    from .theme import resolve as resolve_theme
+
+    root = _project_dir(args.name)
+    proj = Project(root)
+    cfg = load_config(proj.config_path)
+    scenes_json = proj.build / "scenes.json"
+    if not scenes_json.exists():
+        print(f"nothing built yet - run: vidsmith build {args.name}")
+        return 1
+
+    scenes = load_scenes(scenes_json)
+    theme = resolve_theme(cfg.theme.preset, cfg.theme.accent, cfg.theme.font)
+    keys = find_keys(root)
+    subjects = ", ".join(dict.fromkeys(visuals.scene_query(s) for s in scenes))
+    slug = _slug(cfg.title)
+
+    done = 0
+    for aspect in sorted(ASPECTS):
+        tag = aspect_tag(aspect)
+        if not (proj.build / f"picture{tag}.mp4").exists():
+            continue
+        size = ASPECTS[aspect]
+        target = (1280, 720) if size[0] >= size[1] else None
+        try:
+            stock = thumbs.from_stock(cfg.title, subjects, size, keys,
+                                      proj.build / ".thumbstock", strict=True)
+        except llm.LLMUnavailable as exc:
+            print(f"\nnot refreshing: {exc}")
+            print("the existing thumbnails are untouched; try again once it resets")
+            return 1
+        if not stock:
+            print(f"  {aspect:5} no stock photo; leaving the existing thumbnail")
+            continue
+        out = proj.out / f"{slug}{tag}.jpg"
+        thumbs.titled(stock["path"], out, cfg.title, theme, target)
+        print(f"  {aspect:5} {stock['query']:32} by {stock['author']}")
+        done += 1
+
+    if not done:
+        print("no thumbnails were replaced")
+        return 1
+    print(f"\n{done} thumbnail(s) rewritten in {proj.out}")
     return 0
 
 
@@ -282,6 +340,8 @@ def main(argv=None) -> int:
     t.add_argument("--aspect", choices=sorted(ASPECTS), help="which cut to sample")
     t.add_argument("--no-title", action="store_true",
                    help="skip the composed title thumbnail")
+    t.add_argument("--refresh", action="store_true",
+                   help="redo the delivery thumbnails from stock photos, no re-render")
     t.set_defaults(func=cmd_thumbs)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")

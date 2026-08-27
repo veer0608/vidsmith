@@ -660,3 +660,26 @@ def test_no_request_path_retries_a_spent_quota(monkeypatch, call):
     with pytest.raises(llm.QuotaExhausted):
         call(llm)
     assert len(calls) == 1, f"retried a spent quota {len(calls)} times"
+
+
+def test_a_thumbnail_refresh_refuses_rather_than_degrading(tmp_path, monkeypatch):
+    """A build must never fail over a thumbnail, so from_stock degrades. An
+    explicit refresh is the opposite: writing the same keyword fallback again
+    is worse than leaving what is already there."""
+    from vidsmith import llm, thumbs
+
+    def spent(*a, **k):
+        raise llm.QuotaExhausted("out of quota for now")
+
+    monkeypatch.setattr(thumbs.llm, "thumbnail_query", spent)
+    keys = {"pexels": "k", "gemini": "k"}
+
+    with pytest.raises(llm.QuotaExhausted):
+        thumbs.from_stock("T", "subjects", (1920, 1080), keys, tmp_path,
+                          log=lambda *a: None, strict=True)
+
+    # the build path still degrades instead of failing the render
+    monkeypatch.setattr(thumbs, "pexels_photos", lambda *a, **k: [], raising=False)
+    monkeypatch.setattr("vidsmith.visuals.pexels_photos", lambda *a, **k: [])
+    assert thumbs.from_stock("T", "subjects", (1920, 1080), keys, tmp_path,
+                             log=lambda *a: None) is None
