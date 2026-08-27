@@ -4,11 +4,15 @@
 # encodes, because those are the tests that catch drift between picture and
 # voice.
 #
-# Two platforms, because a whole class of fault is invisible to ubuntu on a
+# Three platforms, because a whole class of fault is invisible to ubuntu on a
 # project developed against Windows: path separators, the drive colon inside a
 # filtergraph, and the console encoding. `vidsmith meta` once wrote every file
 # correctly and then died printing a Pexels photographer's name, and nothing on
 # Linux could ever have caught it.
+#
+# macOS is here because the README invites a mac user to clone this and nothing
+# had ever run there. It has neither the Windows font families the themes name
+# nor apt to install the fallback, which is the part most likely to be wrong.
 #
 # Both jobs run the encodes, and they are not redundant: the escaping tests take
 # their paths from tmp_path, so only the Windows runner ever hands ffmpeg a
@@ -93,3 +97,35 @@ jobs:
       # crossing two levels of shell quoting.
       - name: A name outside cp1252 must survive a piped console
         run: python -m scripts.console_probe
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # The README tells a mac user to brew this, so the job does what the
+      # README says rather than relying on whatever the image happens to ship.
+      - name: Install ffmpeg and a font
+        run: |
+          brew install ffmpeg
+          brew install --cask font-dejavu
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      - name: Run the suite
+        run: python -m pytest
+
+      # The quickstart in the README, run as written. macOS is the platform this
+      # project has never touched, and the install path it documents is the one
+      # a stranger follows first.
+      - name: Walk the CLI through a pipe
+        run: |
+          python -m vidsmith doctor
+          python -m vidsmith new ci-probe
+          python -m vidsmith build ci-probe --provider cards --stop-after parse
