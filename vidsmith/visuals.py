@@ -728,8 +728,17 @@ class VisualBuilder:
             # a decided or explicit diagram skips the search entirely - no point
             # paying for downloads that are going to be thrown away
             spec = self._diagram_spec(scene, scene.diagram or query)
-            if spec is None and decided is True:
-                self.log("    diagram spec unavailable; falling back to footage")
+            # Say so either way. This branch used to report only when the model
+            # had decided, so a `[diagram:]` the script asked for was drawn in
+            # silence and, when it could not be, fell back to footage in the
+            # same silence - a log that looked identical whether the feature
+            # worked or vanished.
+            asked = "the script" if scene.diagram else "the model"
+            if spec is None:
+                self.log(f"    {asked} asked for a diagram and none could be "
+                         f"drawn; using footage")
+            else:
+                self.log(f"    drawing a {spec.kind} diagram ({asked} asked)")
 
         if spec is not None:
             # An explicit [diagram:] is a decision the script already made, so

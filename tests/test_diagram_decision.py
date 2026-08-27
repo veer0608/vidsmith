@@ -193,3 +193,48 @@ def test_the_mixed_narration_is_dropped_too(tmp_path):
     (proj.build / "narration.wav").write_bytes(b"old voice")
     invalidate(proj, log=lambda *a: None)
     assert not (proj.build / "narration.wav").exists()
+
+
+# --------------------------------------------------------------------------- #
+# saying so
+# --------------------------------------------------------------------------- #
+def _log_for(tmp_path, monkeypatch, scene, spec):
+    """Build one scene and return what it wrote to the log."""
+    lines = []
+    builder = _builder(tmp_path)
+    builder.log = lines.append
+    monkeypatch.setattr(builder, "_stock_batch", lambda *a, **k: [])
+    monkeypatch.setattr(builder, "_diagram_spec", lambda *a, **k: spec)
+    monkeypatch.setattr("vidsmith.visuals.diagram.render",
+                        lambda *a, **k: tmp_path / "frame.png")
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+    monkeypatch.setattr("vidsmith.visuals.cards.scene_card", lambda out, *a, **k: out)
+    builder.build(scene)
+    return "\n".join(lines)
+
+
+def test_a_scene_the_script_asked_to_draw_says_it_was_drawn(tmp_path, scene, monkeypatch):
+    """It used to draw in silence, so a build log could not tell you whether the
+    directive had worked."""
+    scene.diagram = "a root branching to leaves"
+    out = _log_for(tmp_path, monkeypatch, scene, Spec.from_dict(TREE))
+    assert "drawing a tree diagram" in out
+    assert "the script asked" in out
+
+
+def test_a_directive_that_cannot_be_drawn_says_so(tmp_path, scene, monkeypatch):
+    """The silent version of this is what made a working feature and a broken
+    one produce identical logs."""
+    scene.diagram = "a root branching to leaves"
+    out = _log_for(tmp_path, monkeypatch, scene, None)
+    assert "none could be drawn" in out
+    assert "the script" in out
+
+
+def test_a_model_decided_diagram_names_the_model_not_the_script(tmp_path, scene,
+                                                                monkeypatch):
+    (tmp_path / "diagram_scenes.json").write_text(json.dumps({"0": True}),
+                                                  encoding="utf-8")
+    out = _log_for(tmp_path, monkeypatch, scene, Spec.from_dict(TREE))
+    assert "the model asked" in out
