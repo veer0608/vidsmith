@@ -80,7 +80,16 @@ def test_which_subtitles_spellings_this_ffmpeg_accepts(tmp_path):
     plain = _colon((plain_dir / "captions.ass").resolve().as_posix())
     apostrophe = _colon((quote_dir / "captions.ass").resolve().as_posix())
 
-    lines = [version]
+    filters = subprocess.run([binary, "-hide_banner", "-filters"],
+                             capture_output=True, text=True).stdout
+    has_subtitles = [l.strip() for l in filters.splitlines() if " subtitles " in l]
+    cfg = subprocess.run([binary, "-hide_banner", "-version"],
+                         capture_output=True, text=True).stdout
+    libass = [w for w in cfg.split() if "ass" in w.lower()]
+
+    lines = [version,
+             f"subtitles filter present: {bool(has_subtitles)} {has_subtitles}",
+             f"ass in build config: {libass}"]
     for label, vf in _spellings(plain, apostrophe):
         out = tmp_path / "frame.png"
         out.unlink(missing_ok=True)
