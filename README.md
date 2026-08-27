@@ -517,9 +517,11 @@ study, hobby projects, non-profits and public institutions are all covered, and
 you may read, change and redistribute the source for those purposes.
 
 Making money with it is not covered: a channel carrying ads or sponsorship,
-client work, resale, or running it as a service. [COMMERCIAL.md](COMMERCIAL.md)
-says how to licence that, and lists the third-party terms a licence to this code
-does not grant you.
+client work, resale, or running it as a service. A commercial licence is **$99
+once** for one person, **$299 once** for one company, and a quote for agency or
+client work. All perpetual, no per-video fee, no renewal.
+[COMMERCIAL.md](COMMERCIAL.md) has the detail, and lists the third-party terms a
+licence to this code does not grant you.
 
 One of those is worth repeating here rather than leaving in a file nobody opens:
 **the narration path is not cleared for commercial use.** `edge-tts` is an

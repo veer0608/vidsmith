@@ -5,15 +5,32 @@ projects and non-profits. It does not cover using vidsmith to make money:
 channels that carry ads or sponsorship, client work, or anything you resell or
 run as a service.
 
-For that, a commercial licence is available. Open an issue or email the address
-on <https://github.com/veer0608>.
+For that, a commercial licence is available.
+
+## Price
+
+| | | |
+| --- | --- | --- |
+| **Solo** | **$99** once | One named person, making videos for themselves or their own channel. |
+| **Company** | **$299** once | One company, any number of people in it, for that company's own videos. |
+| **Agency or client work** | quote | Making videos *for other people* under contract, or reselling the output as a service. Say roughly what you do and you will get a number. |
+
+All three are perpetual. You pay once, keep the source, and keep every video you
+make with it, including after the licence is bought. There is no per-video fee,
+no seat count to maintain and no renewal, and nothing phones home because there
+is nowhere for it to phone: the render happens entirely on your hardware.
+
+For scale, the hosted tools that do this job start around $25 to $39 a month and
+bill for as long as you use them. A year of one of those costs more than the
+company licence here costs once.
+
+To buy either fixed tier, or to describe an agency case, open an issue or email
+the address on <https://github.com/veer0608>.
 
 ## What you are buying
 
-A perpetual licence to run vidsmith commercially on your own machines, for one
-person or one company. You keep the source and every video you make with it.
-There is no per-video fee and nothing phones home, because there is nowhere for
-it to phone: the render happens entirely on your hardware.
+A perpetual licence to run vidsmith commercially on your own machines, at the
+tier you bought. You keep the source and every video you make with it.
 
 ## Third-party terms you are still responsible for
 
