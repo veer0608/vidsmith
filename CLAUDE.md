@@ -36,7 +36,10 @@ before writing anything. The traps are the reason this file exists.
 
 ## Working in this repo
 
-**`main` is protected and requires both CI checks.** A direct push is rejected
+**`main` is protected and requires all three CI checks.** `test`, `windows`
+and `macos` are all required as of 2026-08-28. macOS was advisory until
+then, which meant the one runner that has found a platform-specific fault
+here could go red without blocking a merge. A direct push is rejected
 with `GH006`, so every change is a branch, a PR, and a wait for ubuntu, windows
 and macos to go green before `gh pr merge --squash --delete-branch`. Budget for
 the round trip: it is a few minutes per change, which is the argument for
