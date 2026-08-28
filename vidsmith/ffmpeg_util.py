@@ -20,6 +20,11 @@ _WINGET_HINTS = [
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Generous on purpose: a 1080p master of a long script on a slow free instance
+# is minutes of honest work, and killing that would be worse than the hang it
+# guards against. It is a bound on forever, not a performance budget.
+TIMEOUT = float(os.environ.get("VIDSMITH_FFMPEG_TIMEOUT", "900"))
+
 
 def _resolve(name: str) -> str:
     if name in _CACHE:
@@ -65,13 +70,30 @@ def ffprobe_bin() -> str:
     return _resolve("ffprobe")
 
 
-def run(args: List[str], quiet: bool = True) -> subprocess.CompletedProcess:
-    """Run ffmpeg with the given args (binary and -y are prepended)."""
+def run(args: List[str], quiet: bool = True,
+        timeout: Optional[float] = None) -> subprocess.CompletedProcess:
+    """Run ffmpeg with the given args (binary and -y are prepended).
+
+    The timeout is not a nicety. ffmpeg can sit forever on a filtergraph that
+    never decides it is finished, and with no bound the call never returns: the
+    web service holds its single render slot for good, and CI reported nothing
+    for twenty-five minutes. A killed encode raises like any other failure, so
+    every caller that already handles a broken render handles this too.
+    """
     cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y"]
     if quiet:
         cmd += ["-loglevel", "error"]
     cmd += args
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    limit = TIMEOUT if timeout is None else timeout
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"ffmpeg did not finish within {limit:g}s and was stopped:\n  "
+            + " ".join(cmd[:14]) + " ...\n"
+            "This is a hang rather than a slow encode; the filtergraph is the "
+            "place to look. Raise VIDSMITH_FFMPEG_TIMEOUT if the encode really "
+            "is this long.")
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-25:]
         raise RuntimeError(
@@ -86,7 +108,9 @@ def probe(path: Path) -> dict:
             ffprobe_bin(), "-v", "error", "-print_format", "json",
             "-show_format", "-show_streams", str(path),
         ],
-        capture_output=True, text=True,
+        # reading a header should be instant; a minute means the file is a pipe,
+        # a dead network mount, or truncated mid-write by another build
+        capture_output=True, text=True, timeout=60,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {path}: {proc.stderr.strip()[:300]}")

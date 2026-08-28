@@ -45,9 +45,14 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
             + f";[mixed]apad,atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
         )
 
+    # `-t` as well as the atrim: apad is infinite by definition, and leaving the
+    # graph as the only thing that ends the output means one filter declining to
+    # pass EOF hangs the encode outright. master() has always bounded its output
+    # this way; this one did not, and it is the call macOS CI hung inside.
     ff.run(inputs + [
         "-filter_complex", graph, "-map", "[out]",
-        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", str(out),
+        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
+        "-t", f"{total:.3f}", str(out),
     ])
     return out
 

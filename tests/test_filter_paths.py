@@ -165,3 +165,56 @@ def test_the_filter_list_is_read_from_the_binary():
     found = ff.filters()
     assert len(found) > 100, "that is not a real filter list"
     assert "overlay" in found and "scale" in found
+
+
+# --------------------------------------------------------------------------- #
+# ffmpeg that never returns
+# --------------------------------------------------------------------------- #
+def test_a_hung_ffmpeg_is_killed_and_named(monkeypatch):
+    """Without a bound the call never returns at all.
+
+    The web service holds one render slot and gives it back on the way out of
+    the job; a subprocess that never exits takes no way out, so the instance
+    stops accepting work for good. macOS CI showed the same shape, sitting for
+    twenty-five minutes and reporting nothing.
+    """
+    import subprocess as sp
+
+    def hang(*a, **k):
+        raise sp.TimeoutExpired(cmd="ffmpeg", timeout=k.get("timeout", 900))
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", hang)
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    said = str(exc.value)
+    assert "did not finish" in said
+    assert "hang rather than a slow encode" in said, "a slow encode reads as a bug here"
+    assert "VIDSMITH_FFMPEG_TIMEOUT" in said, "say how to raise it"
+
+
+def test_the_timeout_is_a_bound_on_forever_not_a_budget():
+    """Killing an honest long encode would be worse than the hang it guards."""
+    assert ff.TIMEOUT >= 600
+
+
+def test_the_timeout_is_overridable(monkeypatch):
+    """A slow free instance encoding 1080p is minutes of real work."""
+    import importlib
+
+    monkeypatch.setenv("VIDSMITH_FFMPEG_TIMEOUT", "1234")
+    assert importlib.reload(ff).TIMEOUT == 1234.0
+    monkeypatch.delenv("VIDSMITH_FFMPEG_TIMEOUT")
+    importlib.reload(ff)
+
+
+def test_the_narration_output_is_bounded_by_more_than_the_graph():
+    """apad is infinite, so atrim is the only thing ending the output. One
+    filter declining to pass EOF then hangs the encode, which is what macOS
+    CI hung inside."""
+    import inspect
+
+    from vidsmith import render
+
+    source = inspect.getsource(render.build_narration)
+    assert '"-t", f"{total:.3f}"' in source, "the narration encode has no hard end"
