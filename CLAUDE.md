@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 368 tests, ~35s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 372 tests, ~35s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -427,7 +427,12 @@ competing with the voice.
 - **The `RetryInfo` beside it is not a promise.** Against a spent daily cap it
   advertised 8s, then 56s, then 56s, then 52s. All four waits were honoured and
   all four met another 429. It is trusted only once the `quotaId` says waiting
-  can help, and clamped so a bad value cannot hang a build.
+  can help, and clamped so a bad value cannot hang a build. A wait longer than
+  the ordinary backoff is announced through the build log, because reranking
+  runs once per scene and several silent minute-long pauses inside one build are
+  indistinguishable from the hang described under Tests. `rank_clips()` takes
+  `log` for exactly that reason; calling it without one makes the pause silent
+  again.
 - **The free ceiling here is requests, not tokens.** 500 generate calls a day
   per model. That is unlike the Groq trap noted in the global `CLAUDE.md`, where
   the binding limit is tokens per day and appears in no header; Gemini prints

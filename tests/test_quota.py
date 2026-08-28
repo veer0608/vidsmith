@@ -194,3 +194,49 @@ def test_both_request_paths_read_the_quota_the_same_way(monkeypatch, no_waiting,
     with pytest.raises(llm.QuotaExhausted):
         call()
     assert len(calls) == 1
+
+
+# --------------------------------------------------------------------------- #
+# a deliberate wait has to look different from a hang
+# --------------------------------------------------------------------------- #
+def test_a_long_wait_is_announced(monkeypatch, no_waiting):
+    """Reranking runs once per scene, so a per-minute limit can stack several
+    of these inside one build. Silence for a minute reads as a hang, and the
+    repo's own rule is that a hang has to name itself."""
+    ok = Reply({"candidates": [{"content": {"parts": [{"text": "fine"}]}}]}, 200)
+    _answering(monkeypatch, Reply(PER_MINUTE), ok)
+    said = []
+    llm.generate("hello", "key", log=said.append)
+    assert len(said) == 1, said
+    assert "56s" in said[0] and "rate limit" in said[0]
+
+
+def test_a_short_backoff_stays_quiet(monkeypatch, no_waiting):
+    """One second of retry is not worth a line; the log is read by someone
+    watching a render, not debugging the client."""
+    ok = Reply({"candidates": [{"content": {"parts": [{"text": "fine"}]}}]}, 200)
+    _answering(monkeypatch, Reply({"error": {}}, 503), ok)
+    said = []
+    llm.generate("hello", "key", log=said.append)
+    assert said == []
+
+
+def test_the_wait_is_announced_on_the_vision_path_too(monkeypatch, no_waiting):
+    """The path that actually loops: one vision call per scene."""
+    ok = Reply({"candidates": [{"content": {"parts": [{"text": "fine"}]}}]}, 200)
+    _answering(monkeypatch, Reply(PER_MINUTE), ok)
+    said = []
+    llm.generate_vision("hello", [b"a", b"b"], "key", log=said.append)
+    assert len(said) == 1 and "56s" in said[0]
+
+
+def test_reranking_hands_the_build_log_down(monkeypatch, no_waiting):
+    """Without this the wait is announced into a log nobody is reading."""
+    import inspect
+
+    from vidsmith import visuals
+
+    source = inspect.getsource(visuals)
+    assert "llm.rank_clips(scene.text, query, images, key, log=self.log)" in source, \
+        "rank_clips is called without the build log, so a wait would be silent"
+    assert "log" in inspect.signature(llm.rank_clips).parameters

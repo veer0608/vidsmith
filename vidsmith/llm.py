@@ -110,7 +110,7 @@ class QuotaExhausted(LLMUnavailable):
 
 
 def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
-             temperature: float = 0.4, retries: int = 4) -> str:
+             temperature: float = 0.4, retries: int = 4, log=None) -> str:
     if not api_key:
         raise LLMUnavailable("no GEMINI_API_KEY")
     body = {
@@ -128,7 +128,12 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
         pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
-            time.sleep(max(pause, 2 ** attempt))
+            wait = max(pause, 2 ** attempt)
+            # a minute of silence is indistinguishable from a hang, and this one
+            # is deliberate, so say whose limit is being waited out
+            if log and wait > 8:
+                log(f"    waiting {wait:.0f}s: {model} is over its rate limit")
+            time.sleep(wait)
             continue
         if r.status_code != 200:
             raise LLMUnavailable(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -143,7 +148,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
 
 def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
                     model: str = DEFAULT_MODEL, temperature: float = 0.1,
-                    retries: int = 3) -> str:
+                    retries: int = 3, log=None) -> str:
     """Same call as generate(), with JPEG stills attached before the prompt."""
     if not api_key:
         raise LLMUnavailable("no GEMINI_API_KEY")
@@ -168,7 +173,12 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
         pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
-            time.sleep(max(pause, 2 ** attempt))
+            wait = max(pause, 2 ** attempt)
+            # a minute of silence is indistinguishable from a hang, and this one
+            # is deliberate, so say whose limit is being waited out
+            if log and wait > 8:
+                log(f"    waiting {wait:.0f}s: {model} is over its rate limit")
+            time.sleep(wait)
             continue
         if r.status_code != 200:
             raise LLMUnavailable(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -226,7 +236,7 @@ def _indices(values: Any, limit: int) -> List[int]:
 
 
 def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
-               model: str = DEFAULT_MODEL) -> Tuple[List[int], List[int], bool]:
+               model: str = DEFAULT_MODEL, log=None) -> Tuple[List[int], List[int], bool]:
     """(order, rejected, filmable) over `images`.
 
     `filmable` is False when no camera can point at the idea - that is the cue to
@@ -236,7 +246,7 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
         return [], [], True
     prompt = RERANK_PROMPT.format(n=len(images), last=len(images) - 1,
                                   line=line.strip(), query=query.strip())
-    raw = generate_vision(prompt, images, api_key, model)
+    raw = generate_vision(prompt, images, api_key, model, log=log)
     verdict = _json_block(raw)
 
     if isinstance(verdict, list):          # tolerate a bare ranking
