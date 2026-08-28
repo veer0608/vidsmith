@@ -204,3 +204,77 @@ def test_the_key_mapping_is_the_only_list():
 def test_every_key_has_a_note_for_doctor_to_print():
     missing = set(pipeline.KEY_ENV) - set(pipeline.KEY_NOTES)
     assert not missing, f"no doctor note for {missing}"
+
+
+# --------------------------------------------------------------------------- #
+# which name the outputs carry
+# --------------------------------------------------------------------------- #
+def test_a_refresh_names_files_the_way_the_build_did(tmp_path):
+    """"Untitled" in the config is a sentinel, not a title.
+
+    build() resolves it from the script heading and writes it back; the refresh
+    read cfg.title raw. On a project whose config had never been written back
+    that slugged to "untitled", so a refresh wrote a pair of orphan jpgs beside
+    the real thumbnails and left those stale. Nothing looked wrong: it reported
+    two thumbnails rewritten, and two files had indeed been written.
+    """
+    root = tmp_path / "proj"
+    (root / "out").mkdir(parents=True)
+    (root / "build").mkdir(parents=True)
+    write_default_config(root / "config.yaml", "Untitled")
+    (root / "script.md").write_text("# Predicate Logic Makes Computers Think\n\n"
+                                    "## One\nA line of narration for the test.\n",
+                                    encoding="utf-8")
+
+    proj = pipeline.Project(root)
+    cfg = pipeline.load_config(proj.config_path)
+    assert pipeline._slug(cfg.title) == "untitled", "the sentinel used to reach the filename"
+
+    resolved = pipeline.resolve_title(proj, cfg)
+    assert resolved == "Predicate Logic Makes Computers Think"
+    assert pipeline._slug(resolved) == "predicate-logic-makes-computers-think"
+
+
+def test_the_resolved_title_is_written_back(tmp_path):
+    """Otherwise the next command has to resolve it again, and one of them
+    will forget: that is how the CLI and the web job disagreed before."""
+    root = tmp_path / "proj"
+    (root / "out").mkdir(parents=True)
+    write_default_config(root / "config.yaml", "Untitled")
+    (root / "script.md").write_text("# A Real Title\n\n## One\nNarration.\n",
+                                    encoding="utf-8")
+
+    proj = pipeline.Project(root)
+    pipeline.resolve_title(proj, pipeline.load_config(proj.config_path))
+    assert yaml.safe_load((root / "config.yaml").read_text())["title"] == "A Real Title"
+
+
+def test_a_real_title_is_never_overwritten(tmp_path):
+    """Only the sentinel is resolved; a title someone chose outranks the heading."""
+    root = tmp_path / "proj"
+    (root / "out").mkdir(parents=True)
+    write_default_config(root / "config.yaml", "The Name I Chose")
+    (root / "script.md").write_text("# Some Other Heading\n\n## One\nNarration.\n",
+                                    encoding="utf-8")
+
+    proj = pipeline.Project(root)
+    cfg = pipeline.load_config(proj.config_path)
+    assert pipeline.resolve_title(proj, cfg) == "The Name I Chose"
+
+
+def test_both_entry_points_resolve_the_title_the_same_way():
+    """The divergence itself, not the two places it currently shows up.
+
+    This has now gone wrong twice: once between the CLI and the web job, once
+    between build() and thumbs --refresh. A caller reading cfg.title directly
+    to build a filename is the bug, so it is the thing checked.
+    """
+    import inspect
+
+    from vidsmith import cli as cli_mod
+
+    source = inspect.getsource(cli_mod._refresh_thumbnails)
+    assert "_slug(resolve_title(" in source, \
+        "the refresh slugs a title it resolved for itself"
+    assert "_slug(cfg.title)" not in source, \
+        "cfg.title can still be the Untitled sentinel here"
