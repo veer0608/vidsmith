@@ -3,3 +3,7 @@ pytest>=8.0
 pyflakes>=3.0
 # fastapi.testclient needs its own HTTP client; the server does not.
 httpx2>=2.12
+# So a hang names itself. The macOS runner sat in the suite for twenty-five
+# minutes against twenty seconds elsewhere and reported nothing at all; a
+# per-test timeout turns that into a failing test with a traceback.
+pytest-timeout>=2.3
