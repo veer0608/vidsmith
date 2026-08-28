@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
-from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys, resolve_title, set_thumbnail_credit
+from .pipeline import (KEY_ENV, KEY_NOTES, Project, _slug, find_keys,
+                       resolve_title, set_thumbnail_credit, write_metadata)
 
 STARTER = """# {title}
 
@@ -218,6 +220,19 @@ def _refresh_thumbnails(args) -> int:
         print("no thumbnails were replaced")
         return 1
     print(f"\n{done} thumbnail(s) rewritten in {proj.out}")
+
+    # description.txt is built from the credits files, so replacing a thumbnail
+    # leaves the one file you actually paste into YouTube crediting the
+    # photographer that was just dropped. Rewritten from the metadata already on
+    # disk, so this costs no model call and cannot fail for want of quota.
+    meta_json = proj.out / "youtube.json"
+    if meta_json.exists():
+        try:
+            write_metadata(proj.out, json.loads(meta_json.read_text(encoding="utf-8")))
+            print(f"credits  description.txt now names the photographers in use")
+        except (OSError, ValueError) as exc:
+            print(f"warning: could not refresh description.txt ({exc});"
+                  f" run: vidsmith meta {args.name}")
     return 0
 
 

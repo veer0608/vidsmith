@@ -343,3 +343,40 @@ def test_the_refresh_updates_the_credit_it_invalidates():
     source = inspect.getsource(cli_mod._refresh_thumbnails)
     assert "set_thumbnail_credit(" in source, \
         "the thumbnail changes and the attribution does not follow it"
+
+
+def test_a_refresh_rewrites_the_description_it_invalidated():
+    """description.txt is the file that gets pasted into YouTube.
+
+    It is composed from the credits files, so replacing a thumbnail leaves it
+    naming the photographer that was just dropped. Four videos were sitting
+    ready to upload with exactly that wrong: credits.txt had been corrected and
+    the description beside it still named someone else.
+    """
+    import inspect
+
+    from vidsmith import cli as cli_mod
+
+    source = inspect.getsource(cli_mod._refresh_thumbnails)
+    assert "write_metadata(" in source, \
+        "the credits changed and description.txt was left stale"
+    assert "youtube.json" in source, \
+        "rewriting it from stored metadata is what keeps this off the model"
+
+
+def test_the_description_is_rebuilt_without_asking_the_model(tmp_path):
+    """A refresh must not need quota to keep attribution honest: the run that
+    exposed this had already spent its budget once that day."""
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "credits.txt").write_text("Footage from Pexels\nA - https://a\n"
+                                     "Thumbnail: Correct Name - https://c\n",
+                                     encoding="utf-8")
+    meta = {"title": "T", "description": "D", "tags": ["x"],
+            "chapters": [{"time": "0:00", "label": "Start"}]}
+
+    pipeline.write_metadata(out, meta)
+
+    text = (out / "description.txt").read_text(encoding="utf-8")
+    assert "Correct Name" in text, "the description dropped the thumbnail credit"
+    assert "0:00" in text, "chapters have to survive the rewrite"
