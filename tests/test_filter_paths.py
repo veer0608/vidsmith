@@ -218,3 +218,49 @@ def test_the_narration_output_is_bounded_by_more_than_the_graph():
 
     source = inspect.getsource(render.build_narration)
     assert '"-t", f"{total:.3f}"' in source, "the narration encode has no hard end"
+
+
+def test_a_timeout_reports_what_ffmpeg_managed_to_say(monkeypatch):
+    """The only evidence about where it stopped is whatever it printed first.
+
+    Two macOS hangs were reported as a stack trace through subprocess with
+    nothing from ffmpeg in it, because the partial output on TimeoutExpired was
+    thrown away.
+    """
+    import subprocess as sp
+
+    def hang(*a, **k):
+        raise sp.TimeoutExpired(cmd="ffmpeg", timeout=45,
+                                output=b"", stderr=b"Output #0, wav\n  Stream #0:0: Audio")
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", hang)
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    assert "Stream #0:0: Audio" in str(exc.value), "the partial output was dropped"
+
+
+def test_a_silent_hang_says_that_too(monkeypatch):
+    """"It said nothing" is itself a finding: it never reached the muxer."""
+    import subprocess as sp
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
+        sp.TimeoutExpired(cmd="ffmpeg", timeout=45)))
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    assert "said nothing at all" in str(exc.value)
+
+
+def test_every_ci_job_bounds_a_hang():
+    """A hang on ubuntu or windows was as opaque as the macOS one: only macos
+    carried a per-test timeout, and none set the ffmpeg one below it, so pytest
+    always killed the test before our own guard could report anything."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parent.parent
+                / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    assert workflow.count("--timeout=120") == 3, "a job can still hang unbounded"
+    # the setting, not the prose: the comment above it names the variable too
+    assert workflow.count('VIDSMITH_FFMPEG_TIMEOUT: "') == 3, \
+        "without this under the pytest limit, ffmpeg never gets to explain itself"

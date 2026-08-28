@@ -87,13 +87,22 @@ def run(args: List[str], quiet: bool = True,
     limit = TIMEOUT if timeout is None else timeout
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as expired:
+        # Whatever ffmpeg managed to say before it was killed is the only
+        # evidence there is about where it stopped. Discarding it left a macOS
+        # hang with nothing but a stack trace through subprocess, twice.
+        said = expired.stderr or expired.stdout or b""
+        if isinstance(said, bytes):
+            said = said.decode("utf-8", "replace")
+        tail = "\n".join(said.strip().splitlines()[-25:])
         raise RuntimeError(
             f"ffmpeg did not finish within {limit:g}s and was stopped:\n  "
             + " ".join(cmd[:14]) + " ...\n"
             "This is a hang rather than a slow encode; the filtergraph is the "
             "place to look. Raise VIDSMITH_FFMPEG_TIMEOUT if the encode really "
-            "is this long.")
+            "is this long.\n"
+            + (f"what it said before it was killed:\n{tail}" if tail
+               else "it said nothing at all before it was killed"))
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-25:]
         raise RuntimeError(

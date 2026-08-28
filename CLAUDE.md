@@ -64,7 +64,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 408 tests, ~32s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 411 tests, ~30s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -437,6 +437,18 @@ competing with the voice.
   away. `pipeline.resolve_title()` is now the one resolver and both callers use
   it, because the same divergence had already happened once between the CLI and
   the web job. Anything slugging `cfg.title` straight into a filename is the bug.
+- **The macOS narration hang is not fixed, and the `-t` did not fix it.**
+  `build_narration` hung again inside `ff.run` after that change, so the reading
+  of the filtergraph that produced it was wrong. It is intermittent: many green
+  runs either side. What is fixed is the reporting. A `TimeoutExpired` carries
+  whatever the process printed before it was killed, and that was being thrown
+  away, so both occurrences were reported as a stack trace through `subprocess`
+  with nothing from ffmpeg in it. `VIDSMITH_FFMPEG_TIMEOUT` is now set to 45s in
+  CI, under the 120s pytest limit, so our own guard fires first and prints what
+  ffmpeg said; at the 900s default pytest always won the race and the guard
+  never spoke. All three jobs carry both limits now, since a hang on ubuntu or
+  windows was every bit as opaque. Next occurrence, read that output before
+  theorising again.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did
