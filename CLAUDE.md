@@ -28,6 +28,31 @@ before writing anything. The traps are the reason this file exists.
 | Edit the web page | Web service | Ask the server for what it knows; do not hardcode a second copy |
 | Touch the web queue | Web service; Things that have actually broken here, the render slot | Claim the slot and you own giving it back on every path out |
 | Show it to someone | Deploying | The tunnel beats both hosts |
+| Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
+| Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
+| Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
+| Handle a model 429 | Architecture, `LLMUnavailable` | A spent quota is not retryable; raise `QuotaExhausted` |
+
+## Working in this repo
+
+**`main` is protected and requires both CI checks.** A direct push is rejected
+with `GH006`, so every change is a branch, a PR, and a wait for ubuntu, windows
+and macos to go green before `gh pr merge --squash --delete-branch`. Budget for
+the round trip: it is a few minutes per change, which is the argument for
+batching a fix and its test into one PR rather than two.
+
+Two habits this repo keeps punishing:
+
+- **Do not pipe a command you gate on into `tail`.** The pipeline's exit status
+  is `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
+  Use `set -o pipefail` or check `${PIPESTATUS[0]}`.
+- **Make the failure legible before theorising about it.** Every long detour in
+  this file was reasoning that felt sufficient and was never checked against the
+  failing thing: an escaping theory that survived two rounds because nobody ran
+  `ffmpeg -filters`, a token bug "fixed" once before it was found, a quota guard
+  added to one of two call sites. The move that works is cheap and boring -
+  print the value with delimiters and a length, run the real script's own lines
+  rather than a retyped copy, ask the binary what it can do.
 
 ## Commands
 
@@ -35,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 331 tests, ~20s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 349 tests, ~20s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -57,10 +82,17 @@ redoes cached stages.
 
 `pytest.ini` sets `pythonpath = . tests` and defines the one marker, `slow`, for
 the tests that shell out to a real ffmpeg and encode video. GitHub Actions runs
-the whole suite, encodes included, on every push to main and every PR
-(`.github/workflows/tests.yml`); it installs ffmpeg and a real font, because
-without one Pillow falls back to a bitmap default and the card tests measure
-text nobody would ship.
+the whole suite, encodes included, on **ubuntu, windows and macos** for every
+push to main and every PR (`.github/workflows/tests.yml`); it installs ffmpeg
+and a real font, because without one Pillow falls back to a bitmap default and
+the card tests measure text nobody would ship.
+
+Each platform earns its minutes. Windows is the only runner that hands ffmpeg a
+drive letter, which is what the path escaping exists for. macOS was added
+because the README invites a mac user to clone this, and it found a real fault
+within one run. It also carries `--timeout=120`, because it once sat in the
+suite for twenty-five minutes and reported nothing: a hang produces no output,
+and a per-test timeout turns it into a failing test with a traceback.
 
 **`test_lint.py` gates on undefined names.** pyflakes, narrowed to the faults
 that ship broken behaviour: a name that does not resolve, or a `nonlocal` that
@@ -350,8 +382,39 @@ competing with the voice.
   writes them most relevant first. Unlike the chapter rule this guards a risk
   nothing here has been seen to hit; it is in because the failure lands at the
   destination, which is where this project keeps getting bitten.
-- **Don't pipe a command you gate on into `tail`.** The pipeline's exit status is
-  `tail`'s, so `pytest ... | tail && git commit` commits over failing tests.
+- **"No option name near <path>" can mean the filter does not exist.** The macOS
+  runner failed on a subtitle path and the message read exactly like an escaping
+  fault. It was not: Homebrew's ffmpeg 8.1.2 is built without libass, so there is
+  no `subtitles` filter at all, and that is what the parser says when it cannot
+  find the filter it was asked for. Two rounds went into escaping rules and one
+  into copying the file somewhere with a plainer name, and none of it could have
+  worked. Ask the binary first: `ffmpeg_util.filters()` reads the list from
+  `-filters` and `require_filter()` names what is missing and what it costs.
+  `doctor` reports it, and the caption tests skip on a build that cannot run
+  them rather than failing as though the code were wrong.
+- **PowerShell unrolls a single-element array on its way out of a statement.**
+  `$live = if (...) { @(...) } else { @() }` hands back a *String* when the array
+  holds one item, so `$live[-1]` indexes the string and yields its last
+  character. `serve-public.ps1` printed a 24-character access token as `c`, and
+  `.Count` is 1 either way so nothing looked wrong. Assign in two statements, and
+  read the last element with `Select-Object -Last 1`, which behaves the same on
+  a scalar and an array. Testing the same lines with a direct assignment - the
+  form that keeps the array - passes every time and proves nothing.
+- **A spent model quota is not a retryable failure.** Gemini answers `429
+  RESOURCE_EXHAUSTED` when the free allowance is gone, and the generic retry
+  loop spent four more requests on a number only the next day restores.
+  `llm.QuotaExhausted` is raised immediately instead, and `_refuse_if_spent()`
+  sits outside *both* request loops: the guard was added to `generate()` and not
+  `generate_vision()`, so every thumbnail pick went on retrying for another day.
+  The web layer maps it to **429, not 502** - a 5xx invites a tunnel or proxy to
+  substitute its own HTML error page, and the page then reports `Unexpected
+  token '<'` instead of what happened. The daily window is Pacific-aligned, so it
+  does not roll over at local midnight.
+- **A deliberate refresh should refuse where a build degrades.**
+  `thumbs.from_stock()` falls back to a keyword search when the model is
+  unavailable, because a render must never fail over a thumbnail. `vidsmith
+  thumbs --refresh` passes `strict=True` and refuses instead: writing the same
+  fallback over an existing thumbnail is worse than leaving it alone.
 - **Heredocs mangle backslash escapes here.** Writing Python containing `\n` or
   `\1` through `bash <<'EOF'` has repeatedly produced real newlines and control
   characters mid-string. Use the Write or Edit tools for anything with escapes.
