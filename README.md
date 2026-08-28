@@ -531,6 +531,18 @@ five-minute video is about eleven minutes of one instance.
 **A public Space is a public renderer**: anyone with the URL spends your Pexels
 and Gemini quota. Keep it private unless you put auth in front of it.
 
+### Deploying on AWS
+
+The only option here that gives a stable URL without your own machine being on.
+A quick tunnel dies with its window and a Hugging Face Space now needs PRO, so
+this is the route when the link has to keep working. Ubuntu with `apt` means
+ffmpeg and the fonts install as packages, and nothing needs Docker.
+
+Two vCPUs and 2 GB is the floor: a 1080p encode runs out of memory below that.
+Steps, the systemd unit, the TLS reasoning and the billing traps are in
+[deploy/aws.md](deploy/aws.md). Set `VIDSMITH_TOKEN` before exposing it, because
+unlike a tunnel this URL does not go away on its own.
+
 ### Deploying on Render
 
 `render.yaml` is a Render blueprint. It uses the native Python runtime, not a
