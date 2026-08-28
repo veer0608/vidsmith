@@ -185,8 +185,13 @@ On the instance, where the address is the same for everyone:
 curl -s http://127.0.0.1:8077/healthz
 ```
 
-`ok` should be true, `ffmpeg` should be a path, and `keys` should show the ones
-you set. If a key reads false the name in `.env` is wrong, not the value.
+`ok` should be true and `ffmpeg` should be a path.
+
+`keys` appears only when you pass the token. It is an inventory of which
+credentials this box holds, AWS included once the polly voice is configured, and
+a stranger who found the URL has no business reading it. Send your own token as
+an `X-Vidsmith-Token` header to see the field. If a key then reads false, the
+name in `.env` is wrong rather than the value.
 
 Then from your own machine, against the real hostname, which also proves the
 proxy and the certificate work rather than just the app.

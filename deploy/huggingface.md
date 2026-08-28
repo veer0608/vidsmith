@@ -45,8 +45,10 @@ The first build takes a few minutes. Then check it before rendering anything:
 https://YOURNAME-vidsmith.hf.space/healthz
 ```
 
-`fonts` should list the two DejaVu files and `keys` should show `gemini` and
-`pexels` as true. If a key reads false, the secret name is wrong.
+`fonts` should list the two DejaVu files. `keys` should show `gemini` and
+`pexels` as true, but it is returned only to a caller carrying the token, since
+it is an inventory of which credentials the Space holds. Send yours as an
+`X-Vidsmith-Token` header. If a key then reads false, the secret name is wrong.
 
 ## What to expect
 

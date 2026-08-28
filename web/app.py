@@ -44,9 +44,21 @@ def guard(x_vidsmith_token: str = Header(default=""), t: str = "") -> None:
     """
     if not TOKEN:
         return
-    supplied = x_vidsmith_token or t
-    if not hmac.compare_digest(supplied, TOKEN):
+    if not authorised(x_vidsmith_token, t):
         raise HTTPException(401, "bad or missing token")
+
+
+def authorised(header: str, query: str) -> bool:
+    """Whether this caller may see more than a stranger.
+
+    Separate from `guard` because one route wants the answer without refusing
+    the request: `/healthz` has to stay reachable for an uptime check that holds
+    no token, while the part of it that inventories credentials does not belong
+    to anonymous callers.
+    """
+    if not TOKEN:
+        return True                        # nothing configured, nothing to hide
+    return hmac.compare_digest(header or query, TOKEN)
 
 
 class BuildRequest(BaseModel):
@@ -98,7 +110,20 @@ def index() -> str:
 
 
 @app.get("/healthz")
-def healthz() -> Dict[str, Any]:
+def healthz(x_vidsmith_token: str = Header(default=""),
+            t: str = "") -> Dict[str, Any]:
+    """Whether this instance can work, and for the owner, what it resolved.
+
+    Stays reachable without a token, because an uptime check should not need a
+    secret and a deploy that cannot answer at all is indistinguishable from one
+    that is merely unhealthy.
+
+    `keys` is the exception. It is an inventory of which credentials this box
+    holds, AWS included once the polly voice is configured, and a stranger who
+    has found the URL has no business reading it. When a token is configured it
+    is required for that field and for nothing else, so the deploy check in
+    deploy/aws.md still works by passing it.
+    """
     from vidsmith import cards
     from vidsmith import ffmpeg_util as ff
 
@@ -109,9 +134,11 @@ def healthz() -> Dict[str, Any]:
         ffmpeg = ff.ffmpeg_bin()
     except RuntimeError as exc:
         return {"ok": False, "ffmpeg": str(exc), "fonts": bundled}
-    return {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
-            "busy": jobs.busy(), "max_minutes": MAX_MINUTES,
-            "keys": {name: bool(value) for name, value in _keys().items()}}
+    body: Dict[str, Any] = {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
+                            "busy": jobs.busy(), "max_minutes": MAX_MINUTES}
+    if authorised(x_vidsmith_token, t):
+        body["keys"] = {name: bool(value) for name, value in _keys().items()}
+    return body
 
 
 @app.get("/api/options")

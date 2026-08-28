@@ -701,3 +701,48 @@ def test_a_thumbnail_refresh_refuses_rather_than_degrading(tmp_path, monkeypatch
     monkeypatch.setattr("vidsmith.visuals.pexels_photos", lambda *a, **k: [])
     assert thumbs.from_stock("T", "subjects", (1920, 1080), keys, tmp_path,
                              log=lambda *a: None) is None
+
+
+# --------------------------------------------------------------------------- #
+# what a stranger may read
+# --------------------------------------------------------------------------- #
+def test_health_stays_reachable_without_a_token(client, monkeypatch):
+    """An uptime check should not need a secret, and a deploy that cannot answer
+    at all is indistinguishable from one that is merely unhealthy."""
+    monkeypatch.setattr(web_app, "TOKEN", "s3cret")
+    body = client.get("/healthz").json()
+    assert body["ok"] is True
+    assert "ffmpeg" in body
+
+
+def test_health_does_not_inventory_credentials_for_a_stranger(client, monkeypatch):
+    """`keys` says which credentials this box holds, AWS included once the polly
+    voice is configured. Whoever found the URL has no business reading that."""
+    monkeypatch.setattr(web_app, "TOKEN", "s3cret")
+    assert "keys" not in client.get("/healthz").json()
+
+
+@pytest.mark.parametrize("send", [
+    lambda c: c.get("/healthz", headers={"X-Vidsmith-Token": "s3cret"}),
+    lambda c: c.get("/healthz?t=s3cret"),
+])
+def test_the_owner_still_sees_which_keys_resolved(client, monkeypatch, send):
+    """The deploy check in deploy/aws.md is exactly this, with the token."""
+    monkeypatch.setattr(web_app, "TOKEN", "s3cret")
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": "k", "pexels": ""})
+    body = send(client).json()
+    assert body["keys"] == {"gemini": True, "pexels": False}
+
+
+def test_a_wrong_token_is_told_nothing_rather_than_refused(client, monkeypatch):
+    """Refusing would make /healthz useless as an uptime check for anyone who
+    fat-fingers the token; withholding the one sensitive field is enough."""
+    monkeypatch.setattr(web_app, "TOKEN", "s3cret")
+    r = client.get("/healthz?t=wrong")
+    assert r.status_code == 200
+    assert "keys" not in r.json()
+
+
+def test_an_ungated_instance_reports_keys_as_before(client):
+    """Nothing configured means nothing to hide, and local use stays as it was."""
+    assert "keys" in client.get("/healthz").json()
