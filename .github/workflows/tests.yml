@@ -94,3 +94,33 @@ jobs:
       # crossing two levels of shell quoting.
       - name: A name outside cp1252 must survive a piped console
         run: python -m scripts.console_probe
+
+  # Reinstated with a per-test timeout. The first run of this job found that
+  # Homebrew's ffmpeg has no libass, which was worth the whole exercise; the
+  # second hung in the suite and said nothing, which is what the timeout is for.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: What this ffmpeg can actually do
+        run: |
+          ffmpeg -hide_banner -version | head -1
+          echo "subtitles filter:"
+          ffmpeg -hide_banner -filters | grep -c " subtitles " || echo "absent"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      # --timeout kills a stuck test and prints where it was, instead of the job
+      # sitting until the runner is reaped
+      - name: Run the suite
+        run: python -m pytest --timeout=120 --durations=10
