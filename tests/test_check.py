@@ -181,3 +181,32 @@ def test_a_passing_check_still_says_something():
     source = inspect.getsource(pipeline.build)
     assert "delivery is consistent" in source, \
         "a clean check is silent, so it cannot be distinguished from a missing one"
+
+
+def test_the_readme_documents_every_command_that_exists():
+    """A command nobody can find is a command nobody runs.
+
+    `check` and `thumbs --refresh` both shipped without reaching the README, so
+    the only place they were written down was a file aimed at Claude rather than
+    at whoever clones this.
+    """
+    import re
+    from pathlib import Path
+
+    from vidsmith import cli
+
+    parser = cli.build_parser() if hasattr(cli, "build_parser") else None
+    if parser is None:
+        import argparse
+
+        # the parser is assembled inside main(); read the subcommand names off
+        # the same source rather than duplicating the list here
+        source = __import__("inspect").getsource(cli)
+        commands = set(re.findall(r'sub\.add_parser\("([a-z]+)"', source))
+    else:
+        commands = {a for a in parser._subparsers._actions[-1].choices}
+
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(
+        encoding="utf-8")
+    missing = sorted(c for c in commands if f"vidsmith {c}" not in readme)
+    assert not missing, f"undocumented commands: {missing}"

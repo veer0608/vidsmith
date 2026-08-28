@@ -104,6 +104,8 @@ Or have Gemini draft one:
 | `vidsmith voices --lang en-IN` | list narration voices |
 | `vidsmith meta NAME` | regenerate YouTube title/description/chapters |
 | `vidsmith thumbs NAME [--count 6]` | rank thumbnail frames, compose a titled one |
+| `vidsmith thumbs NAME --refresh` | redo the delivery thumbnails from stock, no re-render |
+| `vidsmith check NAME` | read a finished build for faults before publishing it |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 
 Useful `build` flags:
@@ -290,6 +292,35 @@ colour spread, penalised for crushed or blown exposure, and spaced at least 2.5s
 apart so six candidates are not six frames of one shot. Either way the winner is
 composed into `titled.jpg` at 1280x720 with the video title in the project's
 theme.
+
+`--refresh` redoes the delivery thumbnails from stock without re-rendering,
+which matters when the first build ran with the model out of quota and nothing
+picked between the candidates. It refuses rather than degrading: writing the same
+keyword fallback again is worse than leaving what is already there. It rewrites
+`description.txt` too, because the credit has to follow the photo.
+
+## Before you publish
+
+```bash
+.venv/bin/python -m vidsmith check demo
+```
+
+`check` reads the delivered files against each other and exits non-zero if they
+disagree. A full build runs it automatically; run it by hand after anything that
+touches the outputs.
+
+It compares the thumbnail credit in `credits.txt` against the one in
+`description.txt`, which is the file that actually gets published; each
+thumbnail's orientation against the cut it names; caption and chapter timings
+against the runtime; and it reports any image matching no delivered cut.
+Chapters have to start at `0:00`, or YouTube drops the whole list rather than the
+offending line.
+
+Every check is a fault that reached a finished build here. Each of those files
+looked correct on its own and wrong beside the next one, which is the case a test
+over the code that wrote them does not catch. It calls no model and no network,
+so it works on a day the quota is gone, which is when a hurried refresh is most
+likely to be published anyway.
 
 ## The look
 
