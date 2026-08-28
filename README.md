@@ -545,9 +545,17 @@ this is the route when the link has to keep working. Ubuntu with `apt` means
 ffmpeg and the fonts install as packages, and nothing needs Docker.
 
 Two vCPUs and 2 GB is the floor: a 1080p encode runs out of memory below that.
-Steps, the systemd unit, the TLS reasoning and the billing traps are in
-[deploy/aws.md](deploy/aws.md). Set `VIDSMITH_TOKEN` before exposing it, because
-unlike a tunnel this URL does not go away on its own.
+`scripts/cloud-init.sh` goes in the instance's user data and the box builds
+itself while it boots, so the only manual steps are the keys and the hostname.
+
+You do not need to buy a domain. A free DuckDNS subdomain is enough for Caddy to
+get a real certificate, which matters because the page passes its token as a
+query parameter and plain HTTP would send it in the clear.
+
+Steps, the systemd unit and the billing traps are in
+[deploy/aws.md](deploy/aws.md). Set `VIDSMITH_TOKEN` before the keys, not after:
+unlike a tunnel this URL does not go away on its own, and the gap between
+booting and gating is a window someone can walk through.
 
 ### Deploying on Render
 

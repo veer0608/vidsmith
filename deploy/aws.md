@@ -101,10 +101,21 @@ Put your real values in it with an editor rather than echoing them into a shell,
 so the keys do not land in `~/.bash_history`:
 
 ```
+VIDSMITH_TOKEN=
 GEMINI_API_KEY=
 PEXELS_API_KEY=
-VIDSMITH_TOKEN=
 ```
+
+**Write the token first, then the keys, in that order.** Between the instance
+booting and the token landing, the renderer is reachable and ungated. Filling
+the keys in first opens a window where anyone who finds the address can spend
+them, and the address is guessable: it is in the public IPv4 space and scanned
+continuously.
+
+**Do not put the AWS credentials here.** `find_keys()` will read them if they
+are present, and they are only useful for the polly voice. Long-lived cloud
+credentials on an internet-facing box, to power a voice nobody selected, is a
+bad trade.
 
 **`VIDSMITH_TOKEN` is not optional here.** Unlike the tunnel, this URL does not
 die when you close a window. Without a token anyone who finds it can start
@@ -156,28 +167,67 @@ sudo systemctl daemon-reload && sudo systemctl enable --now vidsmith && sudo sys
 three minute script is something like six minutes of work. Raise it only after
 watching one finish.
 
-## TLS, and why plain HTTP will not do
+## TLS, and a free hostname to hang it on
 
 The page accepts its token as a `?t=` query parameter, because a `<video>`
 element cannot set a header. Over plain HTTP that token crosses the network in
 cleartext, and it is the only thing standing between a stranger and your API
-quota.
+quota. So the instance needs a hostname, and a certificate for it.
 
-Caddy gets a certificate automatically, so this is the whole configuration.
-Point a domain's A record at the instance IP first, then write `/etc/caddy/Caddyfile`:
+**A domain you buy is not required.** DuckDNS gives a free subdomain that never
+expires, and `duckdns.org` is on the Public Suffix List, so Let's Encrypt treats
+your subdomain as its own domain for rate limiting and issues without trouble.
+Services like `nip.io` need no signup at all but are less dependable for
+issuance, which is a bad thing to discover through a rate-limit error.
+
+1. Sign in at duckdns.org with GitHub or Google. No card, no confirmation mail.
+2. Add a subdomain.
+3. **Set the IP by hand.** The page prefills the address your *browser* came
+   from, which is your home connection, not the server. Getting this wrong sends
+   Let's Encrypt to validate against your router, where it fails and costs a
+   retry for nothing.
+
+Check what the world sees before touching the server, because the certificate
+depends on it rather than on anything local:
+
+```bash
+nslookup vidsmith.duckdns.org 8.8.8.8
+```
+
+Then name that host in `/etc/caddy/Caddyfile`, replacing the `:80` block the
+bootstrap wrote. Caddy requests and renews the certificate on its own; there is
+no certbot step and no cron entry.
 
 ```
-vidsmith.YOUR-DOMAIN.example {
+vidsmith.duckdns.org {
     reverse_proxy 127.0.0.1:8077
 }
 ```
 
 ```bash
-sudo apt-get install -y caddy && sudo systemctl restart caddy
+sudo systemctl restart caddy
 ```
 
-Without a domain you have an IP and no certificate. That is acceptable for ten
-minutes of testing and not for a link you hand out.
+Issuance takes a few seconds. Confirm the certificate rather than the page, so a
+cached answer or a proxy cannot flatter you:
+
+```bash
+echo | openssl s_client -connect vidsmith.duckdns.org:443 -servername vidsmith.duckdns.org 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+```
+
+`issuer` should say Let's Encrypt and `subject` should be your host. Caddy also
+redirects port 80 to 443 by itself, so the plain-HTTP address stops being usable
+without any extra configuration.
+
+### The IP moves when the instance stops
+
+EC2 hands out a new public address every time an instance starts, so stopping
+one overnight silently breaks the DNS record and the site answers nothing. Either
+update the DuckDNS entry on restart, or attach an **Elastic IP**, which is free
+while it stays attached to a running instance and charged when it does not.
+
+Stopping the instance when nobody is demoing is otherwise the right move: you
+pay for storage rather than compute, and the credits last correspondingly longer.
 
 ## Firewall
 
@@ -205,6 +255,26 @@ name in `.env` is wrong rather than the value.
 
 Then from your own machine, against the real hostname, which also proves the
 proxy and the certificate work rather than just the app.
+
+Two checks are worth making by hand once, because each one has a failure that
+looks like success. A render must be refused without a token:
+
+```bash
+curl -s -X POST https://vidsmith.duckdns.org/api/jobs -H "Content-Type: application/json" -d "{}"
+```
+
+That should answer `bad or missing token`. If it answers anything else, the
+token did not reach the process: `.env` is read at import, so a value added
+after the service started does nothing until `sudo systemctl restart vidsmith`.
+
+And an anonymous health check must **not** carry a `keys` field:
+
+```bash
+curl -s https://vidsmith.duckdns.org/healthz
+```
+
+Seeing `keys` there means no token is configured, which also means the renderer
+is open to anyone who finds the address.
 
 ## What to expect
 
