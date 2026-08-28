@@ -484,7 +484,7 @@ Because a render is minutes long, the page is built around not wasting them:
 | `POST /api/draft` | write a script from a topic |
 | `GET /api/busy` | whether the one render slot is taken, and by what |
 | `GET /api/options` | aspects, themes, moods, limits, whether auth is on |
-| `GET /healthz` | ffmpeg found, and whether a render is running |
+| `GET /healthz` | ffmpeg found, and whether a render is running; `keys` needs the token |
 | `GET /api/docs` | generated OpenAPI docs |
 
 ### A public URL without hosting it
@@ -512,8 +512,14 @@ tunnel, because that is almost always a mistake rather than a decision.
 **The token is the point.** Any exposed instance - tunnel or host - is a renderer
 that spends your Pexels and Gemini quota. Set `VIDSMITH_TOKEN` (the script does
 it for you) and the API refuses anything without it; leave it unset and there is
-no gate at all, which is the right default only on localhost. `/healthz` stays
-open either way so a deploy can be checked without the secret.
+no gate at all, which is the right default only on localhost.
+
+`/healthz` stays open either way, so an uptime check needs no secret and a
+deploy that cannot answer is distinguishable from one that is merely unhealthy.
+Its `keys` field is the exception: that is an inventory of which credentials the
+box holds, so it is returned only to a caller with the token. A wrong token is
+told nothing rather than refused, because refusing would break the uptime check
+for anyone who fat-fingers it.
 
 ### Deploying on Hugging Face
 
