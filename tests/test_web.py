@@ -205,14 +205,32 @@ def test_an_unknown_job_is_a_404(client):
 # --------------------------------------------------------------------------- #
 # the queue
 # --------------------------------------------------------------------------- #
-def test_only_one_render_runs_at_a_time(tmp_path):
-    """Two x264 encodes on one small box starve each other; say no instead."""
+def test_only_one_render_runs_at_a_time(tmp_path, monkeypatch):
+    """Two x264 encodes on one small box starve each other; say no instead.
+
+    The first render is held open rather than raced against. The stub is fast
+    enough that on a quick runner it finished before the next line ran, and the
+    test failed on `busy()` being False - a footrace it happened to win
+    everywhere except macOS, which is not the same thing as testing the queue.
+    """
+    holding = threading.Event()
+
+    def blocking_build(root, **kwargs):
+        holding.wait(timeout=20)
+        out = Path(root) / "out"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "video.mp4").write_bytes(b"stub")
+        return out / "video.mp4"
+
+    monkeypatch.setattr(jobs_mod.pipeline, "build", blocking_build)
+
     jobs = Jobs(tmp_path)
     started = jobs.submit(SCRIPT, {})
-    assert jobs.busy()
+    assert jobs.busy(), "the slot is not claimed while a render is in flight"
     with pytest.raises(Busy):
         jobs.submit(SCRIPT, {})
 
+    holding.set()
     _settle(jobs)
     assert started.status in ("done", "failed")
 
