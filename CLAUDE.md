@@ -64,7 +64,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 407 tests, ~31s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 411 tests, ~30s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -401,6 +401,15 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **A setting that changes the picture has to be applied per aspect.**
+  `--force visuals,render` rebuilds the cut you asked for and no other, so
+  turning the title card off left every 9:16 cut 2.4s longer than its 16:9 pair
+  and still opening on a card. All four projects were in that state at once.
+  `check` caught it four times over ("the two cuts disagree on length: 45s and
+  47s") within minutes of being written, which is the whole argument for it: the
+  wide cut was correct, the vertical cut was correct, and only the pair was
+  wrong. Changing anything under `theme` or `render` means rebuilding every
+  aspect that exists, not the default one.
 - **`vidsmith check <name>` exists because reading the output beat reading the
   source three times in one day.** It compares delivered files against each
   other rather than against the code that wrote them: the credit in
@@ -428,6 +437,18 @@ competing with the voice.
   away. `pipeline.resolve_title()` is now the one resolver and both callers use
   it, because the same divergence had already happened once between the CLI and
   the web job. Anything slugging `cfg.title` straight into a filename is the bug.
+- **The macOS narration hang is not fixed, and the `-t` did not fix it.**
+  `build_narration` hung again inside `ff.run` after that change, so the reading
+  of the filtergraph that produced it was wrong. It is intermittent: many green
+  runs either side. What is fixed is the reporting. A `TimeoutExpired` carries
+  whatever the process printed before it was killed, and that was being thrown
+  away, so both occurrences were reported as a stack trace through `subprocess`
+  with nothing from ffmpeg in it. `VIDSMITH_FFMPEG_TIMEOUT` is now set to 45s in
+  CI, under the 120s pytest limit, so our own guard fires first and prints what
+  ffmpeg said; at the 900s default pytest always won the race and the guard
+  never spoke. All three jobs carry both limits now, since a hang on ubuntu or
+  windows was every bit as opaque. Next occurrence, read that output before
+  theorising again.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did

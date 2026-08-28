@@ -5,7 +5,7 @@ theme:
   accent: ''
   font: ''
   watermark: ''
-  title_card: true
+  title_card: false
   title_seconds: 2.4
   subtitle: ''
   end_card: true

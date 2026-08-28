@@ -280,3 +280,21 @@ def test_persisting_the_title_leaves_every_other_key_alone(tmp_path):
 
     assert after.pop("title") != before.pop("title")
     assert after == before, "only the title should have moved"
+
+
+def test_a_video_opens_on_its_hook_by_default():
+    """The opening card put 2.4s of silence in front of the first spoken word.
+
+    That is the window a viewer uses to decide whether to stay, spent on a
+    title they have already read in the thumbnail. Measured on a real build:
+    first word at 2.40s with the card, 0.00s without.
+
+    It stays configurable, because a channel-identity beat is a real trade
+    rather than a wrong answer. Only the default moved.
+    """
+    from vidsmith.config import ThemeConfig
+
+    assert ThemeConfig().title_card is False, \
+        "a fresh project opens on a static card instead of its hook"
+    assert ThemeConfig().end_card is True, \
+        "the end card costs nothing at the point people have already stayed"

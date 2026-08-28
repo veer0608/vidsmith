@@ -193,9 +193,19 @@ def test_a_hung_ffmpeg_is_killed_and_named(monkeypatch):
     assert "VIDSMITH_FFMPEG_TIMEOUT" in said, "say how to raise it"
 
 
-def test_the_timeout_is_a_bound_on_forever_not_a_budget():
-    """Killing an honest long encode would be worse than the hang it guards."""
-    assert ff.TIMEOUT >= 600
+def test_the_timeout_is_a_bound_on_forever_not_a_budget(monkeypatch):
+    """Killing an honest long encode would be worse than the hang it guards.
+
+    The shipped default is what this is about, not whatever the current process
+    was told. CI deliberately sets a much shorter one so its own guard fires
+    before pytest's, and reading the live value made these two contradict each
+    other: the suite went red on all three runners over 45 versus 600.
+    """
+    import importlib
+
+    monkeypatch.delenv("VIDSMITH_FFMPEG_TIMEOUT", raising=False)
+    assert importlib.reload(ff).TIMEOUT >= 600
+    importlib.reload(ff)
 
 
 def test_the_timeout_is_overridable(monkeypatch):
@@ -218,3 +228,49 @@ def test_the_narration_output_is_bounded_by_more_than_the_graph():
 
     source = inspect.getsource(render.build_narration)
     assert '"-t", f"{total:.3f}"' in source, "the narration encode has no hard end"
+
+
+def test_a_timeout_reports_what_ffmpeg_managed_to_say(monkeypatch):
+    """The only evidence about where it stopped is whatever it printed first.
+
+    Two macOS hangs were reported as a stack trace through subprocess with
+    nothing from ffmpeg in it, because the partial output on TimeoutExpired was
+    thrown away.
+    """
+    import subprocess as sp
+
+    def hang(*a, **k):
+        raise sp.TimeoutExpired(cmd="ffmpeg", timeout=45,
+                                output=b"", stderr=b"Output #0, wav\n  Stream #0:0: Audio")
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", hang)
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    assert "Stream #0:0: Audio" in str(exc.value), "the partial output was dropped"
+
+
+def test_a_silent_hang_says_that_too(monkeypatch):
+    """"It said nothing" is itself a finding: it never reached the muxer."""
+    import subprocess as sp
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
+        sp.TimeoutExpired(cmd="ffmpeg", timeout=45)))
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    assert "said nothing at all" in str(exc.value)
+
+
+def test_every_ci_job_bounds_a_hang():
+    """A hang on ubuntu or windows was as opaque as the macOS one: only macos
+    carried a per-test timeout, and none set the ffmpeg one below it, so pytest
+    always killed the test before our own guard could report anything."""
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parent.parent
+                / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    assert workflow.count("--timeout=120") == 3, "a job can still hang unbounded"
+    # the setting, not the prose: the comment above it names the variable too
+    assert workflow.count('VIDSMITH_FFMPEG_TIMEOUT: "') == 3, \
+        "without this under the pytest limit, ffmpeg never gets to explain itself"

@@ -46,7 +46,9 @@ jobs:
         run: pip install -r requirements-dev.txt -r requirements-web.txt
 
       - name: Run the suite
-        run: python -m pytest
+        env:
+          VIDSMITH_FFMPEG_TIMEOUT: "45"
+        run: python -m pytest --timeout=120 --durations=10
 
   windows:
     runs-on: windows-latest
@@ -77,7 +79,9 @@ jobs:
       # Windows ships the families the themes name (Segoe UI Black, Bahnschrift),
       # so unlike the Linux job this one needs no font installed.
       - name: Run the suite
-        run: python -m pytest
+        env:
+          VIDSMITH_FFMPEG_TIMEOUT: "45"
+        run: python -m pytest --timeout=120 --durations=10
 
       # pytest is not enough on its own. Its capture is utf-8 on every platform,
       # so the console-encoding fault cannot reach it - only a real entry point
@@ -121,6 +125,14 @@ jobs:
         run: pip install -r requirements-dev.txt -r requirements-web.txt
 
       # --timeout kills a stuck test and prints where it was, instead of the job
-      # sitting until the runner is reaped
+      # sitting until the runner is reaped.
+      #
+      # VIDSMITH_FFMPEG_TIMEOUT is set well under it on purpose. At the 900s
+      # default, pytest kills the test first and the report is a stack trace
+      # through subprocess with nothing from ffmpeg in it, which is exactly what
+      # this hang produced twice. Under the pytest limit, our own guard fires
+      # first and prints what ffmpeg said before it died.
       - name: Run the suite
+        env:
+          VIDSMITH_FFMPEG_TIMEOUT: "45"
         run: python -m pytest --timeout=120 --durations=10

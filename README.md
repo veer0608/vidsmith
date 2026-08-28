@@ -333,7 +333,7 @@ theme:
   preset: midnight      # midnight | ink | sunset | forest | paper | mono
   accent: ""            # "#RRGGBB" to override just the accent
   watermark: "@veer0608"
-  title_card: true      # opening frame with the video title
+  title_card: false     # opening frame with the video title; off, so it opens cold
   end_card: true        # closing frame with the last takeaway
   lower_thirds: false   # scene-heading chip, top-left
   progress_bar: true

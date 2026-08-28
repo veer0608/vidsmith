@@ -63,7 +63,12 @@ class ThemeConfig:
     accent: str = ""                   # "#RRGGBB" to override the preset accent
     font: str = ""                     # override the headline/caption family
     watermark: str = ""                # channel handle, drawn small and muted
-    title_card: bool = True            # generated opening frame with the title
+    # Off by default: the card spent 2.4s of silence on a title the viewer has
+    # already read in the thumbnail, at the exact moment they decide whether to
+    # stay. A cold open puts the first spoken word at 0.00s instead. Turn it
+    # back on for a video that wants a channel-identity beat more than it wants
+    # the hook, which is a real trade rather than a wrong answer.
+    title_card: bool = False           # generated opening frame with the title
     title_seconds: float = 2.4
     subtitle: str = ""                 # small line under the title
     end_card: bool = True
