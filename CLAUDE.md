@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 372 tests, ~35s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 376 tests, ~25s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -397,6 +397,17 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
+  infinite by definition, so `build_narration` left `atrim` as the only thing
+  ending its output; `master()` had always passed `-t` as well, and this one did
+  not. macOS CI hung inside exactly that call. Both are fixed: the narration
+  encode is bounded by `-t` as well as the graph, and `ff.run()` takes a
+  `VIDSMITH_FFMPEG_TIMEOUT` (900s) so a stuck encode raises instead of sitting.
+  The timeout matters well beyond CI. The web service holds one render slot and
+  gives it back on the way out of the job, and a subprocess that never returns
+  takes no way out, so the instance stops accepting work permanently. When
+  bounding an encode, keep the limit generous: it is a bound on forever, not a
+  performance budget, and killing an honest long encode is worse than the hang.
 - **PowerShell unrolls a single-element array on its way out of a statement.**
   `$live = if (...) { @(...) } else { @() }` hands back a *String* when the array
   holds one item, so `$live[-1]` indexes the string and yields its last
