@@ -401,6 +401,15 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **A setting that changes the picture has to be applied per aspect.**
+  `--force visuals,render` rebuilds the cut you asked for and no other, so
+  turning the title card off left every 9:16 cut 2.4s longer than its 16:9 pair
+  and still opening on a card. All four projects were in that state at once.
+  `check` caught it four times over ("the two cuts disagree on length: 45s and
+  47s") within minutes of being written, which is the whole argument for it: the
+  wide cut was correct, the vertical cut was correct, and only the pair was
+  wrong. Changing anything under `theme` or `render` means rebuilding every
+  aspect that exists, not the default one.
 - **`vidsmith check <name>` exists because reading the output beat reading the
   source three times in one day.** It compares delivered files against each
   other rather than against the code that wrote them: the credit in

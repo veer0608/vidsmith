@@ -4,7 +4,7 @@ theme:
   accent: ''
   font: ''
   watermark: '@veer0608'
-  title_card: true
+  title_card: false
   title_seconds: 2.4
   subtitle: ''
   end_card: true
