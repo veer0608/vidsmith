@@ -8,7 +8,7 @@ from pathlib import Path
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
-from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys, resolve_title
+from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys, resolve_title, set_thumbnail_credit
 
 STARTER = """# {title}
 
@@ -208,6 +208,9 @@ def _refresh_thumbnails(args) -> int:
             continue
         out = proj.out / f"{slug}{tag}.jpg"
         thumbs.titled(stock["path"], out, cfg.title, theme, target)
+        # the photo changed, so the attribution has to change with it; a credits
+        # file naming the photographer we just dropped is a licence problem
+        set_thumbnail_credit(proj.out / f"credits{tag}.txt", stock)
         print(f"  {aspect:5} {stock['query']:32} by {stock['author']}")
         done += 1
 

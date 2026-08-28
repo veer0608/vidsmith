@@ -278,3 +278,68 @@ def test_both_entry_points_resolve_the_title_the_same_way():
         "the refresh slugs a title it resolved for itself"
     assert "_slug(cfg.title)" not in source, \
         "cfg.title can still be the Untitled sentinel here"
+
+
+# --------------------------------------------------------------------------- #
+# attribution follows the photo
+# --------------------------------------------------------------------------- #
+def test_a_new_thumbnail_credits_its_own_photographer(tmp_path):
+    """Attribution is a licence condition, so a stale credit is worse than none.
+
+    thumbs --refresh replaced the image and left the credit alone, because the
+    line was only ever composed during a build. Every refreshed project then
+    named the photographer whose photo had just been dropped, and omitted the
+    one whose photo was on the thumbnail.
+    """
+    credits = tmp_path / "credits.txt"
+    credits.write_text("Footage from Pexels:\nSomeone - https://example.com/v\n"
+                       "Thumbnail: Arina Krasnikova - https://example.com/old\n",
+                       encoding="utf-8")
+
+    pipeline.set_thumbnail_credit(
+        credits, {"author": "Markus Spiske", "page": "https://example.com/new"})
+
+    text = credits.read_text(encoding="utf-8")
+    assert "Markus Spiske" in text
+    assert "Arina Krasnikova" not in text, "the dropped photographer is still credited"
+    assert text.count("Thumbnail:") == 1, "two thumbnail credits is not an improvement"
+    assert "Someone - https://example.com/v" in text, "footage credits were lost"
+
+
+def test_a_credits_file_that_has_no_thumbnail_line_yet_gains_one(tmp_path):
+    credits = tmp_path / "credits.txt"
+    credits.write_text("Footage from Pexels:\nSomeone - https://example.com/v\n",
+                       encoding="utf-8")
+    pipeline.set_thumbnail_credit(credits, {"author": "A", "page": "https://p"})
+    assert credits.read_text(encoding="utf-8").endswith("Thumbnail: A - https://p\n")
+
+
+def test_a_frame_thumbnail_owes_nobody_and_clears_the_line(tmp_path):
+    """A frame lifted from the video has no photographer, and the previous
+    stock credit must not survive as though it did."""
+    credits = tmp_path / "credits.txt"
+    credits.write_text("Footage from Pexels:\nSomeone - https://example.com/v\n"
+                       "Thumbnail: Old Name - https://example.com/old\n",
+                       encoding="utf-8")
+    pipeline.set_thumbnail_credit(credits, None)
+    assert "Thumbnail:" not in credits.read_text(encoding="utf-8")
+
+
+def test_both_writers_format_the_credit_identically():
+    """The refresh finds the build's line by prefix to replace it. If the two
+    disagreed on the format, it would append a second one instead."""
+    import inspect
+
+    source = inspect.getsource(pipeline.build)
+    assert "thumbnail_credit_line(thumb_credit)" in source, \
+        "build composes the credit itself, so the refresh cannot match it"
+
+
+def test_the_refresh_updates_the_credit_it_invalidates():
+    import inspect
+
+    from vidsmith import cli as cli_mod
+
+    source = inspect.getsource(cli_mod._refresh_thumbnails)
+    assert "set_thumbnail_credit(" in source, \
+        "the thumbnail changes and the attribution does not follow it"
