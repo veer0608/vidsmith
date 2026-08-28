@@ -509,7 +509,7 @@ class VisualBuilder:
         raw = cache.get(str(scene.index))
         if not raw:
             try:
-                raw = llm.design_diagram(scene.text, brief, key)
+                raw = llm.design_diagram(scene.text, brief, key, log=self.log)
             except Exception as exc:
                 self.log(f"    diagram skipped ({exc})")
                 return None

@@ -240,3 +240,49 @@ def test_reranking_hands_the_build_log_down(monkeypatch, no_waiting):
     assert "llm.rank_clips(scene.text, query, images, key, log=self.log)" in source, \
         "rank_clips is called without the build log, so a wait would be silent"
     assert "log" in inspect.signature(llm.rank_clips).parameters
+
+
+def test_every_request_helper_can_announce_a_wait():
+    """The invariant, not the seven functions that currently satisfy it.
+
+    A guard landing on one of two call sites is the mistake this repo keeps
+    repeating: the quota check went into generate() and not generate_vision(),
+    then the wait announcement went into rank_clips() and not design_diagram(),
+    which runs just as often. Both were found by reading, after shipping.
+
+    So the rule is enforced rather than remembered. Any helper that issues a
+    request has to accept a log and hand it down; a new one that forgets fails
+    here instead of going silent inside somebody's build.
+    """
+    import inspect
+    import re
+
+    silent = []
+    for name, fn in sorted(vars(llm).items()):
+        if not inspect.isfunction(fn) or fn.__module__ != "vidsmith.llm":
+            continue
+        if name in ("generate", "generate_vision"):
+            continue                       # these two take the log, not pass it
+        source = inspect.getsource(fn)
+        if not re.search(r"\bgenerate(_vision)?\(", source):
+            continue
+        if "log" not in inspect.signature(fn).parameters:
+            silent.append(f"{name} takes no log")
+        elif "log=log" not in source:
+            silent.append(f"{name} takes a log and drops it")
+
+    assert not silent, "a wait here would be invisible: " + "; ".join(silent)
+
+
+@pytest.mark.parametrize("call_site", [
+    # the two that run once per scene, so a wait can stack across one build
+    ("vidsmith/visuals.py", "llm.design_diagram(scene.text, brief, key, log=self.log)"),
+    ("vidsmith/visuals.py", "llm.rank_clips(scene.text, query, images, key, log=self.log)"),
+])
+def test_the_per_scene_callers_hand_their_log_down(call_site):
+    """Accepting a log is half of it; a caller that omits it is silent anyway."""
+    from pathlib import Path
+
+    path, expected = call_site
+    source = (Path(__file__).resolve().parent.parent / path).read_text(encoding="utf-8")
+    assert expected in source, f"{path} calls this without the build log"
