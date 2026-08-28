@@ -193,9 +193,19 @@ def test_a_hung_ffmpeg_is_killed_and_named(monkeypatch):
     assert "VIDSMITH_FFMPEG_TIMEOUT" in said, "say how to raise it"
 
 
-def test_the_timeout_is_a_bound_on_forever_not_a_budget():
-    """Killing an honest long encode would be worse than the hang it guards."""
-    assert ff.TIMEOUT >= 600
+def test_the_timeout_is_a_bound_on_forever_not_a_budget(monkeypatch):
+    """Killing an honest long encode would be worse than the hang it guards.
+
+    The shipped default is what this is about, not whatever the current process
+    was told. CI deliberately sets a much shorter one so its own guard fires
+    before pytest's, and reading the live value made these two contradict each
+    other: the suite went red on all three runners over 45 versus 600.
+    """
+    import importlib
+
+    monkeypatch.delenv("VIDSMITH_FFMPEG_TIMEOUT", raising=False)
+    assert importlib.reload(ff).TIMEOUT >= 600
+    importlib.reload(ff)
 
 
 def test_the_timeout_is_overridable(monkeypatch):
