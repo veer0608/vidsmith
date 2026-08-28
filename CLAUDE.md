@@ -31,7 +31,7 @@ before writing anything. The traps are the reason this file exists.
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
-| Handle a model 429 | Architecture, `LLMUnavailable` | A spent quota is not retryable; raise `QuotaExhausted` |
+| Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
 
 ## Working in this repo
 
@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 349 tests, ~20s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 368 tests, ~35s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -306,6 +306,11 @@ competing with the voice.
   it matched any digit-comma-digit instead it could not tell a comma `undash`
   had just made from one the writer typed, and shipped `20,000 requests` into
   the description as `20 to 000 requests`.
+  To *count* dashes, match the codepoint, not a shell bracket expression:
+  `grep '[em-dash en-dash]'` also reports every `→` in this file, because all
+  three characters begin with the same `0xE2` byte and the class is matched
+  bytewise. Six arrows read as six em dashes until the count was redone in
+  Python.
 - **`Path("")` is `Path(".")`, which is truthy and exists.** Every "is there an
   optional file here" guard has to be `is None`, never a bare truth test. The
   captions stage used `Path("")` for "no subtitle track", the guard in front of
@@ -410,6 +415,25 @@ competing with the voice.
   substitute its own HTML error page, and the page then reports `Unexpected
   token '<'` instead of what happened. The daily window is Pacific-aligned, so it
   does not roll over at local midnight.
+- **Not every `RESOURCE_EXHAUSTED` is the day, and the body says which.** The
+  same 429 covers the per-minute burst limit, which clears on its own, and the
+  daily cap, which does not. Refusing both kills a build over a blip; retrying
+  both spends what is left of a budget already gone. The `QuotaFailure` detail
+  carries a `quotaId` that names the window
+  (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), the model, and the
+  ceiling, so `_refuse_if_spent()` refuses on `PerDay` and returns a wait on
+  `PerMinute`. The number is worth repeating back: "500 requests a day for
+  gemini-3.5-flash-lite" tells you to switch models, "out of quota" does not.
+- **The `RetryInfo` beside it is not a promise.** Against a spent daily cap it
+  advertised 8s, then 56s, then 56s, then 52s. All four waits were honoured and
+  all four met another 429. It is trusted only once the `quotaId` says waiting
+  can help, and clamped so a bad value cannot hang a build.
+- **The free ceiling here is requests, not tokens.** 500 generate calls a day
+  per model. That is unlike the Groq trap noted in the global `CLAUDE.md`, where
+  the binding limit is tokens per day and appears in no header; Gemini prints
+  its metric, its ceiling and the model in the error body. Do not carry the
+  Groq assumption across. Note also that the last few requests trickle rather
+  than stopping cleanly, so one probe succeeding does not mean the day is open.
 - **A deliberate refresh should refuse where a build degrades.**
   `thumbs.from_stock()` falls back to a keyword search when the model is
   unavailable, because a render must never fail over a thumbnail. `vidsmith

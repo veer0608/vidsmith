@@ -26,17 +26,82 @@ class LLMUnavailable(RuntimeError):
     pass
 
 
-def _refuse_if_spent(r) -> None:
-    """Stop the moment the day's allowance is gone.
+def _quota_violation(r) -> Dict[str, Any]:
+    """The quota this 429 actually broke, empty if the body does not say.
 
-    Retrying a spent quota just burns more requests against a number that only
-    time restores. This lives outside the request loops because it was added to
-    the text path and not the vision one, and the vision path went on retrying
-    three times per thumbnail.
+    Google returns the specifics in a QuotaFailure detail: a quotaId naming the
+    window, the model it applies to, and the ceiling. That is worth reading -
+    "out of quota" and "out of quota until the next minute" call for opposite
+    responses, and the status code is identical for both.
     """
-    if r.status_code == 429 and "RESOURCE_EXHAUSTED" in r.text:
-        raise QuotaExhausted(
-            "the Gemini free tier is out of quota for now; it resets daily")
+    try:
+        details = r.json()["error"]["details"]
+    except Exception:                      # not JSON, not an error body, no .json
+        return {}
+    for detail in details:
+        if str(detail.get("@type", "")).endswith("QuotaFailure"):
+            violations = detail.get("violations") or [{}]
+            return violations[0]
+    return {}
+
+
+def _spent_message(violation: Dict[str, Any]) -> str:
+    quota_id = violation.get("quotaId", "")
+    limit = violation.get("quotaValue")
+    model = (violation.get("quotaDimensions") or {}).get("model")
+    if not (limit and model):
+        return "the Gemini free tier is out of quota for now; it resets daily"
+    unit = "requests" if "Requests" in quota_id else "tokens"
+    # naming the number and the model is the difference between "wait" and
+    # "switch models": the budget is per model, so another one may be untouched
+    return (f"the Gemini free tier is spent: {limit} {unit} a day for {model}. "
+            "It resets at midnight Pacific.")
+
+
+def _retry_after(r) -> float:
+    """The wait Google advertises, clamped so a bad value cannot hang a build.
+
+    Worth reading only once the quotaId says the wait can help: the loop's own
+    backoff tops out at eight seconds, which is not enough for a limit measured
+    per minute.
+    """
+    try:
+        details = r.json()["error"]["details"]
+    except Exception:
+        return 0.0
+    for detail in details:
+        if str(detail.get("@type", "")).endswith("RetryInfo"):
+            try:
+                return min(75.0, float(str(detail["retryDelay"]).rstrip("s")))
+            except (KeyError, TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _refuse_if_spent(r) -> float:
+    """Refuse a daily cap. Let a per-minute one be retried, and say how long.
+
+    Not every RESOURCE_EXHAUSTED is the day. The same status covers the
+    per-minute burst limit, which really does clear in seconds, and the daily
+    request cap, which only tomorrow clears. Treating both as fatal kills a
+    build over a blip; retrying both spends what little is left of a budget
+    that is already gone.
+
+    The body says which, in the quotaId. The RetryInfo next to it does not: on
+    a spent daily cap it advertised 8s, then 56s, then 56s, then 52s, and every
+    one of those waits was honoured and still met a 429.
+
+    This lives outside the request loops because it was first added to the text
+    path and not the vision one, and the vision path went on retrying three
+    times per thumbnail.
+    """
+    if r.status_code != 429 or "RESOURCE_EXHAUSTED" not in r.text:
+        return 0.0
+    violation = _quota_violation(r)
+    quota_id = violation.get("quotaId", "")
+    if "PerMinute" in quota_id or "PerSecond" in quota_id:
+        return _retry_after(r)             # RETRY_STATUS then backs off and retries
+    raise QuotaExhausted(_spent_message(violation))
 
 
 class QuotaExhausted(LLMUnavailable):
@@ -60,10 +125,10 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
             json=body,
             timeout=120,
         )
-        _refuse_if_spent(r)
+        pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
-            time.sleep(2 ** attempt)
+            time.sleep(max(pause, 2 ** attempt))
             continue
         if r.status_code != 200:
             raise LLMUnavailable(f"HTTP {r.status_code}: {r.text[:300]}")
@@ -100,10 +165,10 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
     for attempt in range(retries):
         r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
                           json=body, timeout=180)
-        _refuse_if_spent(r)
+        pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
-            time.sleep(2 ** attempt)
+            time.sleep(max(pause, 2 ** attempt))
             continue
         if r.status_code != 200:
             raise LLMUnavailable(f"HTTP {r.status_code}: {r.text[:300]}")
