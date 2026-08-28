@@ -326,8 +326,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # real Pexels photographer and wrote no credits file at all, because an
     # empty block short-circuits the whole condition.
     if thumb_credit and thumb_credit.get("author"):
-        line = f"Thumbnail: {thumb_credit['author']} - {thumb_credit.get('page', '')}"
-        credits += line.rstrip(" -") + "\n"
+        credits += thumbnail_credit_line(thumb_credit)
         named += 1
     if credits:
         (proj.out / f"credits{tag}.txt").write_text(credits, encoding="utf-8")
@@ -347,6 +346,37 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
             log(f"meta     skipped ({exc})")
 
     return final
+
+
+THUMB_CREDIT = "Thumbnail: "
+
+
+def thumbnail_credit_line(stock: Dict[str, Any]) -> str:
+    """How a thumbnail photographer is credited, in one place.
+
+    Two callers compose this now, and the format has to match: the refresh
+    replaces the line the build wrote, and it can only find it by prefix.
+    """
+    line = f"{THUMB_CREDIT}{stock['author']} - {stock.get('page', '')}"
+    return line.rstrip(" -") + "\n"
+
+
+def set_thumbnail_credit(path: Path, stock: Optional[Dict[str, Any]]) -> None:
+    """Point the credits file at whichever photo is actually on the thumbnail.
+
+    Attribution is a licence condition, not a nicety, so a stale one is worse
+    than none: it names someone whose work is not being used and omits the
+    person whose work is. `thumbs --refresh` replaced the image and left the
+    credit untouched, because the line was only ever composed during a build,
+    so every refreshed project credited the photographer it had dropped.
+    """
+    old = path.read_text(encoding="utf-8") if path.exists() else ""
+    kept = [ln for ln in old.splitlines(True) if not ln.startswith(THUMB_CREDIT)]
+    text = "".join(kept)
+    if stock and stock.get("author"):
+        text += thumbnail_credit_line(stock)
+    if text:
+        path.write_text(text, encoding="utf-8")
 
 
 def credits_block(scenes: Sequence[Scene], provider: str) -> str:
