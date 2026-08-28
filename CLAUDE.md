@@ -29,6 +29,7 @@ before writing anything. The traps are the reason this file exists.
 | Touch the web queue | Web service; Things that have actually broken here, the render slot | Claim the slot and you own giving it back on every path out |
 | Show it to someone | Deploying | The tunnel beats both hosts |
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
+| Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
@@ -60,7 +61,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 390 tests, ~34s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 403 tests, ~30s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -397,6 +398,15 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **`vidsmith check <name>` exists because reading the output beat reading the
+  source three times in one day.** It compares delivered files against each
+  other rather than against the code that wrote them: the credit in
+  `credits.txt` against the one in `description.txt`, each thumbnail's
+  orientation against the cut it names, caption and chapter timings against the
+  runtime, and any jpg that matches no delivered cut. Every check in it is a
+  fault that actually shipped, and each one looked correct in isolation. It
+  calls no model and no network, so it works on a spent day, which is exactly
+  when a hurried refresh gets published. Run it before uploading anything.
 - **Replacing a thumbnail invalidates `description.txt`, which is the file that
   gets published.** `description.txt` and `youtube.txt` are composed from the
   `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the
