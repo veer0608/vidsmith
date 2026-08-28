@@ -153,12 +153,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
 
     # ---- parse ---------------------------------------------------------- #
     title, scenes = parse_script(proj.script)
-    if cfg.title in ("", "Untitled"):
-        cfg.title = title
-        # Write it back, or everything that reads the config afterwards still
-        # sees "Untitled" while the video itself is named from the script: the
-        # web job reported exactly that, an untitled render of a titled video.
-        _persist_title(proj.config_path, cfg.title)
+    resolve_title(proj, cfg, title)
     log(f"script   {len(scenes)} scenes, ~{sum(s.est_seconds for s in scenes):.0f}s estimated")
 
     # reuse cached timings/queries unless the script changed under them
@@ -461,6 +456,30 @@ def _readable_meta(meta: Dict) -> str:
     if tags:
         lines.append("\nTAGS\n" + ", ".join(tags))
     return "\n".join(lines) + "\n"
+
+
+def resolve_title(proj, cfg, title: Optional[str] = None) -> str:
+    """The name this project's outputs carry, from the config or the script.
+
+    Every entry point has to agree on this. `build()` resolved an empty config
+    title from the script heading and wrote it back; `thumbs --refresh` read
+    `cfg.title` raw, so on a project whose config had never been written back it
+    slugged to "untitled" and wrote a pair of orphan jpgs beside the real
+    thumbnails, which it left stale. The delivery files were named from the
+    script all along, so nothing looked wrong until the mtimes were compared.
+
+    The same divergence had already happened once between the CLI and the web
+    job, which is why it lives in one function now rather than in each caller.
+    """
+    if title is None:
+        title, _ = parse_script(proj.script)
+    if cfg.title in ("", "Untitled"):
+        cfg.title = title
+        # Write it back, or everything that reads the config afterwards still
+        # sees "Untitled" while the video itself is named from the script: the
+        # web job reported exactly that, an untitled render of a titled video.
+        _persist_title(proj.config_path, cfg.title)
+    return cfg.title
 
 
 def _persist_title(path: Path, title: str) -> None:

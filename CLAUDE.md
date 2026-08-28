@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 379 tests, ~30s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 383 tests, ~30s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -397,6 +397,15 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **"Untitled" is a sentinel, and every entry point has to resolve it.**
+  `build()` fills an empty or `Untitled` config title from the script heading and
+  writes it back; `thumbs --refresh` read `cfg.title` raw, slugged it to
+  `untitled`, and wrote a pair of orphan jpgs beside the real thumbnails while
+  leaving those stale. Nothing looked wrong: it reported two thumbnails
+  rewritten, and two files had genuinely been written. Only the mtimes gave it
+  away. `pipeline.resolve_title()` is now the one resolver and both callers use
+  it, because the same divergence had already happened once between the CLI and
+  the web job. Anything slugging `cfg.title` straight into a filename is the bug.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did

@@ -8,7 +8,7 @@ from pathlib import Path
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .theme import PRESETS as THEME_PRESETS
-from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys
+from .pipeline import KEY_ENV, KEY_NOTES, Project, _slug, find_keys, resolve_title
 
 STARTER = """# {title}
 
@@ -185,7 +185,9 @@ def _refresh_thumbnails(args) -> int:
     theme = resolve_theme(cfg.theme.preset, cfg.theme.accent, cfg.theme.font)
     keys = find_keys(root)
     subjects = ", ".join(dict.fromkeys(visuals.scene_query(s) for s in scenes))
-    slug = _slug(cfg.title)
+    # the same resolution build() uses, or a project whose config was never
+    # written back slugs to "untitled" and refreshes files nothing delivers
+    slug = _slug(resolve_title(proj, cfg))
 
     done = 0
     for aspect in sorted(ASPECTS):
