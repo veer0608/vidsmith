@@ -573,7 +573,7 @@ class VisualBuilder:
             return hits
 
         try:
-            order, rejected, filmable = llm.rank_clips(scene.text, query, images, key)
+            order, rejected, filmable = llm.rank_clips(scene.text, query, images, key, log=self.log)
         except Exception as exc:
             self.log(f"    rerank skipped ({exc})")
             return hits
