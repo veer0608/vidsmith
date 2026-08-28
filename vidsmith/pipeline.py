@@ -345,7 +345,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # ---- upload metadata ------------------------------------------------- #
     if keys["gemini"]:
         try:
-            meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"])
+            meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"], log=log)
             write_metadata(proj.out, meta)
             log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
         except Exception as exc:

@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 376 tests, ~25s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 379 tests, ~30s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -443,7 +443,13 @@ competing with the voice.
   runs once per scene and several silent minute-long pauses inside one build are
   indistinguishable from the hang described under Tests. `rank_clips()` takes
   `log` for exactly that reason; calling it without one makes the pause silent
-  again.
+  again. The rule is enforced, not remembered: every helper in `llm.py` that
+  issues a request must accept a `log` and hand it down, and
+  `test_every_request_helper_can_announce_a_wait` fails by name on any that does
+  not. That test exists because the same mistake had already been made twice:
+  the quota guard went into `generate()` and not `generate_vision()`, then the
+  wait announcement went into `rank_clips()` and not `design_diagram()`, which
+  runs just as often. Both were caught by reading, after shipping.
 - **The free ceiling here is requests, not tokens.** 500 generate calls a day
   per model. That is unlike the Groq trap noted in the global `CLAUDE.md`, where
   the binding limit is tokens per day and appears in no header; Gemini prints

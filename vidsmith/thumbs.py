@@ -177,7 +177,7 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
     query = ""
     if gemini_key:
         try:
-            query = llm.thumbnail_query(title, subjects, gemini_key)
+            query = llm.thumbnail_query(title, subjects, gemini_key, log=log)
         except Exception as exc:
             # A build must never fail over a thumbnail, so it degrades. A
             # deliberate refresh is the opposite: producing the same keyword
@@ -230,7 +230,8 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
             # a frustration, and ranking against one rewards a stressed face.
             pick, why = llm.pick_thumbnail(
                 title, subjects, previews, gemini_key, kind="photo",
-                notes=f"WHAT EACH PHOTO SHOWS:\n{described}" if described else "")
+                notes=f"WHAT EACH PHOTO SHOWS:\n{described}" if described else "",
+                log=log)
             log(f"         thumbnail: '{query}' -> photo {pick}"
                 + (f" ({why})" if why else ""))
         except Exception as exc:
@@ -269,7 +270,7 @@ def choose(video: Path, workdir: Path, title: str, hook: str = "",
                  if any(lo <= c.time < hi for lo, hi in include)]
         pick, why = llm.pick_thumbnail(title, hook,
                                        [_thumb_bytes(c.path) for c in best],
-                                       api_key, drawn=drawn)
+                                       api_key, drawn=drawn, log=log)
     except Exception as exc:
         log(f"         thumbnail pick skipped ({exc}); using the sharpest frame")
         return best[0]

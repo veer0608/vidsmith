@@ -389,7 +389,7 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
                    model: str = DEFAULT_MODEL,
                    drawn: Sequence[int] = (),
                    notes: str = "",
-                   kind: str = "frame") -> Tuple[int, str]:
+                   kind: str = "frame", log=None) -> Tuple[int, str]:
     """Which candidate actually represents the video.
 
     Sharpness and colour find a striking frame, which is not the same thing as a
@@ -416,7 +416,7 @@ def pick_thumbnail(title: str, hook: str, images: Sequence[bytes], api_key: str,
                              title=title.strip(), hook=hook.strip()[:220],
                              drawn=note, notes=notes.strip(),
                              tail=THUMBNAIL_TAIL)
-    verdict = _json_block(generate_vision(prompt, images, api_key, model))
+    verdict = _json_block(generate_vision(prompt, images, api_key, model, log=log))
     if not isinstance(verdict, dict):
         raise ValueError("no pick returned")
     try:
@@ -453,7 +453,7 @@ Return ONLY a JSON object: {{"kind": "<one of the five>", "search": "<the words>
 
 
 def thumbnail_query(title: str, subjects: str, api_key: str,
-                    model: str = DEFAULT_MODEL) -> str:
+                    model: str = DEFAULT_MODEL, log=None) -> str:
     """A photo search for the thumbnail, written from what the video shows.
 
     Deliberately not given the hook. The hook is where the frustration lives,
@@ -466,7 +466,7 @@ def thumbnail_query(title: str, subjects: str, api_key: str,
     """
     raw = generate(THUMB_QUERY_PROMPT.format(title=title.strip(),
                                              subjects=subjects.strip()[:400]),
-                   api_key, model, temperature=0.85)
+                   api_key, model, temperature=0.85, log=log)
     verdict = _json_block(raw)
     if not isinstance(verdict, dict):
         raise ValueError("no search returned")
@@ -488,7 +488,8 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
         return 0
     lines = "\n".join(f"{i + 1}. {s.text}" for i, s in enumerate(pending))
     try:
-        raw = generate(QUERY_PROMPT.format(lines=lines), api_key, model, temperature=0.6)
+        raw = generate(QUERY_PROMPT.format(lines=lines), api_key, model,
+                       temperature=0.6, log=log)
         queries = _json_block(raw)
     except (LLMUnavailable, ValueError) as exc:
         log(f"  b-roll queries: falling back to keywords ({exc})")
@@ -528,10 +529,10 @@ Return ONLY JSON, one of:
 
 
 def design_diagram(line: str, query: str, api_key: str,
-                   model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+                   model: str = DEFAULT_MODEL, log=None) -> Dict[str, Any]:
     """A diagram spec for a line stock footage cannot illustrate."""
     raw = generate(DIAGRAM_PROMPT.format(line=line.strip(), query=query.strip()),
-                   api_key, model, temperature=0.3)
+                   api_key, model, temperature=0.3, log=log)
     spec = _json_block(raw)
     if not isinstance(spec, dict):
         raise ValueError("model did not return a diagram spec")
@@ -664,7 +665,7 @@ def within_youtube_limits(meta: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
-                    model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+                    model: str = DEFAULT_MODEL, log=None) -> Dict[str, Any]:
     def stamp(t: float) -> str:
         return f"{int(t // 60)}:{int(t % 60):02d}"
 
@@ -672,7 +673,7 @@ def upload_metadata(title: str, scenes: Sequence[Scene], api_key: str,
                      for s in scenes)
     runtime = stamp(sum(s.duration for s in scenes))
     raw = generate(META_PROMPT.format(title=title, runtime=runtime, body=body),
-                   api_key, model, temperature=0.5)
+                   api_key, model, temperature=0.5, log=log)
     meta = _json_block(raw)
     for key in ("title", "description"):
         if isinstance(meta.get(key), str):
@@ -767,7 +768,7 @@ WORDS_PER_SCENE = 42
 
 
 def draft_script(topic: str, minutes: float, api_key: str,
-                 model: str = DEFAULT_MODEL) -> str:
+                 model: str = DEFAULT_MODEL, log=None) -> str:
     """Draft a script sized to an actual runtime.
 
     The budget is spelled out per scene as well as in total, because a lone
@@ -780,7 +781,7 @@ def draft_script(topic: str, minutes: float, api_key: str,
     text = generate(
         SCRIPT_PROMPT.format(topic=topic, words=words, scenes=scenes,
                              lo=int(per_scene * 0.8), hi=int(per_scene * 1.25)),
-        api_key, model, temperature=0.8,
+        api_key, model, temperature=0.8, log=log,
     )
     return re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
                   flags=re.MULTILINE).strip() + "\n"
