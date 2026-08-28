@@ -60,7 +60,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 388 tests, ~34s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 390 tests, ~34s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -397,6 +397,15 @@ competing with the voice.
   `-filters` and `require_filter()` names what is missing and what it costs.
   `doctor` reports it, and the caption tests skip on a build that cannot run
   them rather than failing as though the code were wrong.
+- **Replacing a thumbnail invalidates `description.txt`, which is the file that
+  gets published.** `description.txt` and `youtube.txt` are composed from the
+  `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the
+  description beside them naming the photographer it had just dropped. Four
+  videos sat upload-ready in exactly that state, and the credits file that
+  looked right was not the one anybody pastes into YouTube. The refresh now
+  rebuilds the metadata from `youtube.json` already on disk, which costs no
+  model call, so honest attribution never depends on having quota left. When
+  changing anything a credits file feeds, ask what else is derived from it.
 - **"Untitled" is a sentinel, and every entry point has to resolve it.**
   `build()` fills an empty or `Untitled` config title from the script heading and
   writes it back; `thumbs --refresh` read `cfg.title` raw, slugged it to
