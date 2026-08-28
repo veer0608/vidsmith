@@ -345,6 +345,23 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         except Exception as exc:
             log(f"meta     skipped ({exc})")
 
+    # Read the delivery back before anyone else does. Reported, never raised:
+    # the same rule the thumbnail follows, that a finished render is not thrown
+    # away over something wrong beside it. Only after a full build, because a
+    # --stop-after run is incomplete by design and would report that as fault.
+    from .check import check
+
+    try:
+        problems = check(proj.out)
+        # says so when it passes too: a silent check and a check that never ran
+        # look identical in a log, and that ambiguity has cost time here before
+        for problem in problems:
+            log(f"check    {problem}")
+        if not problems:
+            log("check    delivery is consistent")
+    except Exception as exc:                      # never lose a render to this
+        log(f"check    skipped ({exc})")
+
     return final
 
 
