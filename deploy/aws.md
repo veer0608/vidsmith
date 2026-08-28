@@ -47,6 +47,16 @@ Prices are indicative. Check the calculator for your region before committing.
 
 ## Install
 
+Everything below is in `scripts/cloud-init.sh`. Paste that into **User data** on
+EC2, or **Launch script** on Lightsail, and the box builds itself while it boots:
+packages, swap, the checkout, the venv, the systemd unit and the proxy. It is
+written to contain no secrets, because user data is readable from the instance
+metadata endpoint and visible in the console. Keys go in `.env` afterwards.
+
+If it did not come up, `/var/log/vidsmith-setup.log` says why. The manual steps
+are kept below so the script is readable rather than magic.
+
+
 Ubuntu 24.04 LTS. `apt` gives you ffmpeg with libass, which matters: a build
 without it has no `subtitles` filter at all, and ffmpeg reports that as
 `No option name near <path>`, which reads exactly like a quoting fault.
