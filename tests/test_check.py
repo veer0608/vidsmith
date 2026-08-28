@@ -136,3 +136,48 @@ def test_an_empty_directory_says_so(tmp_path):
 def test_both_stamp_formats_parse(stamp, want):
     """Chapters are written `1:23` and SRT ends `00:01:23,400`."""
     assert seconds(stamp) == want
+
+
+# --------------------------------------------------------------------------- #
+# where it runs from
+# --------------------------------------------------------------------------- #
+def test_a_finished_build_reads_its_own_delivery():
+    """Finding this at upload time means it was already wrong for a while.
+
+    A full build ends by checking what it just wrote, so an inconsistency is
+    named while the person who caused it is still watching the log.
+    """
+    import inspect
+
+    from vidsmith import pipeline
+
+    source = inspect.getsource(pipeline.build)
+    assert "check(proj.out)" in source, "a build never reads back what it wrote"
+
+
+def test_the_check_cannot_fail_a_render():
+    """A finished render is not thrown away over something wrong beside it -
+    the same rule the thumbnail already follows."""
+    import inspect
+
+    from vidsmith import pipeline
+
+    source = inspect.getsource(pipeline.build)
+    tail = source[source.index("from .check import check"):]
+    assert "except Exception" in tail, "a fault in the check would lose the render"
+    assert "raise" not in tail, "the check must report, never raise"
+
+
+def test_a_passing_check_still_says_something():
+    """Silence and never-having-run look identical in a log.
+
+    The first wiring of this only logged problems, so a clean build printed
+    nothing and there was no way to tell the check had happened at all.
+    """
+    import inspect
+
+    from vidsmith import pipeline
+
+    source = inspect.getsource(pipeline.build)
+    assert "delivery is consistent" in source, \
+        "a clean check is silent, so it cannot be distinguished from a missing one"
