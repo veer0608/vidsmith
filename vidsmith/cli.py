@@ -236,6 +236,26 @@ def _refresh_thumbnails(args) -> int:
     return 0
 
 
+def cmd_check(args) -> int:
+    """Read the delivered files against each other before anything is published.
+
+    Costs nothing and needs no key, so it can run on a spent day. It exists
+    because every fault it looks for was found by hand, after the fact, in
+    files that each looked correct on their own.
+    """
+    from .check import check
+
+    proj = Project(_project_dir(args.name))
+    problems = check(proj.out)
+    if not problems:
+        print(f"ok       {proj.out} is consistent and ready to upload")
+        return 0
+    print(f"\n{len(problems)} problem(s) in {proj.out}:\n")
+    for line in problems:
+        print(f"  - {line}")
+    return 1
+
+
 def cmd_doctor(args) -> int:
     ok = True
     try:
@@ -372,6 +392,11 @@ def main(argv=None) -> int:
     t.add_argument("--refresh", action="store_true",
                    help="redo the delivery thumbnails from stock photos, no re-render")
     t.set_defaults(func=cmd_thumbs)
+
+    ck = sub.add_parser("check", help="read a finished build for faults "
+                                      "before publishing it")
+    ck.add_argument("name")
+    ck.set_defaults(func=cmd_check)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
     d.set_defaults(func=cmd_doctor)
