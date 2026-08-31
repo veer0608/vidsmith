@@ -64,7 +64,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 417 tests, ~25s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 434 tests, ~25s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -449,6 +449,21 @@ competing with the voice.
   never spoke. All three jobs carry both limits now, since a hang on ubuntu or
   windows was every bit as opaque. Next occurrence, read that output before
   theorising again.
+  **And the guard still did not fire on the third occurrence, for a reason that
+  had nothing to do with ffmpeg.** `TIMEOUT` was read once at import, so the
+  only way to test it was `importlib.reload`, which monkeypatch does not undo.
+  The two tests for it reloaded to read the value and reloaded again to restore
+  it, but the restoring reload ran *while monkeypatch was still in force*, so it
+  restored the module against the patched environment and left it holding 900.
+  `test_filter_paths` sorts before `test_integration`, so every later file ran
+  at 900 whatever the job had set, and pytest won the race every time. Setting
+  45 in all three jobs had changed nothing at all. It is `timeout_limit()`
+  reading the environment per call now, so there is no module state to go stale.
+  Proven by measurement before it was fixed: with the variable set to 45, a test
+  running after that file saw 900.0. The lesson is not about timeouts. **A test
+  that mutates module state can silently disarm a safety net three files away**,
+  and the second time this happened in one day was threads outliving their test
+  and appending to the next test's list.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did
@@ -534,11 +549,48 @@ font families, so `assets/fonts` is handed to the `subtitles` filter as
 ## Web service
 
 `web/` is FastAPI over the same pipeline. Renders run on a worker thread and the
-browser polls, because a video takes minutes. **Queue depth is one**: two x264
-encodes starve each other, so a second caller gets 429. Jobs live in memory under
-`jobs/<id>/` and are swept an hour after finishing, so anything worth keeping is
-copied into `projects/`. `VIDSMITH_TOKEN` gates the API when set; `/healthz`
-stays open and reports ffmpeg, bundled fonts and which keys resolved.
+browser polls, because a video takes minutes. **One render at a time, and a
+line behind it.** Two x264 encodes starve each other, so exactly one runs; a
+second submission waits rather than being refused, because the box could always
+have taken the work, only not that minute. `VIDSMITH_MAX_QUEUE` bounds the line
+at three, and a full line is a 429 again: an unbounded queue tells the tenth
+caller "queued" and makes them wait half an hour, which is a worse answer than
+a refusal with a reason. `snapshot()` carries `position` and `waiting`, and the
+position lives on the queue rather than on the job, because a copy kept on the
+job goes stale the moment anything ahead of it finishes or is cancelled.
+
+Cancelling a *queued* job is a separate path from cancelling a running one: the
+running one is cooperative and reads a flag in the log callback, and a job that
+has not started has no log callback to read anything, so it is dropped from the
+line instead.
+
+**Do not propose running two renders at once. It was measured and it does not
+work.** The obvious idea is that most of a build is waiting on somebody else's
+network, so jobs could overlap and only the encode need serialise. On the
+2 vCPU instance, for a 41 second video taking 167s end to end:
+
+| stage | share | what it is actually doing |
+| --- | --- | --- |
+| visuals | 48% | **71% ffmpeg**, 20% network |
+| render | 47% | one ffmpeg call |
+| everything else | 5% | |
+
+**78% of a build is ffmpeg**, and 17% is network. `visuals` is not waiting on
+Pexels, it is running eleven encodes to scale, crop, pan and trim each shot.
+Overlapping jobs would interleave the same CPU work on the same two cores: the
+ceiling is 167/131 = **1.29x**, assuming perfect overlap and no contention, in
+exchange for gating inside the log callback, a second cancellation path and
+unbounded disk. The lever is fewer pixels or more cores, and the cheap encoder
+win is already taken - both the per-shot encodes and the master pass run
+`veryfast`, and `crf` is what holds quality. Measure before reopening this; the
+numbers above came from wrapping `ff.run`, `ff.probe` and
+`requests.Session.request` and attributing each call to the running stage.
+
+Jobs live in memory under `jobs/<id>/` and are swept an hour after finishing, so
+anything worth keeping is copied into `projects/`. `VIDSMITH_TOKEN` gates the
+API when set; `/healthz` stays open and reports ffmpeg and bundled fonts.
+**`keys` is behind the token**, deliberately: it inventories which credentials
+the box holds, and a stranger who found the URL has no business reading it.
 
 `VIDSMITH_JOBS` moves the job directory, and `VIDSMITH_MAX_MINUTES` (default 4)
 caps how long a submitted script may run. Both exist because the host, not the
@@ -593,5 +645,6 @@ longer free: since 2026-08-25 a Docker Space on free cpu-basic is refused with
 a 512 MB instance does not. It builds the `Dockerfile` on their side, so this stays true even
 though Docker cannot run on this machine. Keys go in Space secrets, and
 `/healthz` is the check that matters after a build: `fonts` should list the two
-DejaVu files and `keys` should show `gemini` and `pexels` true. A free Space
+DejaVu files, and `keys`, which needs the token, should show `gemini` and
+`pexels` true. A free Space
 sleeps after an idle stretch and takes a minute to wake.
