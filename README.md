@@ -455,8 +455,12 @@ download the mp4. Locally:
 
 Renders happen on a worker thread, not in the request, because a video takes
 minutes. The browser polls `/api/jobs/{id}` and the progress bar tracks real
-pipeline stages rather than a timer. **The queue depth is one** - two concurrent
-x264 encodes starve each other on a small box, so a second caller gets a 429.
+pipeline stages rather than a timer. **One render at a time, with a line behind
+it** - two concurrent x264 encodes starve each other on a small box and neither
+finishes sooner, so exactly one runs and a second submission waits its turn
+rather than being refused. The line is bounded at three: saturated, it answers
+429 as it did before, because telling the tenth caller "queued" and leaving them
+for half an hour is a worse answer than a refusal that says why.
 
 Because a render is minutes long, the page is built around not wasting them:
 
@@ -468,7 +472,8 @@ Because a render is minutes long, the page is built around not wasting them:
   stepper: done, current, still to come. The list comes from the server, so it
   cannot drift out of step with what the worker actually does.
 - **It says when the box is taken.** A second visitor sees the running stage and
-  how long it has been going instead of writing a script and collecting a 429.
+  how long it has been going before writing anything, and a submission made
+  anyway joins the line and reports its position rather than losing the work.
 - **It can stop.** Cancelling is cooperative: the run ends at the next stage
   boundary, not mid-encode, which frees the queue rather than the CPU.
 - **It survives a reload.** Refreshing mid-render re-attaches to the job, log and
@@ -476,13 +481,13 @@ Because a render is minutes long, the page is built around not wasting them:
 
 | route | what it does |
 | --- | --- |
-| `POST /api/jobs` | start a render, returns a job id |
+| `POST /api/jobs` | start a render, or join the line; returns a job id and its position |
 | `GET /api/jobs/{id}` | status, progress, log tail, output list |
 | `POST /api/jobs/{id}/cancel` | stop it at the next stage boundary |
 | `GET /api/jobs/{id}/files/{name}` | download one output |
 | `GET /api/jobs/{id}/description` | the paste-ready YouTube description |
 | `POST /api/draft` | write a script from a topic |
-| `GET /api/busy` | whether the one render slot is taken, and by what |
+| `GET /api/busy` | whether the one render slot is taken, by what, and how many are waiting |
 | `GET /api/options` | aspects, themes, moods, limits, whether auth is on |
 | `GET /healthz` | ffmpeg found, and whether a render is running; `keys` needs the token |
 | `GET /api/docs` | generated OpenAPI docs |

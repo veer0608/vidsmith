@@ -57,8 +57,11 @@ it is an inventory of which credentials the Space holds. Send yours as an
 - **Sleeping.** A free Space pauses after a long idle stretch and takes a minute
   to wake. A render already running when it pauses is lost, because the job queue is in
   memory.
-- **One at a time.** The queue depth is one by design; a second caller gets a
-  429 rather than both renders crawling.
+- **One at a time, with a line behind it.** Exactly one render runs, because
+  two concurrent encodes crawl and neither finishes sooner. A second caller
+  waits and is told its position rather than being refused; the line is bounded
+  at three, and a full one answers 429 as before. On a Space that sleeps, a
+  waiting job is lost with the running one, since the line is in memory too.
 
 ## The warning worth reading
 
