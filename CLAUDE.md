@@ -33,6 +33,11 @@ before writing anything. The traps are the reason this file exists.
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
+| Deploy or update the live box | Deploying | `ssh host "commands"`, never a session; check which machine it ran on |
+| Write a test that reloads or spawns | Tests | Module state and threads outlive their test and disarm the next file |
+| Speed the service up | Web service | Concurrency is settled and measured; 78% of a build is ffmpeg |
+| Change the voice provider | Architecture, two providers | Polly's marks are ms with starts and no durations, billed twice |
+| Reach for a version of ffmpeg | Tests | Three are in play and they disagree about libass |
 
 ## Working in this repo
 
@@ -98,6 +103,14 @@ within one run. It also carries `--timeout=120`, because it once sat in the
 suite for twenty-five minutes and reported nothing: a hang produces no output,
 and a per-test timeout turns it into a failing test with a traceback.
 
+**Three ffmpegs are in play and they do not agree.** Ubuntu 6.1.1 on the
+instance, winget 9.0 on this machine, Homebrew 8.1.2 on the macOS runner - and
+that last one is built without libass, so it has no `subtitles` filter at all.
+Never assume a capability from a version number: `ffmpeg_util.filters()` asks
+the binary and `require_filter()` names what is missing and what it costs. A CI
+job's installer can also succeed while installing nothing, so every job now runs
+`ffmpeg -version` after installing rather than trusting the exit status.
+
 **`test_lint.py` gates on undefined names.** pyflakes, narrowed to the faults
 that ship broken behaviour: a name that does not resolve, or a `nonlocal` that
 is never bound. It exists because a thumbnail ranking ran through an undefined
@@ -154,6 +167,20 @@ spoken word, but only when `Communicate(..., boundary="WordBoundary")` is passed
 the default is one `SentenceBoundary` per utterance. Those timings drive caption
 timing and the edit: `visuals.plan_shots()` cuts each scene into shots at the
 sentence boundaries the speaker actually lands. Nothing transcribes anything.
+
+**There are two voice providers, and they report timings in different shapes.**
+`voice.provider` is `edge` or `polly`, and `tests/test_voice_polly.py` is forty
+tests because the second one is not a drop-in. edge-tts is free, needs no key,
+and is an unofficial client for the endpoint behind Edge's Read Aloud, which
+Microsoft grants no commercial use of - so Polly is the licensed path and
+`COMMERCIAL.md` sells against it. Polly reports word timings too, which almost
+nothing else does, but as speech marks in **milliseconds carrying starts and no
+durations**, so the ends are reconstructed rather than read. The audio and the
+marks are **separately billed requests**, so a video costs its script length
+twice. `engine: generative` is deliberately absent from the closed set: it is
+the one engine that returns no speech marks at all, so it cannot time captions
+or the cut, which is the whole design. Nothing about the edit changes between
+providers, and that is the point of normalising both into the same word list.
 
 **The narration slot is authoritative.** `scene.duration` is the contract: each
 scene's clips must sum to exactly it, or the picture drifts against the voice for
@@ -343,6 +370,17 @@ competing with the voice.
   credits file at all. Third failure in this family, and the same shape as the
   first two: silent, licence-bearing, and only visible by building the
   combination nobody builds.
+- **The registry is memory and the directories are not.** `_sweep` walks
+  `self._jobs`, so every `jobs/<id>/` still on disk when the process ends
+  becomes unreachable: nothing holds a reference and nothing ever deletes it.
+  The live instance was holding 2.5 GB across five orphans on an 18 GB disk,
+  gaining a generation on every restart and reported by nothing. A render needs
+  room to write, so it would eventually have failed a build with a message about
+  disk rather than about jobs. `sweep_orphans()` runs from the constructor,
+  where `_jobs` is empty by definition, so anything present belongs to a process
+  that has gone and age never needs consulting. Do not move that call anywhere
+  else: run at any other moment it deletes the render in flight, and it looks
+  exactly like a tidy-up.
 - **Claim the render slot and you own giving it back.** `Jobs.submit` sets
   `_active` under the lock, but only `_run` clears it, so anything between the
   two that can raise has to release it itself. Writing the job directory did
@@ -621,7 +659,43 @@ for a failed options fetch, not a second source of truth.
 
 ## Deploying
 
-Three ways out, and the first is usually the right one for showing someone.
+**There is a live instance, and it is the AWS one.** `vidsmith.duckdns.org`,
+an EC2 Ubuntu 24.04 box with 2 vCPU and 2 GB, uvicorn on loopback behind Caddy
+for TLS, run by a systemd unit called `vidsmith`. `deploy/aws.md` is the whole
+of it, including how to get a shell, which is the part that used to be missing.
+
+Three things about that box are worth knowing before touching it.
+
+**The app is at `/home/ubuntu/vidsmith`**, which is `APP_DIR` in
+`cloud-init.sh`. Not `/opt`. An afternoon went into a deploy against `/opt`
+because nobody checked the doc that already said so.
+
+**Drive it with `ssh host "commands"`, never an interactive session.** With a
+session in one window and a local shell in another, commands meant for the
+server get typed into the local one, which answers plausibly: a missing
+directory, an unknown command, a commit hash from the wrong machine. Four
+rounds of "ran it, here is the output" once came from a laptop while the server
+was never touched. `hostname` first if working interactively, and **when a
+remote fix reports success and the symptom does not move, check which machine
+it ran on before theorising about the code.**
+
+**The public endpoints are the honest witness.** `/healthz` should list the two
+DejaVu faces and `/api/busy` should carry `waiting`. Both are one request, both
+are unauthenticated, and between them they have caught every deploy here that
+reported success and had changed nothing.
+
+Updating is one line, and the restart is what sweeps orphaned job directories,
+so it cleans up on the way in:
+
+```bash
+ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git pull --ff-only; bash scripts/fetch-runtime-deps.sh --fonts-only; sudo systemctl daemon-reload; sudo systemctl restart vidsmith"
+```
+
+SSH is restricted to one address and a home connection's address changes on its
+own, so a timeout is the security group needing your current IP rather than a
+dead box. A refused connection is a different fault, and so is a key error.
+
+The other three ways out, and the first is usually right for showing someone.
 
 **A Cloudflare quick tunnel** (`scripts/serve-public.ps1`) puts the local server
 on a public URL: free, no account, no domain, and `cloudflared` from winget. The
