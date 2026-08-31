@@ -108,6 +108,69 @@ sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapf
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
+## Getting a shell on it
+
+Everything below this point assumes a prompt on the instance.
+
+```bash
+ssh -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org
+```
+
+The user is `ubuntu` on an Ubuntu AMI, the key is the `.pem` the instance was
+launched with, and the app is at `/home/ubuntu/vidsmith`, which is the `APP_DIR`
+`cloud-init.sh` uses.
+
+**A timeout is the firewall, not a dead box.** SSH is restricted to one address
+(see Firewall below) and a home connection's address changes on its own, which
+is why this box is on dynamic DNS in the first place. The symptom is an
+instance that still answers on 443 and refuses to let you in. Fix it in the
+console: EC2, the instance, Security, the security group, inbound rules, port
+22, source **My IP**. Your current address:
+
+```bash
+curl -s https://checkip.amazonaws.com
+```
+
+A *refused* connection is a different fault: sshd is down and the firewall is
+fine. So is a key error, which means you are reaching the box and failing to
+authenticate.
+
+**Send the work as a one-liner rather than opening a session.**
+
+```bash
+ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git pull --ff-only; sudo systemctl restart vidsmith"
+```
+
+Everything inside the quotes runs on the instance and the output comes back.
+This matters more than it looks. With a session open in one window and a local
+shell in another, commands meant for the server get typed into the local one,
+which answers plausibly enough that nothing looks wrong: a missing directory, a
+command that does not exist, a hash read off the wrong machine. An entire
+afternoon once went into a deploy where nothing had run on the server at all,
+diagnosed from a `WorkingDirectory` and a commit hash that had both come from a
+laptop. If you do work interactively, run `hostname` first. `ip-172-31-...` is
+the box and anything else is not.
+
+**Updating a running instance** is one line:
+
+```bash
+ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git fetch origin; git checkout main; git pull --ff-only; git log --oneline -1; bash scripts/fetch-runtime-deps.sh --fonts-only; sudo systemctl daemon-reload; sudo systemctl restart vidsmith; systemctl is-active vidsmith"
+```
+
+`--fonts-only` is there because a pull can bring code that needs faces the box
+has never copied across, and it costs nothing when they are already there.
+
+Then check from outside instead of trusting the restart:
+
+```bash
+curl -s https://vidsmith.duckdns.org/healthz
+curl -s https://vidsmith.duckdns.org/api/busy
+```
+
+`fonts` should list the two DejaVu files, and `/api/busy` should carry a
+`waiting` field. Both are one request, and between them they have caught every
+deploy here that reported success and had changed nothing.
+
 ## Keys and the token
 
 Create `~/vidsmith/.env`. It is gitignored, and `pipeline.find_keys()` reads it.
