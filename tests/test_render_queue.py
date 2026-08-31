@@ -139,7 +139,14 @@ def test_the_slot_comes_back_when_a_render_fails(queue, monkeypatch):
 
     assert _wait_until(lambda: first.status == "failed"), first.status
     assert not queue.busy(), "the slot was never handed back"
-    assert queue.submit("# t\n\nsecond", {}).status == "running"
+
+    # Not `== "running"`: this stub fails instantly, so on a quick runner the
+    # thread is done before the next line reads the status, and the assertion
+    # is a footrace rather than a test. What must hold is that the job was
+    # claimed rather than left waiting, and that it actually ran.
+    second = queue.submit("# t\n\nsecond", {})
+    assert second.status != "queued", "the slot was not free for the next job"
+    assert _wait_until(lambda: second.status == "failed"), second.status
 
 
 def test_a_failed_setup_claims_nothing(queue, monkeypatch):
