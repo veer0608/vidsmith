@@ -40,6 +40,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
 
+      # Ask the binary, do not trust the installer. A package manager can report
+      # success having installed nothing: chocolatey exited 0 against a 503 from
+      # its own feed, left the windows runner with no ffmpeg and a green install
+      # step, and the fault surfaced six tests later as `assert False is True`.
+      # Every job verifies now, because the one that failed was not the one
+      # anybody would have guessed.
+      - name: Check ffmpeg is really there
+        run: |
+          ffmpeg -hide_banner -version
+          ffprobe -hide_banner -version
+
       # requirements-web too, or the 39 web tests skip themselves on a missing
       # fastapi and the run looks green while covering nothing
       - name: Install dependencies
@@ -72,6 +83,15 @@ jobs:
       # being right about its environment and the job being wrong.
       - name: Install ffmpeg
         run: choco install ffmpeg --no-progress -y
+
+      # This is the one that bit. `choco install` exits 0 when its feed answers
+      # 503 and it installs 0/0 packages, so the step was green and the suite
+      # ran against a runner with no encoder. pwsh raises on a command it cannot
+      # find, so this fails here instead of six assertions later.
+      - name: Check ffmpeg is really there
+        run: |
+          ffmpeg -hide_banner -version
+          ffprobe -hide_banner -version
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt -r requirements-web.txt
@@ -115,11 +135,20 @@ jobs:
       - name: Install ffmpeg
         run: brew install ffmpeg
 
+      # No pipes. `ffmpeg -version | head -1` reports the exit status of `head`,
+      # so this step passed on a runner with no ffmpeg at all - the same fault
+      # CLAUDE.md already records about piping a command you gate on into tail.
+      # Reading into a variable also avoids head closing the pipe early and
+      # handing ffmpeg a SIGPIPE that a pipefail would then report as failure.
       - name: What this ffmpeg can actually do
         run: |
-          ffmpeg -hide_banner -version | head -1
-          echo "subtitles filter:"
-          ffmpeg -hide_banner -filters | grep -c " subtitles " || echo "absent"
+          ffmpeg -hide_banner -version
+          ffprobe -hide_banner -version
+          filters=$(ffmpeg -hide_banner -filters)
+          case "$filters" in
+            *" subtitles "*) echo "subtitles filter: present" ;;
+            *) echo "subtitles filter: absent" ;;
+          esac
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt -r requirements-web.txt
