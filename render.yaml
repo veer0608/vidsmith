@@ -24,6 +24,13 @@ services:
         value: "3.11.9"
       - key: VIDSMITH_MAX_MINUTES
         value: "2"
+      # One waiting job, not the default three. The queue promises a wait, and
+      # the promise has to be honest: at ten to fifteen minutes for a 90 second
+      # video here, third in line is half an hour of staring at a position
+      # number. A 429 that says the box is busy is the better answer at this
+      # speed, and the caller still has their script.
+      - key: VIDSMITH_MAX_QUEUE
+        value: "1"
       - key: VIDSMITH_JOBS
         value: /tmp/vidsmith-jobs
       # set these in the dashboard, not here
