@@ -113,15 +113,16 @@ def build_picture(clips: Sequence[Path], out: Path, workdir: Path,
 def fontsdir_option() -> str:
     """The `fontsdir` libass needs, or nothing when there is no face to name.
 
-    `cards.font_dir()` answers where the faces are, rather than this deciding
-    for itself. Guarded on a directory holding a face rather than existing: an
-    empty one is what a documented apt deploy leaves behind, and naming it to
-    libass substitutes just as silently as never naming one.
+    Guarded on holding a face rather than on the directory existing. An empty
+    `assets/fonts` is exactly what a documented apt deploy leaves behind: the
+    directory is created, the fonts go to `/usr/share/fonts` instead, and
+    pointing libass at an empty directory substitutes just as silently as never
+    naming one. Glob for `*.ttf`, which is the same rule `/healthz` reports by,
+    so the check and the report cannot disagree about what this box has.
     """
-    found = cards.font_dir()
-    if found is None:
-        return ""
-    return f":fontsdir='{ff.escape_filter_path(found)}'"
+    if any(cards.FONT_DIR.glob("*.ttf")):
+        return f":fontsdir='{ff.escape_filter_path(cards.FONT_DIR)}'"
+    return ""
 
 
 def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
