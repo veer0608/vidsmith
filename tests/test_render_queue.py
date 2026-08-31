@@ -36,7 +36,17 @@ def queue(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs_mod.pipeline, "build", fake_build)
     q = Jobs(tmp_path / "jobs")
     q.gate, q.started = gate, started
-    return q
+    yield q
+
+    # Drain before tearing down. `fake_build` is reached through the patched
+    # `jobs_mod.pipeline.build`, which a worker looks up when it runs rather
+    # than when it was started, so a thread outliving its test calls the *next*
+    # test's stub and appends to that test's list. The symptom is an ordering
+    # assertion failing on an id the test never submitted, and it only shows up
+    # when the timing lines up - it went green everywhere for a day and then
+    # failed on macOS.
+    gate.set()
+    _wait_until(lambda: not q.busy() and q.waiting() == 0, timeout=15)
 
 
 def _wait_until(predicate, timeout: float = 5.0) -> bool:
