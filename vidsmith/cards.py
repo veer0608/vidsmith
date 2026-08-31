@@ -23,7 +23,40 @@ FONT_FALLBACKS = {
 }
 # Fonts fetched at deploy time live here; a Linux host has none of the Windows
 # families the themes name, and libass needs to be pointed at them too.
+#
+# Derived from this file, so it is the repo's assets/fonts only while the
+# package is imported from a checkout. Installed into site-packages it points
+# inside the venv instead, at a directory no deploy script writes to. That is
+# not hypothetical: it is what the live instance did, and because Pillow
+# searches the system on its own while libass is told nothing, only the
+# captions came out in the wrong face.
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+
+# Where a package manager puts DejaVu. Consulted after the bundled directory,
+# so a host that installed fonts-dejavu-core needs no copying at all, and a
+# host that bundled its own faces still gets those first.
+SYSTEM_FONT_DIRS = (
+    Path("/usr/share/fonts/truetype/dejavu"),
+    Path("/usr/share/fonts/dejavu"),
+    Path("/usr/share/fonts/TTF"),
+    Path("/usr/share/fonts"),
+    Path("/Library/Fonts"),
+)
+
+
+def font_dir() -> Optional[Path]:
+    """The first directory that actually holds a face, or None.
+
+    Every caller wants the same thing and used to ask a different question:
+    the filtergraph tested whether the bundled directory existed, `/healthz`
+    globbed it for a face, and neither would look anywhere else. Asking once
+    means the report and the render cannot disagree, and means an empty
+    directory is not mistaken for a usable one.
+    """
+    for directory in (FONT_DIR,) + SYSTEM_FONT_DIRS:
+        if any(directory.glob("*.ttf")):
+            return directory
+    return None
 
 
 def font(file: str, size: int) -> ImageFont.FreeTypeFont:
