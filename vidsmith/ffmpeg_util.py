@@ -20,10 +20,31 @@ _WINGET_HINTS = [
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Generous on purpose: a 1080p master of a long script on a slow free instance
-# is minutes of honest work, and killing that would be worse than the hang it
-# guards against. It is a bound on forever, not a performance budget.
-TIMEOUT = float(os.environ.get("VIDSMITH_FFMPEG_TIMEOUT", "900"))
+DEFAULT_TIMEOUT = 900.0
+
+
+def timeout_limit() -> float:
+    """The bound on one ffmpeg call, read when it is needed.
+
+    Generous on purpose: a 1080p master of a long script on a slow free
+    instance is minutes of honest work, and killing that would be worse than
+    the hang it guards against. It is a bound on forever, not a performance
+    budget.
+
+    Read at call time rather than kept as a module constant, because a constant
+    read at import can only be tested by reloading the module, and
+    `importlib.reload` is not something monkeypatch undoes. Two tests here
+    reloaded to check the default and the override, and reloaded again to put
+    it back - while monkeypatch was still active, so they restored the module
+    against the *patched* environment and left it holding 900. Every test file
+    sorting after `test_filter_paths` then ran with 900 no matter what the
+    environment said. CI sets 45 exactly so this guard fires inside pytest's
+    120s limit and prints what ffmpeg said; at 900 pytest always won, and the
+    macOS narration hang was reported twice as a stack trace through subprocess
+    with nothing from ffmpeg in it. The guard was never broken. It was never
+    reached.
+    """
+    return float(os.environ.get("VIDSMITH_FFMPEG_TIMEOUT", DEFAULT_TIMEOUT))
 
 
 def _resolve(name: str) -> str:
@@ -84,7 +105,7 @@ def run(args: List[str], quiet: bool = True,
     if quiet:
         cmd += ["-loglevel", "error"]
     cmd += args
-    limit = TIMEOUT if timeout is None else timeout
+    limit = timeout_limit() if timeout is None else timeout
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
     except subprocess.TimeoutExpired as expired:
