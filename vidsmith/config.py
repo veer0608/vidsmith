@@ -115,7 +115,16 @@ class RenderConfig:
     aspect: str = "16:9"
     fps: int = 30
     crf: int = 20
-    preset: str = "medium"
+    # `medium` spent 55s encoding a 41s video, slower than realtime, and it is
+    # about forty percent of a build. `veryfast` took the same render to 39s
+    # and produced a *smaller* file at the same crf, which is the quality knob
+    # here: crf holds quality, the preset trades encoder effort for time.
+    # `_concat_xfade` had always used veryfast; only the master pass had not.
+    #
+    # Do not expect the usual three-to-five times from this. The master pass
+    # burns karaoke captions through libass and those re-emit the whole line
+    # once per word, so most of what is left is filtering rather than x264.
+    preset: str = "veryfast"
     transition: str = "cut"            # cut | fade
     transition_seconds: float = 0.4
     intro_seconds: float = 0.0
