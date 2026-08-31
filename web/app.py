@@ -17,7 +17,7 @@ from vidsmith.config import ASPECTS, env
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
-from web.jobs import Busy, Jobs, stage_sequence
+from web.jobs import MAX_QUEUE, Busy, Jobs, stage_sequence
 
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
@@ -145,6 +145,10 @@ def healthz(x_vidsmith_token: str = Header(default=""),
 def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
+            # the page needs the bound to know whether there is room to join
+            # the line. Without it the only safe assumption is that a busy box
+            # refuses, which is what it used to do and is no longer true.
+            "max_queue": MAX_QUEUE,
             "busy": jobs.busy(), "auth": bool(TOKEN),
             "stages": stage_sequence(),
             # `ready` says whether this instance holds the key that provider

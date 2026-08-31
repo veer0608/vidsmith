@@ -98,6 +98,22 @@ def test_options_carries_the_stage_order_for_the_stepper(client):
     assert all(s["label"] for s in stages), "a stage with no label cannot be drawn"
 
 
+def test_options_carries_the_queue_bound_the_page_needs(client):
+    """The page decides whether Render is offered from this number.
+
+    Busy is not the same as full: the box runs one render and holds a line
+    behind it, so a second visitor can submit and wait. Without the bound the
+    only safe assumption the page can make is that a busy box refuses, which
+    is what it used to do and is why the queue was unreachable from the UI for
+    everyone but curl.
+    """
+    import web.jobs as jobs_mod
+
+    body = client.get("/api/options").json()
+    assert body["max_queue"] == jobs_mod.MAX_QUEUE
+    assert body["max_queue"] >= 0
+
+
 def test_options_carries_the_parser_vocabulary(client):
     """The page counts scenes as you type, and must not hold its own copy of
     the directive set: adding one to the parser has to reach the page."""
