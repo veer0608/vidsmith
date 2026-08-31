@@ -6,20 +6,25 @@ worker thread. The pipeline already reports each stage through a log callback,
 so progress is real rather than a spinner.
 
 Deliberately single-process and in-memory. Two concurrent x264 encodes will
-exhaust a small host, so the queue depth is one and a second caller is told to
-wait rather than being silently starved.
+exhaust a small host, so exactly one render runs at a time. That is about the
+encode, not about the caller: a second submission waits in line rather than
+being refused, because the box could always have taken the work, only not that
+minute. Running two would not make either finish sooner - x264 already threads
+across the cores, so concurrency here buys nothing and doubles peak memory.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import threading
 import time
 import traceback
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import yaml
 
@@ -34,6 +39,13 @@ STAGE_PROGRESS = {
 }
 KEEP_SECONDS = 60 * 60          # finished jobs are swept after an hour
 MAX_SCRIPT_CHARS = 12_000
+
+# How many submissions may wait behind the running one. Bounded because the
+# wait is the thing being promised: with an unbounded line the tenth caller is
+# told "queued" and waits half an hour, which is a worse answer than 429 and a
+# clear reason. Saturated, the service behaves as it did before there was a
+# queue at all.
+MAX_QUEUE = max(0, int(os.environ.get("VIDSMITH_MAX_QUEUE", "3")))
 
 
 STAGE_LABELS = {
@@ -69,6 +81,9 @@ class Job:
     created: float = field(default_factory=time.time)
     finished: float = 0.0
     root: Optional[Path] = None
+    # carried so a job that waits can be started later by the worker that
+    # finishes ahead of it, rather than by the request that submitted it
+    options: Dict[str, Any] = field(default_factory=dict)
 
     def public(self) -> Dict[str, Any]:
         end = self.finished or time.time()
@@ -86,7 +101,7 @@ class Job:
 
 
 class Busy(RuntimeError):
-    """Another render is already running."""
+    """The render slot is taken and the queue behind it is full."""
 
 
 class Cancelled(BaseException):
@@ -105,6 +120,7 @@ class Jobs:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.Lock()
         self._active: Optional[str] = None
+        self._waiting: Deque[str] = deque()
 
     # -- queries ------------------------------------------------------------- #
     def get(self, job_id: str) -> Optional[Job]:
@@ -113,23 +129,62 @@ class Jobs:
     def busy(self) -> bool:
         return self._active is not None
 
+    def waiting(self) -> int:
+        """How many submissions are in line behind the running one."""
+        with self._lock:
+            return len(self._waiting)
+
+    def position(self, job_id: str) -> int:
+        """Place in the line, 1 being next up. 0 when it is not waiting."""
+        with self._lock:
+            try:
+                return list(self._waiting).index(job_id) + 1
+            except ValueError:
+                return 0
+
     def active(self) -> Optional[Dict[str, Any]]:
         """What the box is doing, for a page deciding whether to offer Render."""
         job = self._jobs.get(self._active or "")
         return None if job is None else job.public()
 
-    def cancel(self, job_id: str) -> Optional[str]:
-        """Ask a running job to stop. None when there is no such job.
+    def snapshot(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """A job's public state plus where it sits in the line.
 
-        Cooperative by necessity: the flag is read in the log callback, so the
-        run ends at the next stage boundary rather than mid-encode. That still
-        frees the queue, which is the thing a waiting caller actually wants.
+        The position lives here rather than on the Job because it is a fact
+        about the queue, not about the job, and a copy kept on the job would
+        go stale the moment anything ahead of it finished or was cancelled.
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+        body = job.public()
+        body["position"] = self.position(job_id)
+        body["waiting"] = self.waiting()
+        return body
+
+    def cancel(self, job_id: str) -> Optional[str]:
+        """Stop a job, whether it is running or still waiting.
+
+        A running job is cooperative by necessity: the flag is read in the log
+        callback, so the run ends at the next stage boundary rather than
+        mid-encode. A *queued* job has no log callback to read anything, so it
+        is dropped from the line here and stops existing as work. `_next_locked`
+        skips anything that is no longer queued, which covers the case where it
+        was popped between these two steps.
         """
         job = self.get(job_id)
         if job is None:
             return None
         if job.status in ("done", "failed", "cancelled"):
             return "finished"
+        if job.status == "queued":
+            with self._lock:
+                if job_id in self._waiting:
+                    self._waiting.remove(job_id)
+            job.status = "cancelled"
+            job.finished = time.time()
+            job.log.append("stopped  cancelled before it started")
+            return "cancelled"
         job.cancel_requested = True
         return "stopping"
 
@@ -143,36 +198,104 @@ class Jobs:
                 f"script is {len(script)} characters; the limit is {MAX_SCRIPT_CHARS}"
             )
 
-        with self._lock:
-            if self._active is not None:
-                raise Busy("a render is already running")
-            self._sweep()
-            job = Job(id=uuid.uuid4().hex[:12])
-            self._jobs[job.id] = job
-            self._active = job.id
-
-        # The slot is claimed above and only _run gives it back, so everything
-        # between here and a started thread has to hand it back itself. A job
-        # that is set up but never runs would hold the one render slot for the
-        # life of the process: a full disk or an unwritable VIDSMITH_JOBS took
-        # the instance down with a 429 for every later caller, and only a
-        # restart cleared it.
+        job = Job(id=uuid.uuid4().hex[:12], options=dict(options))
         job.root = self.workdir / job.id
+
+        # Registered, but nothing claimed. Being in `_jobs` is how a setup that
+        # fails is still reported as failed instead of vanishing; claiming is a
+        # separate step below, and the two used to be one. That is what wedged
+        # the instance: the slot was taken first and the writing done after, so
+        # an unwritable VIDSMITH_JOBS held the slot for a render that had never
+        # started and 429'd every later caller until the process restarted.
+        with self._lock:
+            self._sweep()
+            if self._full_locked():
+                raise Busy(self._full_message_locked())
+            self._jobs[job.id] = job
+
         try:
             job.root.mkdir(parents=True, exist_ok=True)
             (job.root / "script.md").write_text(script, encoding="utf-8")
             self._write_config(job.root, options)
-            threading.Thread(target=self._run, args=(job, options),
-                             daemon=True).start()
         except BaseException as exc:
             job.status = "failed"
             job.error = f"{type(exc).__name__}: {exc}"
             job.log.append(f"error    could not start the render: {job.error}")
             job.finished = time.time()
-            with self._lock:
-                self._active = None
             raise
+
+        with self._lock:
+            # checked again, because the writing above happens off the lock and
+            # the last free place may have gone to another caller meanwhile
+            if self._full_locked():
+                message = self._full_message_locked()
+                self._jobs.pop(job.id, None)
+                full = True
+            else:
+                full = False
+                start_now = self._active is None
+                if start_now:
+                    # claimed and marked running under one lock, so a cancel
+                    # arriving now cannot mistake it for one still waiting
+                    self._active = job.id
+                    job.status = "running"
+                else:
+                    self._waiting.append(job.id)
+        if full:
+            # never became work, so it leaves nothing behind to sweep
+            shutil.rmtree(job.root, ignore_errors=True)
+            raise Busy(message)
+
+        if start_now:
+            self._spawn(job)
         return job
+
+    def _full_locked(self) -> bool:
+        """Whether there is nowhere to put another job. Caller holds the lock."""
+        return self._active is not None and len(self._waiting) >= MAX_QUEUE
+
+    def _full_message_locked(self) -> str:
+        return (f"a render is running and {len(self._waiting)} more are waiting, "
+                f"which is the limit")
+
+    def _spawn(self, job: Job) -> None:
+        """Put a claimed job on a thread, handing the slot back if it will not go."""
+        try:
+            threading.Thread(target=self._run, args=(job,), daemon=True).start()
+        except BaseException as exc:
+            job.status = "failed"
+            job.error = f"{type(exc).__name__}: {exc}"
+            job.log.append(f"error    could not start the render: {job.error}")
+            job.finished = time.time()
+            self._finish(job.id)
+            raise
+
+    def _next_locked(self) -> Optional[Job]:
+        """Take the next job still worth running. Caller holds the lock."""
+        while self._waiting:
+            candidate = self._jobs.get(self._waiting.popleft())
+            # cancelled while it waited, so it is not work any more
+            if candidate is None or candidate.status != "queued":
+                continue
+            self._active = candidate.id
+            candidate.status = "running"
+            return candidate
+        return None
+
+    def _finish(self, job_id: str) -> None:
+        """Give the slot back and start whatever was waiting on it.
+
+        The one place the slot is released, and it always starts the next job
+        in the same breath. Releasing without starting is how a queue stalls
+        with work in it and nothing running, which looks exactly like the
+        wedged instance this replaced.
+        """
+        with self._lock:
+            if self._active == job_id:
+                self._active = None
+            nxt = self._next_locked()
+        if nxt is not None:
+            self._spawn(nxt)
 
     def _write_config(self, root: Path, options: Dict[str, Any]) -> None:
         cfg = Config()
@@ -198,8 +321,9 @@ class Jobs:
         )
 
     # -- the worker ---------------------------------------------------------- #
-    def _run(self, job: Job, options: Dict[str, Any]) -> None:
-        job.status = "running"
+    def _run(self, job: Job) -> None:
+        # status is set to running by whoever claimed the slot, under the same
+        # lock, so "queued" means waiting and nothing else
 
         def log(line: str) -> None:
             # the pipeline reports at every stage boundary, which makes the log
@@ -234,8 +358,7 @@ class Jobs:
             job.status = "failed"
         finally:
             job.finished = time.time()
-            with self._lock:
-                self._active = None
+            self._finish(job.id)
 
     def description(self, job_id: str) -> str:
         """The paste-ready description, so the page can offer it directly."""

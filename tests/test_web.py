@@ -206,7 +206,11 @@ def test_an_unknown_job_is_a_404(client):
 # the queue
 # --------------------------------------------------------------------------- #
 def test_only_one_render_runs_at_a_time(tmp_path, monkeypatch):
-    """Two x264 encodes on one small box starve each other; say no instead.
+    """Two x264 encodes on one small box starve each other; queue instead.
+
+    A second submission waits its turn rather than being refused: the box could
+    always have taken the work, only not that minute. What must stay true is
+    that it is not *running* - one encode at a time is the whole point.
 
     The first render is held open rather than raced against. The stub is fast
     enough that on a quick runner it finished before the next line ran, and the
@@ -227,6 +231,14 @@ def test_only_one_render_runs_at_a_time(tmp_path, monkeypatch):
     jobs = Jobs(tmp_path)
     started = jobs.submit(SCRIPT, {})
     assert jobs.busy(), "the slot is not claimed while a render is in flight"
+
+    waited = jobs.submit(SCRIPT, {})
+    assert waited.status == "queued", "a second render started alongside the first"
+    assert jobs.position(waited.id) == 1
+
+    # past the depth cap it refuses, as it did before there was a queue at all
+    for _ in range(jobs_mod.MAX_QUEUE - 1):
+        jobs.submit(SCRIPT, {})
     with pytest.raises(Busy):
         jobs.submit(SCRIPT, {})
 
@@ -468,7 +480,7 @@ def test_the_description_of_an_unknown_job_is_a_404(client):
 # stopping a render, and seeing that the box is taken
 # --------------------------------------------------------------------------- #
 def test_the_idle_page_is_told_the_box_is_free(client):
-    assert client.get("/api/busy").json() == {"busy": False}
+    assert client.get("/api/busy").json() == {"busy": False, "waiting": 0}
 
 
 def test_the_idle_page_is_told_what_is_running(tmp_path, monkeypatch):
