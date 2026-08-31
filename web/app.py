@@ -178,8 +178,8 @@ def busy() -> Dict[str, Any]:
     """
     active = jobs.active()
     if active is None:
-        return {"busy": False}
-    return {"busy": True, "stage": active["stage"],
+        return {"busy": False, "waiting": 0}
+    return {"busy": True, "waiting": jobs.waiting(), "stage": active["stage"],
             "elapsed": active["elapsed"], "progress": active["progress"]}
 
 
@@ -189,11 +189,14 @@ def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     try:
         job = jobs.submit(req.script, req.options())
     except Busy as exc:
-        # one x264 encode already has this box; a second would starve both
+        # one x264 encode already has this box and the line behind it is full;
+        # a second encode would starve both rather than finishing either sooner
         raise HTTPException(429, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return job.public()
+    # snapshot rather than public(), so a caller that landed in the queue is
+    # told where it landed in the same response
+    return jobs.snapshot(job.id) or job.public()
 
 
 class DraftRequest(BaseModel):
@@ -226,7 +229,10 @@ def cancel(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
         raise HTTPException(404, "no such job")
     if outcome == "finished":
         raise HTTPException(409, "that render has already finished")
-    return {"id": job_id, "status": "stopping"}
+    # "stopping" for a running job, which ends at the next stage boundary, and
+    # "cancelled" for one that had not started: reporting the second as the
+    # first would have the page wait for a stage that is never going to run
+    return {"id": job_id, "status": outcome}
 
 
 @app.get("/api/jobs/{job_id}/description")
@@ -238,10 +244,10 @@ def description(job_id: str, _: None = Depends(guard)) -> Dict[str, str]:
 
 @app.get("/api/jobs/{job_id}")
 def status(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
-    job = jobs.get(job_id)
-    if job is None:
+    body = jobs.snapshot(job_id)
+    if body is None:
         raise HTTPException(404, "no such job")
-    return job.public()
+    return body
 
 
 @app.get("/api/jobs/{job_id}/files/{name}")
