@@ -212,3 +212,40 @@ def test_stopping_after_captions_returns_a_real_path(project, rendered):
                theme={"watermark": "", "lower_thirds": False})
     out = pl.build(project, stop_after="captions", log=lambda *a: None)
     assert isinstance(out, Path) and out.exists()
+
+
+# --------------------------------------------------------------------------- #
+# what the log says, and when
+# --------------------------------------------------------------------------- #
+def test_done_is_the_last_thing_a_full_build_says(project, rendered):
+    """`done` means the run is over, so nothing may follow it.
+
+    The web stepper reads that line as the run completing. It used to be logged
+    before the metadata and the delivery check, so on every full build the
+    stage label went forwards to done and then back to "writing the
+    description". Progress survived it - the bar takes a max - but the label
+    someone is watching moved backwards at the end of every render.
+    """
+    lines = []
+    pl.build(project, log=lines.append)
+
+    stages = [line.split(" ", 1)[0] for line in lines if line.strip()]
+    assert "done" in stages, stages
+    assert stages[-1] == "done", f"something was logged after done: {stages}"
+    assert stages.count("done") == 1, f"done was logged twice: {stages}"
+    assert "check" in stages, "the delivery check did not run on a full build"
+    assert stages.index("check") < stages.index("done")
+
+
+def test_a_stopped_build_still_says_done(project, rendered):
+    """--stop-after render skips the closing work, not the closing line.
+
+    Moving `done` past that work is how it would go missing here: the early
+    return used to carry its own copy, and one call site is the point.
+    """
+    lines = []
+    pl.build(project, stop_after="render", log=lines.append)
+
+    stages = [line.split(" ", 1)[0] for line in lines if line.strip()]
+    assert stages[-1] == "done", stages
+    assert "check" not in stages, "a stopped build is incomplete by design"
