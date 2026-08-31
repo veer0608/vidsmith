@@ -331,6 +331,7 @@ Reconcile against receipts, not memory. If the two disagree, the receipt is almo
 
 let timer = null, needsAuth = false, portrait = false;
 let busyTimer = null, busyElsewhere = false, running = null;
+let maxQueue = 0, waiting = 0, lineIsFull = false;
 /* The stage list comes from the server rather than being written out here: it
    is derived from the same table the worker reports through, so adding a stage
    cannot leave the page drawing a stepper that is quietly missing one. */
@@ -489,10 +490,12 @@ async function loadOptions() {
   // the server's own limit, so the meter turns red at exactly the word count
   // that would come back as a 400
   wordCap = Math.round(o.max_minutes * 150);
+  maxQueue = o.max_queue || 0;
   $("minutes").max = o.max_minutes;
   $("minutes").value = Math.min(2, o.max_minutes);
   $("hint").textContent =
-    `Scripts up to about ${o.max_minutes} minutes, one render at a time. ` +
+    `Scripts up to about ${o.max_minutes} minutes. One render at a time` +
+    (maxQueue ? `, and up to ${maxQueue} waiting behind it. ` : ". ") +
     `Expect roughly five minutes of building per minute of video.`;
   updateMeter();
   await reattach();
@@ -557,11 +560,17 @@ async function busyTick() {
     const s = await (await fetch("/api/busy")).json();
     const changed = !!s.busy !== busyElsewhere;
     busyElsewhere = !!s.busy;
+    waiting = s.waiting || 0;
+    lineIsFull = busyElsewhere && maxQueue > 0 && waiting >= maxQueue;
     $("busybanner").classList.toggle("hidden", !s.busy);
     if (s.busy) {
+      const place = waiting + 1;
       $("busytext").innerHTML =
         `the box is busy: <b>${s.stage || "starting"}</b>, ` +
-        `${fmt(s.elapsed || 0)} in. Render is disabled until it finishes.`;
+        `${fmt(s.elapsed || 0)} in. ` +
+        (lineIsFull
+          ? "The queue is full, so Render is disabled until one finishes."
+          : `Render anyway and you are <b>#${place}</b> in line.`);
     }
     updateMeter();
     // stay live while a render is running or has just changed state
@@ -669,7 +678,10 @@ function updateMeter() {
   $("warn").innerHTML = shown.map((w) => `<li>${w}</li>`).join("") +
     (a.warnings.length > shown.length
       ? `<li>and ${a.warnings.length - shown.length} more like it</li>` : "");
-  $("go").disabled = busyElsewhere || over || !a.scenes;
+  // Busy is not the same as full. The box runs one render and holds a line
+  // behind it, so a second visitor can submit and wait; disabling Render on
+  // `busy` made the queue unreachable from the page for anyone but curl.
+  $("go").disabled = lineIsFull || over || !a.scenes;
   return a;
 }
 
@@ -714,8 +726,17 @@ function render(job) {
     return true;
   }
   if (job.status !== "done") {
+    // A queued job has no stage and no progress, so the running job's label
+    // would read "starting" beside a bar stuck at zero and look like a hang.
+    // Say where in the line it is instead; `position` comes from the queue
+    // rather than the job, so it stays right as the line moves.
     $("stage").textContent = job.cancelling
-      ? "stopping after this stage" : (job.stage || "starting");
+      ? "stopping after this stage"
+      : job.status === "queued"
+        ? (job.position > 0
+            ? `waiting: #${job.position} in line`
+            : "waiting for the box")
+        : (job.stage || "starting");
     return false;
   }
 
