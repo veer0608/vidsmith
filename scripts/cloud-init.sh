@@ -47,6 +47,12 @@ sudo -u "${USER_NAME}" python3 -m venv "${APP_DIR}/.venv"
 sudo -u "${USER_NAME}" "${APP_DIR}/.venv/bin/pip" install --upgrade pip
 sudo -u "${USER_NAME}" "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements-web.txt"
 
+# apt put DejaVu in /usr/share/fonts, which Pillow finds and libass is never
+# told about, so assets/fonts stays empty and only the captions render in a
+# substituted face. --fonts-only copies them across without fetching a second
+# ffmpeg into bin/, which would shadow the apt one this box is using.
+sudo -u "${USER_NAME}" bash "${APP_DIR}/scripts/fetch-runtime-deps.sh" --fonts-only
+
 # so the first boot has somewhere to write jobs, and .env exists to be edited
 sudo -u "${USER_NAME}" mkdir -p "${APP_DIR}/jobs"
 sudo -u "${USER_NAME}" touch "${APP_DIR}/.env"

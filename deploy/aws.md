@@ -74,6 +74,20 @@ git clone https://github.com/veer0608/vidsmith.git ~/vidsmith
 cd ~/vidsmith && python3 -m venv .venv && .venv/bin/pip install -r requirements-web.txt
 ```
 
+`fonts-dejavu-core` lands in `/usr/share/fonts`, which Pillow searches and
+libass is never told about. Cards, diagrams and thumbnails come out right and
+the captions alone render in a substituted face, with nothing reporting a
+fault. Copy the faces into `assets/fonts`, which is the directory the
+filtergraph names:
+
+```bash
+cd ~/vidsmith && bash scripts/fetch-runtime-deps.sh --fonts-only
+```
+
+`--fonts-only` matters on this box: the full script also fetches a static
+ffmpeg into `bin/`, and `bin/` is resolved ahead of `PATH`, so it would shadow
+the apt build you just installed.
+
 Confirm the box can actually do the work before going further. This reports the
 ffmpeg it found, whether libass is present, and which keys resolved:
 

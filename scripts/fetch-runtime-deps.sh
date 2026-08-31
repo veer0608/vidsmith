@@ -8,7 +8,21 @@
 # ffmpeg is fatal if it fails - there is no video without it. Fonts are not:
 # a missing face degrades to whatever the host has, and failing a deploy over
 # typography would be worse than shipping it.
+#
+# `--fonts-only` skips the ffmpeg half, for a host whose package manager already
+# supplied one. apt installs DejaVu to /usr/share/fonts, which satisfies Pillow
+# and leaves assets/fonts empty, so libass gets no fontsdir and the captions
+# render in a substituted face while everything reports success. Those hosts
+# still need this half, and fetching a second ffmpeg into bin/ would shadow the
+# working apt one, since bin/ is resolved ahead of PATH.
 set -euo pipefail
+
+fonts_only=0
+case "${1:-}" in
+  --fonts-only) fonts_only=1 ;;
+  "") ;;
+  *) echo "usage: $(basename "$0") [--fonts-only]" >&2; exit 2 ;;
+esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$root/bin"
@@ -18,7 +32,9 @@ mkdir -p "$bin" "$fonts"
 FFMPEG_URL="${FFMPEG_URL:-https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz}"
 
 # ---- ffmpeg (required) ------------------------------------------------------ #
-if [ ! -x "$bin/ffmpeg" ]; then
+if [ "$fonts_only" -eq 1 ]; then
+  echo "skipping ffmpeg, --fonts-only"
+elif [ ! -x "$bin/ffmpeg" ]; then
   echo "fetching ffmpeg"
   tmp="$(mktemp -d)"
   curl -fsSL --retry 3 --retry-delay 2 "$FFMPEG_URL" -o "$tmp/ffmpeg.tar.xz"
@@ -29,7 +45,7 @@ if [ ! -x "$bin/ffmpeg" ]; then
   chmod +x "$bin/ffmpeg" "$bin/ffprobe"
   rm -rf "$tmp"
 fi
-"$bin/ffmpeg" -hide_banner -version | head -1
+[ "$fonts_only" -eq 1 ] || "$bin/ffmpeg" -hide_banner -version | head -1
 
 # ---- fonts (best effort) ---------------------------------------------------- #
 have_fonts() { [ -f "$fonts/DejaVuSans-Bold.ttf" ] && [ -f "$fonts/DejaVuSans.ttf" ]; }
