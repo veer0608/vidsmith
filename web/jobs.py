@@ -131,6 +131,36 @@ class Jobs:
         self._lock = threading.Lock()
         self._active: Optional[str] = None
         self._waiting: Deque[str] = deque()
+        self.sweep_orphans()
+
+    def sweep_orphans(self) -> int:
+        """Remove job directories this process knows nothing about.
+
+        `_sweep` walks `self._jobs`, which is memory, so a restart makes every
+        directory left on disk unreachable: nothing holds a reference to it and
+        nothing ever deletes it. The registry is deliberately in memory and
+        that is not the bug; the bug is that the directories outlive it.
+
+        Found on the live instance holding 2.5 GB across five orphans on an
+        18 GB disk, growing by a generation every restart and reported by
+        nothing. A render needs room to write, so this fails a build eventually
+        and the message will be about disk, not about jobs.
+
+        Runs at construction, when `self._jobs` is empty by definition, so
+        every directory present is by definition from a previous process. Age
+        is not consulted: a directory here cannot belong to this one.
+        """
+        removed = 0
+        for path in sorted(self.workdir.glob("*")):
+            if not path.is_dir():
+                continue
+            try:
+                shutil.rmtree(path)
+                removed += 1
+            except OSError:
+                # a directory that will not go is not worth failing a boot over
+                continue
+        return removed
 
     # -- queries ------------------------------------------------------------- #
     def get(self, job_id: str) -> Optional[Job]:

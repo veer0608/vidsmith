@@ -200,3 +200,46 @@ def test_a_snapshot_carries_the_position(queue):
     assert body["waiting"] == 1
     assert queue.snapshot("no such job") is None
     queue.gate.set()
+
+
+# --------------------------------------------------------------------------- #
+# what a restart leaves behind
+# --------------------------------------------------------------------------- #
+def test_a_restart_clears_job_directories_it_cannot_reach(tmp_path):
+    """`_sweep` walks memory, so a restart orphans whatever is on disk.
+
+    The registry lives in memory on purpose and that is not the fault. The
+    fault is that `jobs/<id>/` outlives it: after a restart nothing holds a
+    reference to those directories and nothing ever deletes them. The live
+    instance was holding 2.5 GB across five of them on an 18 GB disk, growing
+    by a generation every restart, reported by nothing, and a render needs room
+    to write.
+    """
+    work = tmp_path / "jobs"
+    work.mkdir()
+    stale = work / "abc123def456"
+    stale.mkdir()
+    (stale / "out.mp4").write_bytes(b"a finished render nobody can reach")
+    loose = work / "not-a-job-dir.txt"
+    loose.write_text("left alone: only directories are job roots")
+
+    fresh = Jobs(work)
+
+    assert not stale.exists(), "a directory from a previous process survived"
+    assert loose.exists(), "a stray file is not a job directory"
+    assert fresh.waiting() == 0 and not fresh.busy()
+
+
+def test_a_running_job_directory_is_not_swept_by_its_own_process(queue):
+    """The sweep is a boot-time thing, not something a live job can trip.
+
+    It runs in the constructor, where `_jobs` is empty by definition, so every
+    directory present belongs to a process that has gone. Guarding that here
+    because moving the call anywhere else would delete the render in flight.
+    """
+    job = queue.submit("# t\n\nonly scene", {})
+    assert _wait_until(lambda: job.root is not None and job.root.exists()), job.root
+
+    queue.gate.set()
+    assert _wait_until(lambda: job.status == "done"), job.status
+    assert job.root.exists(), "the running job's own directory was removed"
