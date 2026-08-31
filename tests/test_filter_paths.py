@@ -201,21 +201,34 @@ def test_the_timeout_is_a_bound_on_forever_not_a_budget(monkeypatch):
     before pytest's, and reading the live value made these two contradict each
     other: the suite went red on all three runners over 45 versus 600.
     """
-    import importlib
-
     monkeypatch.delenv("VIDSMITH_FFMPEG_TIMEOUT", raising=False)
-    assert importlib.reload(ff).TIMEOUT >= 600
-    importlib.reload(ff)
+    assert ff.timeout_limit() >= 600
 
 
 def test_the_timeout_is_overridable(monkeypatch):
     """A slow free instance encoding 1080p is minutes of real work."""
-    import importlib
-
     monkeypatch.setenv("VIDSMITH_FFMPEG_TIMEOUT", "1234")
-    assert importlib.reload(ff).TIMEOUT == 1234.0
-    monkeypatch.delenv("VIDSMITH_FFMPEG_TIMEOUT")
-    importlib.reload(ff)
+    assert ff.timeout_limit() == 1234.0
+
+
+def test_the_limit_leaves_nothing_behind_for_the_next_test(monkeypatch):
+    """The reason this is a function and not a constant read at import.
+
+    Those two tests above used to reload the module to see the value, and
+    reload again to put it back - but the second reload ran while monkeypatch
+    was still in force, so it restored against the patched environment and left
+    the module holding the default. Every test file sorting after this one then
+    ran with 900s no matter what the environment said, which is why CI's 45s
+    guard never fired and the macOS narration hang was reported twice as a
+    stack trace through subprocess with nothing from ffmpeg in it.
+
+    Reading the environment per call means there is no module state to leave
+    behind, and this fails the moment anyone caches it again.
+    """
+    monkeypatch.setenv("VIDSMITH_FFMPEG_TIMEOUT", "7")
+    assert ff.timeout_limit() == 7.0
+    monkeypatch.setenv("VIDSMITH_FFMPEG_TIMEOUT", "8")
+    assert ff.timeout_limit() == 8.0, "the limit was cached instead of read"
 
 
 def test_the_narration_output_is_bounded_by_more_than_the_graph():
