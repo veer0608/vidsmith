@@ -331,37 +331,42 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if credits:
         (proj.out / f"credits{tag}.txt").write_text(credits, encoding="utf-8")
         log(f"credits  {named} creators to attribute")
+    # `done` is logged once, here at the end, and not before the work below.
+    # The web stepper reads it as the run completing, so announcing it early
+    # drove the label from "done" back to "writing the description" on every
+    # build that got that far. One call site rather than one per return path:
+    # a second copy of this line is how the two would drift apart.
+    if not done("render"):
+        # ---- upload metadata --------------------------------------------- #
+        if keys["gemini"]:
+            try:
+                meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"],
+                                           log=log)
+                write_metadata(proj.out, meta)
+                log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
+            except Exception as exc:
+                log(f"meta     skipped ({exc})")
+
+        # Read the delivery back before anyone else does. Reported, never
+        # raised: the same rule the thumbnail follows, that a finished render
+        # is not thrown away over something wrong beside it. Only after a full
+        # build, because a --stop-after run is incomplete by design and would
+        # report that as fault.
+        from .check import check
+
+        try:
+            problems = check(proj.out)
+            # says so when it passes too: a silent check and a check that never
+            # ran look identical in a log, and that ambiguity has cost time here
+            for problem in problems:
+                log(f"check    {problem}")
+            if not problems:
+                log("check    delivery is consistent")
+        except Exception as exc:                  # never lose a render to this
+            log(f"check    skipped ({exc})")
+
     log(f"done     {final}  ({ff.duration(final):.1f}s, "
         f"{final.stat().st_size / 1e6:.1f} MB, {time.time() - started:.0f}s to build)")
-    if done("render"):
-        return final
-
-    # ---- upload metadata ------------------------------------------------- #
-    if keys["gemini"]:
-        try:
-            meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"], log=log)
-            write_metadata(proj.out, meta)
-            log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
-        except Exception as exc:
-            log(f"meta     skipped ({exc})")
-
-    # Read the delivery back before anyone else does. Reported, never raised:
-    # the same rule the thumbnail follows, that a finished render is not thrown
-    # away over something wrong beside it. Only after a full build, because a
-    # --stop-after run is incomplete by design and would report that as fault.
-    from .check import check
-
-    try:
-        problems = check(proj.out)
-        # says so when it passes too: a silent check and a check that never ran
-        # look identical in a log, and that ambiguity has cost time here before
-        for problem in problems:
-            log(f"check    {problem}")
-        if not problems:
-            log("check    delivery is consistent")
-    except Exception as exc:                      # never lose a render to this
-        log(f"check    skipped ({exc})")
-
     return final
 
 
