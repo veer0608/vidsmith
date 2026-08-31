@@ -128,6 +128,37 @@ Each aspect gets its own picture, captions and output file, so a vertical cut
 never overwrites the landscape one. Narration is shared between them, so changing
 aspect does not re-synthesize speech.
 
+## Two voices, one set of timings
+
+`edge-tts` is the default: free, no key, and the reason a clean clone renders a
+video without an account. `vidsmith voices --lang en-IN` lists what it offers
+and `--voice` picks one.
+
+Amazon Polly is the alternative, and the reason is licensing rather than
+quality - see [Licence](#licence) below, which is not a footnote if anything
+with revenue is attached. Set `voice.provider: polly` in the project config
+with AWS credentials in the environment.
+
+What matters technically is that **the edit does not change between them**.
+Polly is one of the few services that reports word timings at all, so the cut
+still lands on the sentence boundaries the speaker actually spoke and the
+captions still come from the engine rather than from a transcription. The two
+report differently and are normalised to the same word list: edge-tts sends a
+boundary event per word, Polly sends speech marks in milliseconds carrying
+starts and no durations, so the ends are reconstructed from the next word and
+the last one from the audio itself.
+
+```
+{'text': 'said', 'start': 1.507, 'end': 1.716}
+{'text': 'each', 'start': 1.716, 'end': 1.889}
+{'text': 'word', 'start': 1.889, 'end': 2.4}     <- audio is 2.4s
+```
+
+Polly bills the audio and the speech marks as separate requests, so a video
+costs its script length twice. Its `generative` engine returns no speech marks
+at all, which is why it is not a selectable value: it cannot time captions or
+the cut, and that is the whole design.
+
 ## Cut rhythm
 
 A scene is not a shot. Narration runs six to eight seconds, and one unbroken
@@ -395,7 +426,7 @@ narration, captions, cards, music and the encode need no key at all.
 ```
 parse   -> scenes.json          script split into scenes
 queries -> scenes.json          Gemini writes a b-roll search per scene
-voice   -> build/audio/*.mp3    edge-tts, plus word timings
+voice   -> build/audio/*.mp3    edge-tts or Polly, plus word timings
 visuals -> build/visuals/*.mp4  one normalised clip per scene
 captions-> build/captions.ass   karaoke ASS + a plain .srt for YouTube
 render  -> out/*.mp4            three ffmpeg passes: narration, picture, master
