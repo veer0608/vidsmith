@@ -110,6 +110,21 @@ def build_picture(clips: Sequence[Path], out: Path, workdir: Path,
     return _concat_copy(clips, out, workdir)
 
 
+def fontsdir_option() -> str:
+    """The `fontsdir` libass needs, or nothing when there is no face to name.
+
+    Guarded on holding a face rather than on the directory existing. An empty
+    `assets/fonts` is exactly what a documented apt deploy leaves behind: the
+    directory is created, the fonts go to `/usr/share/fonts` instead, and
+    pointing libass at an empty directory substitutes just as silently as never
+    naming one. Glob for `*.ttf`, which is the same rule `/healthz` reports by,
+    so the check and the report cannot disagree about what this box has.
+    """
+    if any(cards.FONT_DIR.glob("*.ttf")):
+        return f":fontsdir='{ff.escape_filter_path(cards.FONT_DIR)}'"
+    return ""
+
+
 def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
            audio_cfg: AudioConfig, captions: Optional[Path], total: float,
            theme: Theme, theme_cfg: ThemeConfig, size: Tuple[int, int],
@@ -183,8 +198,7 @@ def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
         subs = f"subtitles='{ff.escape_filter_path(Path(captions))}'"
         # without fontsdir libass silently substitutes whatever it can find, and
         # a host with no Segoe UI renders the captions in something else
-        if cards.FONT_DIR.exists():
-            subs += f":fontsdir='{ff.escape_filter_path(cards.FONT_DIR)}'"
+        subs += fontsdir_option()
         post.append(subs)
     post.append("format=yuv420p")
     graph.append(f"{cur}" + ",".join(post) + "[vout]")
