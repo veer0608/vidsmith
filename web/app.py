@@ -128,12 +128,8 @@ def healthz(x_vidsmith_token: str = Header(default=""),
     from vidsmith import ffmpeg_util as ff
 
     # fonts are reported rather than enforced: a missing face is a cosmetic
-    # downgrade, and the build deliberately does not fail over one. Reported
-    # from the same resolver the filtergraph uses, and with the directory it
-    # settled on, because "fonts: []" beside a working render was true of the
-    # bundled directory and told nobody where the faces actually were.
-    found = cards.font_dir()
-    bundled = sorted(p.name for p in found.glob("*.ttf")) if found else []
+    # downgrade, and the build deliberately does not fail over one
+    bundled = sorted(p.name for p in cards.FONT_DIR.glob("*.ttf"))         if cards.FONT_DIR.exists() else []
     try:
         ffmpeg = ff.ffmpeg_bin()
     except RuntimeError as exc:
@@ -142,11 +138,6 @@ def healthz(x_vidsmith_token: str = Header(default=""),
                             "busy": jobs.busy(), "max_minutes": MAX_MINUTES}
     if authorised(x_vidsmith_token, t):
         body["keys"] = {name: bool(value) for name, value in _keys().items()}
-        # behind the token with `keys`, because it spells out where this box
-        # keeps its checkout. Worth reporting at all because an empty list said
-        # nothing about which directory had been searched, and finding that out
-        # took a shell on the host.
-        body["fontsdir"] = str(found) if found else None
     return body
 
 

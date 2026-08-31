@@ -74,28 +74,19 @@ git clone https://github.com/veer0608/vidsmith.git ~/vidsmith
 cd ~/vidsmith && python3 -m venv .venv && .venv/bin/pip install -r requirements-web.txt
 ```
 
-`fonts-dejavu-core` lands in `/usr/share/fonts`, and that is enough: the font
-lookup consults the bundled `assets/fonts` first and the system directories
-after, so an apt box needs no copying. Confirm it with `/healthz` below rather
-than assuming, because a box with no face anywhere still renders and still
-reports success, and only the captions come out wrong.
-
-To bundle the faces into the checkout anyway, so the instance does not depend
-on what the host happens to have installed:
+`fonts-dejavu-core` lands in `/usr/share/fonts`, which Pillow searches and
+libass is never told about. Cards, diagrams and thumbnails come out right and
+the captions alone render in a substituted face, with nothing reporting a
+fault. Copy the faces into `assets/fonts`, which is the directory the
+filtergraph names:
 
 ```bash
-cd /opt/vidsmith && bash scripts/fetch-runtime-deps.sh --fonts-only
+cd ~/vidsmith && bash scripts/fetch-runtime-deps.sh --fonts-only
 ```
 
 `--fonts-only` matters on this box: the full script also fetches a static
 ffmpeg into `bin/`, and `bin/` is resolved ahead of `PATH`, so it would shadow
 the apt build you just installed.
-
-That copy only reaches the running service if vidsmith is imported from this
-checkout. Installed into the venv's `site-packages` instead, `assets/fonts` is
-derived inside the venv and nothing writes there, which is why the lookup falls
-back to the system directories at all. `fontsdir` in the authorised `/healthz`
-says which directory won.
 
 Confirm the box can actually do the work before going further. This reports the
 ffmpeg it found, whether libass is present, and which keys resolved:
