@@ -31,11 +31,21 @@ import yaml
 from vidsmith import pipeline
 from vidsmith.config import Config, write_default_config
 
-# stage -> fraction of the run that is behind you once it starts
+# stage -> fraction of the run that is behind you once it starts.
+#
+# Measured from a real build rather than guessed. The guesses had `render`
+# spanning 0.88 to 0.96, eight percent of the run; it is closer to forty, so
+# the bar sat at 88% for most of the wait and then jumped. Finding footage and
+# encoding are the two stages that cost anything and they are roughly equal.
+#
+# One sample on one machine, and the split moves with the host: a box with half
+# the cores spends proportionally longer encoding, so `render` is wider there
+# than this says. Roughly right beats wrong by a factor of five, but do not
+# read these as exact.
 STAGE_PROGRESS = {
-    "script": 0.02, "queries": 0.05, "voice": 0.10, "visuals": 0.20,
-    "captions": 0.80, "music": 0.84, "render": 0.88, "credits": 0.96,
-    "meta": 0.98, "done": 1.0,
+    "script": 0.0, "queries": 0.02, "voice": 0.03, "visuals": 0.10,
+    "captions": 0.55, "music": 0.57, "render": 0.58, "credits": 0.97,
+    "meta": 0.99, "done": 1.0,
 }
 KEEP_SECONDS = 60 * 60          # finished jobs are swept after an hour
 MAX_SCRIPT_CHARS = 12_000
