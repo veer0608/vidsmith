@@ -38,6 +38,7 @@ before writing anything. The traps are the reason this file exists.
 | Speed the service up | Web service | Concurrency is settled and measured; 78% of a build is ffmpeg |
 | Change the voice provider | Architecture, two providers | Polly's marks are ms with starts and no durations, billed twice |
 | Reach for a version of ffmpeg | Tests | Three are in play and they disagree about libass |
+| Change the price or the buy link | `test_selling_links.py` | Both docs must agree; a `PASTE_GUMROAD_*` token holds CI red on purpose |
 
 ## Working in this repo
 
@@ -69,7 +70,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 452 tests, ~22s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 455 tests, ~22s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve

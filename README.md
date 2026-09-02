@@ -627,9 +627,10 @@ study, hobby projects, non-profits and public institutions are all covered, and
 you may read, change and redistribute the source for those purposes.
 
 Making money with it is not covered: a channel carrying ads or sponsorship,
-client work, resale, or running it as a service. A commercial licence is **$99
-once** for one person, **$299 once** for one company, and a quote for agency or
-client work. All perpetual, no per-video fee, no renewal.
+client work, resale, or running it as a service. A commercial licence is
+[**$49 once** for one person](https://buy.polar.sh/polar_cl_V1vRQDzKFWNV8dzI6VrcXma2YAmGETvuBiWP62OCuZ9),
+[**$299 once** for one company](https://buy.polar.sh/polar_cl_EPwQhQnDXgtajhz7HoNumI83cBf16NeFaQFru0Q0Qw0), and a quote for
+agency or client work. All perpetual, no per-video fee, no renewal.
 [COMMERCIAL.md](COMMERCIAL.md) has the detail, and lists the third-party terms a
 licence to this code does not grant you.
 
