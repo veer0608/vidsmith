@@ -5,7 +5,7 @@ theme:
   accent: ''
   font: ''
   watermark: ''
-  title_card: true
+  title_card: false
   title_seconds: 2.4
   subtitle: ''
   end_card: true
@@ -32,9 +32,9 @@ visuals:
   zoom: 1.12
   min_clip_seconds: 2.0
   diagrams: true
-  diagram_on_reject: 0.7
+  diagram_on_reject: 0.9
   rerank: true
-  rerank_pool: 8
+  rerank_pool: 15
   cut_on_sentences: true
   min_shot_seconds: 2.4
   max_shot_seconds: 5.5

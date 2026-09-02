@@ -17,5 +17,5 @@ Those timings come out of the same pass that made the sound. Nothing estimates t
 Captions land on the word being spoken. The picture cuts where the speaker actually lands a full stop, not at a guessed position halfway through a sentence.
 
 ## The point
-[visual: city skyline at sunrise]
+[diagram: caption timing from the engine versus a guess]
 Every caption in this video was placed that way. If a word looks early or late to you, that is the engine, not an estimate.
