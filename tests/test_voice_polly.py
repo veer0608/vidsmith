@@ -358,3 +358,55 @@ def test_the_ssml_carries_the_converted_volume():
     doc = voice_polly.ssml("hi", VoiceConfig(volume="+0%"), engine="long-form")
     assert "+0%" not in doc
     assert "dB" in doc
+
+
+# --------------------------------------------------------------------------- #
+# the quickstart a buyer follows
+# --------------------------------------------------------------------------- #
+def _quickstart() -> dict:
+    """The `voice:` block COMMERCIAL.md tells a paying user to paste."""
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    doc = (Path(__file__).resolve().parents[1] / "COMMERCIAL.md").read_text(
+        encoding="utf-8")
+    block = re.search(r"```yaml\n(voice:.*?)```", doc, re.S)
+    assert block, "COMMERCIAL.md no longer carries a voice: quickstart block"
+    return yaml.safe_load(block.group(1))["voice"]
+
+
+def test_the_quickstart_names_the_polly_provider():
+    assert _quickstart()["provider"] == "polly"
+
+
+def test_the_quickstart_engine_can_actually_return_speech_marks():
+    """`generative` is the one engine that cannot time captions or the cut.
+
+    A quickstart is pasted rather than read, so an engine named there that the
+    code refuses would be a refusal at the buyer, on their first build, right
+    after paying.
+    """
+    engine = _quickstart()["engine"]
+    assert engine not in voice_polly.NO_SPEECH_MARKS
+    assert engine in ("standard", "neural", "long-form"), engine
+
+
+def test_the_quickstart_pitch_is_accepted_by_the_engine_it_names():
+    """neural and long-form refuse a prosody pitch rather than ignoring it."""
+    quick = _quickstart()
+    if quick["engine"] in voice_polly.PITCHLESS_ENGINES:
+        assert str(quick["pitch"]).strip() in ("", "+0Hz", "0Hz"), \
+            "the quickstart pastes a pitch its own engine will refuse"
+
+
+def test_the_quickstart_voice_is_not_an_edge_tts_name():
+    """The likeliest mistake, and the one the quickstart exists to prevent.
+
+    `provider` is the obvious key to change and the config already carries a
+    name, so an edge-tts VoiceId survives the edit and Polly rejects it.
+    """
+    name = _quickstart()["name"]
+    assert not name.endswith("Neural"), name
+    assert "-" not in name, f"{name} looks like an edge-tts name, not a VoiceId"
