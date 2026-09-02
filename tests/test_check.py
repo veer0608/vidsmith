@@ -130,6 +130,73 @@ def test_an_empty_directory_says_so(tmp_path):
     assert check(tmp_path) == ["no widescreen mp4 in out/; nothing has been delivered"]
 
 
+# --------------------------------------------------------------------------- #
+# the empty tag, again, this time in the checker itself
+# --------------------------------------------------------------------------- #
+def test_every_aspect_resolves_to_its_own_shape(tmp_path):
+    """`a-1x1.mp4` sorts before `a.mp4`, because `-` is 0x2D and `.` is 0x2E.
+
+    Taking the first name that was not a short therefore handed back the square
+    cut as the widescreen one. Nothing here needs a real encode: the fault was
+    entirely in the names, which is why it survived a suite full of real ones.
+    """
+    from vidsmith.check import delivered
+
+    for name in ("a-title.mp4", "a-title-9x16.mp4", "a-title-1x1.mp4",
+                 "a-title-4x5.mp4"):
+        (tmp_path / name).touch()
+
+    cuts = delivered(tmp_path)
+    assert {a: p.name for a, p in cuts} == {
+        "16:9": "a-title.mp4",
+        "9:16": "a-title-9x16.mp4",
+        "1:1": "a-title-1x1.mp4",
+        "4:5": "a-title-4x5.mp4",
+    }
+    assert cuts[0][0] == "16:9", "the widescreen cut must come first"
+
+
+@pytest.mark.slow
+def test_a_square_cut_beside_the_wide_one_is_not_a_fault(delivery):
+    """All four shapes are one edit at four sizes; delivering them is normal.
+
+    Before `delivered()`, adding a 1:1 cut made the checker report both the
+    16:9 thumbnail and the 4:5 one as matching no delivered cut, because the
+    set of known names had been built from the square cut and the shorts.
+    """
+    _mp4(delivery / "a-title-1x1.mp4")
+    _jpg(delivery / "a-title-1x1.jpg", (1280, 720))
+    (delivery / "captions-1x1.srt").write_text(SRT, encoding="utf-8")
+    assert check(delivery) == []
+
+
+@pytest.mark.slow
+def test_the_widescreen_cut_is_still_checked_beside_a_square_one(delivery):
+    """The quiet half of the same bug, and the half that would have shipped.
+
+    The real 16:9 cut was neither the resolved widescreen one nor a short, so
+    it fell out of every loop: its runtime, its captions and its thumbnail went
+    unexamined the moment a 1:1 cut existed beside it.
+    """
+    _mp4(delivery / "a-title-1x1.mp4")
+    _jpg(delivery / "a-title-1x1.jpg", (1280, 720))
+    (delivery / "captions-1x1.srt").write_text(SRT, encoding="utf-8")
+
+    (delivery / "a-title.jpg").unlink()
+    found = check(delivery)
+    assert any("a-title.jpg" in p and "no thumbnail" in p for p in found), found
+
+
+@pytest.mark.slow
+def test_a_portrait_thumbnail_on_the_four_five_cut_is_caught(delivery):
+    """4:5 is vertical and was not a short, so it was checked as landscape."""
+    _mp4(delivery / "a-title-4x5.mp4")
+    _jpg(delivery / "a-title-4x5.jpg", (1280, 720))
+    (delivery / "captions-4x5.srt").write_text(SRT, encoding="utf-8")
+    found = check(delivery)
+    assert any("a-title-4x5.jpg" in p and "vertical cut" in p for p in found), found
+
+
 @pytest.mark.parametrize("stamp,want", [
     ("0:00", 0.0), ("1:23", 83.0), ("00:01:23,400", 83.4), ("1:00:00", 3600.0),
 ])
