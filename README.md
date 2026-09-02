@@ -628,7 +628,7 @@ you may read, change and redistribute the source for those purposes.
 
 Making money with it is not covered: a channel carrying ads or sponsorship,
 client work, resale, or running it as a service. A commercial licence is
-[**$99 once** for one person](PASTE_GUMROAD_SOLO_LINK),
+[**$49 once** for one person](PASTE_GUMROAD_SOLO_LINK),
 [**$299 once** for one company](PASTE_GUMROAD_COMPANY_LINK), and a quote for
 agency or client work. All perpetual, no per-video fee, no renewal.
 [COMMERCIAL.md](COMMERCIAL.md) has the detail, and lists the third-party terms a

@@ -11,7 +11,7 @@ For that, a commercial licence is available.
 
 | | | | |
 | --- | --- | --- | --- |
-| **Solo** | **$99** once | One named person, making videos for themselves or their own channel. | [Buy](PASTE_GUMROAD_SOLO_LINK) |
+| **Solo** | **$49** once | One named person, making videos for themselves or their own channel. | [Buy](PASTE_GUMROAD_SOLO_LINK) |
 | **Company** | **$299** once | One company, any number of people in it, for that company's own videos. | [Buy](PASTE_GUMROAD_COMPANY_LINK) |
 | **Agency or client work** | quote | Making videos *for other people* under contract, or reselling the output as a service. Say roughly what you do and you will get a number. | by email |
 
@@ -20,12 +20,21 @@ make with it, including after the licence is bought. There is no per-video fee,
 no seat count to maintain and no renewal, and nothing phones home because there
 is nowhere for it to phone: the render happens entirely on your hardware.
 
-For scale, the hosted tools that do this job start around $25 to $39 a month and
-bill for as long as you use them. A year of one of those costs more than the
-company licence here costs once.
+For scale, the hosted tools that do this job run about $19 to $48 a month
+depending on the plan and whether you pay yearly, and they bill for as long as
+you use them. Two months of one costs more than the solo licence here costs
+once, and it keeps costing.
+
+Being straight about the other end of the market: there are permissively
+licensed projects that do a similar job for nothing, MoneyPrinterTurbo among
+them. If a free MIT licence is what you need, take one of those. What is sold
+here is a different thing: timings taken from the speech engine rather than
+transcribed back, a delivery checker that reads the output files against each
+other before you publish, attribution handled as the licence condition it is,
+and a documented Amazon Polly path so the narration itself is licensed.
 
 Both fixed tiers check out on Gumroad and the licence arrives by email, naming
-whoever you give at checkout: [Solo, $99](PASTE_GUMROAD_SOLO_LINK) and
+whoever you give at checkout: [Solo, $49](PASTE_GUMROAD_SOLO_LINK) and
 [Company, $299](PASTE_GUMROAD_COMPANY_LINK). Nothing here is a subscription, so
 there is no account to keep and nothing to cancel later.
 

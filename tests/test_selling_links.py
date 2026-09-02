@@ -38,7 +38,7 @@ def test_no_placeholder_checkout_link_can_ship():
         "PASTE_GUMROAD_COMPANY_LINK in both files.")
 
 
-@pytest.mark.parametrize("price", ["$99", "$299"])
+@pytest.mark.parametrize("price", ["$49", "$299"])
 def test_both_files_state_the_same_price(price):
     """The price now lives in three places and one of them is a storefront.
 
