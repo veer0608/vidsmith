@@ -538,6 +538,28 @@ competing with the voice.
   that mutates module state can silently disarm a safety net three files away**,
   and the second time this happened in one day was threads outliving their test
   and appending to the next test's list.
+  **Fourth occurrence, 2026-09-02, and the guard finally fired. It told us
+  nothing, and the reason is our own log level.** Same test,
+  `test_each_scene_speaks_at_its_own_start`, on the first CI run of PR #58,
+  with ubuntu and windows green and a re-run of the same job passing in 65s.
+  The 45s from the job environment was honoured, so `timeout_limit()` reading
+  per call is working. Both bounds the last round added were present:
+  `atrim=0:22.746` in the graph and `-t 22.746` on the command. It sat the full
+  45 seconds on about a second of work and was killed. What it said before it
+  was killed: nothing at all.
+  That empty capture reads like a finding and is not one. `ff.run` takes
+  `quiet=True` by default and no caller overrides it, so every ffmpeg call in
+  this project runs at `-loglevel error`, and at that level a **healthy** ffmpeg
+  also prints nothing. So the capture cannot tell a process that hung before it
+  started from one that stopped halfway, which is the single thing worth
+  knowing here. The reporting fix from the last round answers a question it is
+  not equipped to answer, and reading its output as evidence about the
+  filtergraph is a fifth round of the same mistake this file keeps recording.
+  The cheap way out is `-progress pipe:1`, which emits `out_time` lines
+  independently of the log level, so the timeout capture would carry the last
+  position reached. No lines at all means it never started; lines stopping at
+  12s means it stopped at 12s. Until something like that is in, do not treat
+  another silent timeout as information.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did
