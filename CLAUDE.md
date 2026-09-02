@@ -69,7 +69,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 441 tests, ~22s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 448 tests, ~22s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -555,11 +555,19 @@ competing with the voice.
   knowing here. The reporting fix from the last round answers a question it is
   not equipped to answer, and reading its output as evidence about the
   filtergraph is a fifth round of the same mistake this file keeps recording.
-  The cheap way out is `-progress pipe:1`, which emits `out_time` lines
-  independently of the log level, so the timeout capture would carry the last
-  position reached. No lines at all means it never started; lines stopping at
-  12s means it stopped at 12s. Until something like that is in, do not treat
-  another silent timeout as information.
+  **That is now fixed, and the fifth occurrence should be readable.** Every
+  `ff.run` carries `-progress pipe:1`, which writes `out_time` to stdout
+  regardless of the log level, and the timeout report reads the last one back:
+  "it reached out_time=00:00:13.000000 before it was killed", or "it never
+  reported any progress, so it had not begun encoding". Those are different
+  faults and the previous three hangs could not tell them apart. Verified
+  against real ffmpeg rather than only mocked: a `veryslow` 720p encode killed
+  at 4s reported `out_time=00:00:08.000000`.
+  Two details worth keeping. Silence on stderr is now reported as the
+  non-finding it is, in those words, so nobody reads it as evidence a fifth
+  time. And progress lines are stripped out of ordinary failure messages by
+  `_without_progress()`, because a broken filtergraph buried under half a
+  second of counters is a worse message than the one we had.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did

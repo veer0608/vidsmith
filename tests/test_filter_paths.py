@@ -263,8 +263,16 @@ def test_a_timeout_reports_what_ffmpeg_managed_to_say(monkeypatch):
     assert "Stream #0:0: Audio" in str(exc.value), "the partial output was dropped"
 
 
-def test_a_silent_hang_says_that_too(monkeypatch):
-    """"It said nothing" is itself a finding: it never reached the muxer."""
+def test_a_hang_with_no_progress_says_it_never_started(monkeypatch):
+    """This test used to assert the opposite of what is true.
+
+    It read "it said nothing at all" as a finding, on the reasoning that a
+    silent process had never reached the muxer. It had not: everything here
+    runs at `-loglevel error`, where a healthy ffmpeg is silent too, so the
+    fourth macOS hang produced that message and it meant nothing. Silence on
+    stderr is now reported as the non-finding it is, and the real signal is
+    that `-progress` never emitted a position.
+    """
     import subprocess as sp
 
     monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
@@ -272,7 +280,71 @@ def test_a_silent_hang_says_that_too(monkeypatch):
         sp.TimeoutExpired(cmd="ffmpeg", timeout=45)))
     with pytest.raises(RuntimeError) as exc:
         ff.run(["-i", "in.wav", "out.wav"])
-    assert "said nothing at all" in str(exc.value)
+    said = str(exc.value)
+    assert "never reported any progress" in said
+    assert "also what a healthy run does" in said, \
+        "silence on stderr must not be offered as evidence again"
+
+
+def test_a_hang_reports_the_last_position_it_reached(monkeypatch):
+    """The distinction the previous three hangs could not make."""
+    import subprocess as sp
+
+    trail = ("frame=360\nfps=30\nout_time=00:00:12.000000\nprogress=continue\n"
+             "frame=390\nfps=30\nout_time=00:00:13.000000\nprogress=continue\n")
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(
+        sp.TimeoutExpired(cmd="ffmpeg", timeout=45, output=trail.encode())))
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    assert "it reached out_time=00:00:13.000000" in str(exc.value)
+
+
+def test_every_run_asks_for_progress(monkeypatch):
+    """Without this flag on the call, the report above has nothing to read."""
+    import subprocess as sp
+
+    seen = {}
+
+    def capture(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return sp.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run", capture)
+    ff.run(["-i", "in.wav", "out.wav"])
+    cmd = seen["cmd"]
+    assert "-progress" in cmd, "a hang would be unreadable again"
+    assert cmd[cmd.index("-progress") + 1] == "pipe:1"
+    assert cmd.index("-progress") < cmd.index("-i"), \
+        "-progress is a global option and must precede the inputs"
+
+
+@pytest.mark.parametrize("trail,want", [
+    ("", None),
+    ("frame=1\nprogress=continue\n", None),
+    ("out_time=00:00:01.500000\n", "00:00:01.500000"),
+    ("out_time=00:00:01.000000\nout_time=00:00:09.250000\n", "00:00:09.250000"),
+])
+def test_last_progress_reads_the_final_position(trail, want):
+    assert ff.last_progress(trail) == want
+
+
+def test_progress_lines_stay_out_of_an_ordinary_failure(monkeypatch):
+    """A broken filtergraph must not be buried under half a second of counters."""
+    import subprocess as sp
+
+    noise = ("frame=1\nfps=0.0\nbitrate=N/A\nout_time=00:00:00.040000\n"
+             "speed=1.0x\nprogress=continue\n")
+
+    monkeypatch.setattr(ff, "ffmpeg_bin", lambda: "ffmpeg")
+    monkeypatch.setattr(ff.subprocess, "run",
+                        lambda *a, **k: sp.CompletedProcess(a[0], 1, noise, ""))
+    with pytest.raises(RuntimeError) as exc:
+        ff.run(["-i", "in.wav", "out.wav"])
+    said = str(exc.value)
+    assert "out_time=" not in said and "progress=" not in said, said
 
 
 def test_every_ci_job_bounds_a_hang():

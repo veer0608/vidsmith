@@ -3,12 +3,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
 
 _CACHE: dict[str, str] = {}
+
+# `-progress` writes plain key=value lines. `out_time` is the one worth keeping;
+# the rest is stripped out of ordinary failure messages so it cannot drown them.
+_OUT_TIME = re.compile(r"^out_time=(\S+)", re.M)
+_PROGRESS_KEY = re.compile(
+    r"^(frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time\w*|dup_frames"
+    r"|drop_frames|speed|progress)=")
 
 # winget's Gyan.FFmpeg drops binaries here but only updates PATH for new shells,
 # so an already-running session has to look for them.
@@ -91,6 +99,38 @@ def ffprobe_bin() -> str:
     return _resolve("ffprobe")
 
 
+def _text(raw) -> str:
+    """`TimeoutExpired` hands back bytes or str depending on how it was raised."""
+    if raw is None:
+        return ""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", "replace")
+    return raw
+
+
+def last_progress(text: str) -> Optional[str]:
+    """The last position `-progress` reported, or None if it never reported one.
+
+    This is the entire reason `-progress pipe:1` is on every call. Everything
+    here runs at `-loglevel error`, where a healthy ffmpeg prints nothing at
+    all, so an empty capture from a killed process was consistent with both a
+    process that hung before it started and one that stopped halfway. Three
+    macOS hangs were reported as "it said nothing at all before it was killed",
+    which read like evidence and was not.
+
+    `out_time` is written regardless of the log level. No lines means it never
+    got going; a value that stops means it stopped there.
+    """
+    found = _OUT_TIME.findall(text or "")
+    return found[-1] if found else None
+
+
+def _without_progress(text: str) -> str:
+    """Progress belongs in the hang report, not in an ordinary failure."""
+    return "\n".join(line for line in (text or "").splitlines()
+                     if not _PROGRESS_KEY.match(line))
+
+
 def run(args: List[str], quiet: bool = True,
         timeout: Optional[float] = None) -> subprocess.CompletedProcess:
     """Run ffmpeg with the given args (binary and -y are prepended).
@@ -100,8 +140,12 @@ def run(args: List[str], quiet: bool = True,
     web service holds its single render slot for good, and CI reported nothing
     for twenty-five minutes. A killed encode raises like any other failure, so
     every caller that already handles a broken render handles this too.
+
+    `-progress pipe:1` is what makes a timeout worth reading. It costs a line
+    every half second on stdout, which nothing here writes media to, and it is
+    the difference between "it said nothing" and "it stopped at 12 seconds".
     """
-    cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y"]
+    cmd = [ffmpeg_bin(), "-hide_banner", "-nostdin", "-y", "-progress", "pipe:1"]
     if quiet:
         cmd += ["-loglevel", "error"]
     cmd += args
@@ -112,22 +156,26 @@ def run(args: List[str], quiet: bool = True,
         # Whatever ffmpeg managed to say before it was killed is the only
         # evidence there is about where it stopped. Discarding it left a macOS
         # hang with nothing but a stack trace through subprocess, twice.
-        said = expired.stderr or expired.stdout or b""
-        if isinstance(said, bytes):
-            said = said.decode("utf-8", "replace")
-        tail = "\n".join(said.strip().splitlines()[-25:])
+        said = _text(expired.stderr)
+        tail = "\n".join(_without_progress(said).strip().splitlines()[-25:])
+        reached = last_progress(_text(expired.stdout))
         raise RuntimeError(
             f"ffmpeg did not finish within {limit:g}s and was stopped:\n  "
-            + " ".join(cmd[:14]) + " ...\n"
+            + " ".join(cmd[:16]) + " ...\n"
             "This is a hang rather than a slow encode; the filtergraph is the "
             "place to look. Raise VIDSMITH_FFMPEG_TIMEOUT if the encode really "
             "is this long.\n"
+            + (f"it reached out_time={reached} before it was killed\n" if reached
+               else "it never reported any progress, so it had not begun "
+                    "encoding\n")
             + (f"what it said before it was killed:\n{tail}" if tail
-               else "it said nothing at all before it was killed"))
+               else "it wrote nothing to stderr, which at -loglevel error is "
+                    "also what a healthy run does"))
     if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-25:]
+        tail = _without_progress(
+            proc.stderr or proc.stdout or "").strip().splitlines()[-25:]
         raise RuntimeError(
-            "ffmpeg failed:\n  " + " ".join(cmd[:14]) + " ...\n" + "\n".join(tail)
+            "ffmpeg failed:\n  " + " ".join(cmd[:16]) + " ...\n" + "\n".join(tail)
         )
     return proc
 
