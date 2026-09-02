@@ -182,6 +182,27 @@ the one engine that returns no speech marks at all, so it cannot time captions
 or the cut, which is the whole design. Nothing about the edit changes between
 providers, and that is the point of normalising both into the same word list.
 
+  **Those forty tests all stub the SDK, so until 2026-08-31 the code had never
+  met the service.** It was run once against real Polly then, and it works:
+  `Matthew`, `neural`, `us-east-1`, one sentence, audio and marks back, ten
+  words in the same `text/start/end` shape edge-tts produces, starts ascending,
+  every word carrying an end.
+
+  The case worth keeping is the last word, because the reconstruction has
+  nothing after it to bound against and a mistake there lands on the frame as a
+  caption outliving its audio:
+
+  ```
+  {'text': 'said', 'start': 1.507, 'end': 1.716}
+  {'text': 'each', 'start': 1.716, 'end': 1.889}
+  {'text': 'word', 'start': 1.889, 'end': 2.4}     audio is 2.400s
+  ```
+
+  Exact, to the millisecond the audio ends. Re-run it after touching
+  `voice_polly.py`: the tests cannot catch a change in what Polly actually
+  sends, only a change in what we think it sends, and the whole commercial
+  story rests on this path working.
+
 **The narration slot is authoritative.** `scene.duration` is the contract: each
 scene's clips must sum to exactly it, or the picture drifts against the voice for
 the rest of the video. Any floor on clip length is applied to the slot upstream,
