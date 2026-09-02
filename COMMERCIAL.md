@@ -27,6 +27,47 @@ company licence here costs once.
 To buy either fixed tier, or to describe an agency case, open an issue or email
 the address on <https://github.com/veer0608>.
 
+## First thing to do after buying: switch the voice to Polly
+
+The default narration path is not cleared for commercial use, so this is the
+first change a paying user makes rather than something to read about further
+down. The reasoning is under Narration below. The steps are here because a
+buyer needs them on the way in, not on the way through.
+
+```
+pip install -r requirements-polly.txt
+```
+
+Set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` in the
+environment or in any `.env` the build reads, then in `projects/<name>/config.yaml`:
+
+```yaml
+voice:
+  provider: polly
+  name: Matthew        # a Polly VoiceId, not an edge-tts name
+  engine: neural
+  pitch: +0Hz
+```
+
+That exact combination has been run against the real service and works. Four
+things bite, and all four are refusals rather than bad output:
+
+- **`name` is a Polly VoiceId.** Leaving the edge-tts default in place is the
+  most likely mistake, because `provider` is the only key that obviously needs
+  changing and the file already has a name in it.
+- **`engine: generative` is refused on purpose.** It is the one engine that
+  returns no speech marks, so it cannot time captions or the cut, which is the
+  whole design.
+- **`pitch` must be `+0Hz` on `neural` and `long-form`.** Those engines do not
+  support prosody pitch, so a leftover value is refused rather than ignored.
+  `standard` honours it.
+- **A video costs its script length twice.** Polly bills the audio and the
+  speech marks as separate requests. That is Amazon's charge, not a fee here.
+
+Nothing about the edit changes. Polly reports word timings too, so the captions,
+the shot plan and the mix come out identical. You are changing who licenses you,
+not how the video is cut.
+
 ## What you are buying
 
 A perpetual licence to run vidsmith commercially on your own machines, at the
@@ -46,17 +87,10 @@ users at Azure Speech instead. Personal use is uncontroversial; commercial use
 is not settled, and the risk is yours. See
 [Microsoft's answer on the question](https://learn.microsoft.com/en-us/answers/questions/2088770/are-opensource-edge-tts-free-for-commercial-use).
 
-Amazon Polly is the supported path, and vidsmith speaks it:
-
-```
-pip install -r requirements-polly.txt
-```
-
-then `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` in the
-environment or any `.env` the build reads, and `voice.provider: polly` in the
-project config. Polly reports word timings, so the captions, the shot plan and
-the mix are identical in shape. You are changing who licenses you, not how the
-video is cut.
+Amazon Polly is the supported path, and vidsmith speaks it. The setup is at the
+top of this file, under "First thing to do after buying", rather than repeated
+here: a buyer needs it before they start, and a second copy of it is how the
+two drift apart.
 
 **Footage.** Pexels and Pixabay both permit commercial use of API results and
 both require you to credit the creator and link back. vidsmith already builds
