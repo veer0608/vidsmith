@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import List
 
 from . import ffmpeg_util as ff
+from .config import ASPECTS, aspect_tag
 
 _END = re.compile(r"--> (\d+:\d+:\d+[,.]\d+)")
 
@@ -30,22 +31,47 @@ def seconds(stamp: str) -> float:
     return parts[0] * 3600 + parts[1] * 60 + parts[2]
 
 
+def delivered(out: Path) -> List[tuple]:
+    """Every delivered cut as `(aspect, path)`, widescreen first.
+
+    Each file is matched against `aspect_tag()` rather than found by sorting
+    names, because 16:9 carries no suffix at all. Taking the first name that
+    was not a short handed back `a-1x1.mp4`, which sorts before `a.mp4`, so the
+    square cut was checked as though it were the widescreen one and the real
+    16:9 cut was checked by nothing: not its runtime, not its captions, not its
+    thumbnail. Same empty-tag fault that once had `vidsmith thumbs` sampling
+    the wrong cut, and the same fix, which is to ask `config` what a shape is
+    called instead of spelling it here.
+    """
+    suffixed = [(a, aspect_tag(a)) for a in ASPECTS if aspect_tag(a)]
+    cuts = []
+    for mp4 in sorted(out.glob("*.mp4")):
+        aspect = next((a for a, tag in suffixed if mp4.stem.endswith(tag)), "16:9")
+        cuts.append((aspect, mp4))
+    cuts.sort(key=lambda pair: aspect_tag(pair[0]) != "")
+    return cuts
+
+
 def check(out_dir: Path) -> List[str]:
     """Everything wrong with this delivery, as plain sentences."""
     out = Path(out_dir)
     problems: List[str] = []
 
-    wide = [p for p in sorted(out.glob("*.mp4")) if "9x16" not in p.name]
-    if not wide:
+    cuts = delivered(out)
+    wide = next((p for aspect, p in cuts if aspect == "16:9"), None)
+    if wide is None:
         return ["no widescreen mp4 in out/; nothing has been delivered"]
-    wide = wide[0]
-    shorts = sorted(out.glob("*9x16.mp4"))
     runtime = ff.duration(wide)
 
-    if shorts and abs(runtime - ff.duration(shorts[0])) > 1.0:
-        problems.append(
-            f"the two cuts disagree on length: {runtime:.0f}s and "
-            f"{ff.duration(shorts[0]):.0f}s")
+    # every cut is the same edit at a different size, so any disagreement here
+    # means one of them was rebuilt and the others were not
+    for aspect, cut in cuts:
+        if aspect == "16:9":
+            continue
+        if abs(runtime - ff.duration(cut)) > 1.0:
+            problems.append(
+                f"the two cuts disagree on length: {runtime:.0f}s and "
+                f"{ff.duration(cut):.0f}s ({cut.name})")
 
     meta_path = out / "youtube.json"
     desc_path = out / "description.txt"
@@ -68,8 +94,8 @@ def check(out_dir: Path) -> List[str]:
                 problems.append(f"chapter '{c['label']}' is missing from "
                                 "description.txt")
 
-    for srt, cut in ((out / "captions.srt", wide),
-                     *[(out / "captions-9x16.srt", s) for s in shorts]):
+    for aspect, cut in cuts:
+        srt = out / f"captions{aspect_tag(aspect)}.srt"
         if not srt.exists():
             problems.append(f"{srt.name} is missing")
             continue
@@ -78,7 +104,9 @@ def check(out_dir: Path) -> List[str]:
             problems.append(f"{srt.name} runs {seconds(ends[-1]):.1f}s, past the "
                             f"{ff.duration(cut):.1f}s of {cut.name}")
 
-    for video, portrait in ((wide, False), *[(s, True) for s in shorts]):
+    for aspect, video in cuts:
+        frame_w, frame_h = ASPECTS[aspect]
+        portrait = frame_h > frame_w          # 1:1 is neither, and wants a wide still
         jpg = out / f"{video.stem}.jpg"
         if not jpg.exists():
             problems.append(f"{jpg.name} is missing, so {video.name} has no thumbnail")
@@ -95,7 +123,7 @@ def check(out_dir: Path) -> List[str]:
                             "vertical cut")
         if not portrait and h > w:
             problems.append(f"{jpg.name} is {w}x{h}, portrait, but names the "
-                            "widescreen cut")
+                            f"{aspect} cut")
 
     # attribution is a licence condition, and description.txt is what gets
     # published: a credit that lives only in credits.txt has not been given
@@ -106,7 +134,7 @@ def check(out_dir: Path) -> List[str]:
                                 "description.txt, so it would not be published")
 
     # a thumbnail nothing delivers, left by a refresh that resolved the wrong name
-    named = {v.stem for v in [wide, *shorts]}
+    named = {p.stem for _, p in cuts}
     for jpg in sorted(out.glob("*.jpg")):
         if jpg.stem not in named:
             problems.append(f"{jpg.name} matches no delivered cut; a refresh "

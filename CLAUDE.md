@@ -69,7 +69,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 434 tests, ~25s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 441 tests, ~22s
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -431,6 +431,21 @@ competing with the voice.
   a word. Reachable once `build/picture.mp4` is gone, which `invalidate()` does
   on every redraft. `aspect_tag()` is one definition in `config.py` now, because
   the same expression living in two modules is what let this drift.
+  **Then `check.py` did the same thing, which is the checker written to catch
+  this family failing to it.** It knew two shapes, `wide` and `9x16`, while
+  `ASPECTS` has four, and resolved the widescreen cut as the first `*.mp4` that
+  was not a short. `demo-1x1.mp4` sorts before `demo.mp4` again - `-` is 0x2D
+  and `.` is 0x2E - so the square cut was checked as the widescreen one. The
+  loud half was a false alarm on two thumbnails that were correct. The half
+  that mattered was silent: the real 16:9 cut was neither the resolved wide cut
+  nor a short, so it fell out of every loop and its runtime, captions and
+  thumbnail went unexamined, and `runtime` for the chapter checks was read off
+  the square cut. 4:5 is vertical and was not a short either, so it was checked
+  as though it were landscape. `check.delivered()` now matches every file
+  against `aspect_tag()` and returns `(aspect, path)` with the widescreen cut
+  first. The lesson is the one this file keeps writing down: an unsuffixed
+  default is not a name, and anything deriving a shape from a filename has to
+  ask `config` what that shape is called.
 - **YouTube drops a whole chapter list rather than the bad line.** The first
   must be at 0:00, there must be at least three, and none may be shorter than
   ten seconds - break one rule and the video has no chapters at all, with no
