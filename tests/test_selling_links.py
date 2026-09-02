@@ -20,7 +20,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ("README.md", "COMMERCIAL.md")
-PLACEHOLDER = re.compile(r"PASTE_GUMROAD_\w+")
+PLACEHOLDER = re.compile(r"PASTE_\w*_LINK")
 
 
 def _text(name: str) -> str:
@@ -34,8 +34,7 @@ def test_no_placeholder_checkout_link_can_ship():
     stuck = {name: tokens for name, tokens in stuck.items() if tokens}
     assert not stuck, (
         f"a placeholder would publish a dead checkout: {stuck}. Paste the "
-        "product URLs over PASTE_GUMROAD_SOLO_LINK and "
-        "PASTE_GUMROAD_COMPANY_LINK in both files.")
+        "live product URLs over the remaining tokens in both files.")
 
 
 @pytest.mark.parametrize("price", ["$49", "$299"])

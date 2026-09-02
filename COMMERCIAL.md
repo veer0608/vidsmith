@@ -11,8 +11,8 @@ For that, a commercial licence is available.
 
 | | | | |
 | --- | --- | --- | --- |
-| **Solo** | **$49** once | One named person, making videos for themselves or their own channel. | [Buy](PASTE_GUMROAD_SOLO_LINK) |
-| **Company** | **$299** once | One company, any number of people in it, for that company's own videos. | [Buy](PASTE_GUMROAD_COMPANY_LINK) |
+| **Solo** | **$49** once | One named person, making videos for themselves or their own channel. | [Buy](https://buy.polar.sh/polar_cl_V1vRQDzKFWNV8dzI6VrcXma2YAmGETvuBiWP62OCuZ9) |
+| **Company** | **$299** once | One company, any number of people in it, for that company's own videos. | [Buy](https://buy.polar.sh/polar_cl_EPwQhQnDXgtajhz7HoNumI83cBf16NeFaQFru0Q0Qw0) |
 | **Agency or client work** | quote | Making videos *for other people* under contract, or reselling the output as a service. Say roughly what you do and you will get a number. | by email |
 
 All three are perpetual. You pay once, keep the source, and keep every video you
@@ -33,9 +33,9 @@ transcribed back, a delivery checker that reads the output files against each
 other before you publish, attribution handled as the licence condition it is,
 and a documented Amazon Polly path so the narration itself is licensed.
 
-Both fixed tiers check out on Gumroad and the licence arrives by email, naming
-whoever you give at checkout: [Solo, $49](PASTE_GUMROAD_SOLO_LINK) and
-[Company, $299](PASTE_GUMROAD_COMPANY_LINK). Nothing here is a subscription, so
+Both fixed tiers check out on Polar and the licence arrives by email, naming
+whoever you give at checkout: [Solo, $49](https://buy.polar.sh/polar_cl_V1vRQDzKFWNV8dzI6VrcXma2YAmGETvuBiWP62OCuZ9) and
+[Company, $299](https://buy.polar.sh/polar_cl_EPwQhQnDXgtajhz7HoNumI83cBf16NeFaQFru0Q0Qw0). Nothing here is a subscription, so
 there is no account to keep and nothing to cancel later.
 
 An agency case is quoted rather than fixed, because the range is wide. Say
