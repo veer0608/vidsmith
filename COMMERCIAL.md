@@ -9,11 +9,11 @@ For that, a commercial licence is available.
 
 ## Price
 
-| | | |
-| --- | --- | --- |
-| **Solo** | **$99** once | One named person, making videos for themselves or their own channel. |
-| **Company** | **$299** once | One company, any number of people in it, for that company's own videos. |
-| **Agency or client work** | quote | Making videos *for other people* under contract, or reselling the output as a service. Say roughly what you do and you will get a number. |
+| | | | |
+| --- | --- | --- | --- |
+| **Solo** | **$99** once | One named person, making videos for themselves or their own channel. | [Buy](PASTE_GUMROAD_SOLO_LINK) |
+| **Company** | **$299** once | One company, any number of people in it, for that company's own videos. | [Buy](PASTE_GUMROAD_COMPANY_LINK) |
+| **Agency or client work** | quote | Making videos *for other people* under contract, or reselling the output as a service. Say roughly what you do and you will get a number. | by email |
 
 All three are perpetual. You pay once, keep the source, and keep every video you
 make with it, including after the licence is bought. There is no per-video fee,
@@ -24,8 +24,15 @@ For scale, the hosted tools that do this job start around $25 to $39 a month and
 bill for as long as you use them. A year of one of those costs more than the
 company licence here costs once.
 
-To buy either fixed tier, or to describe an agency case, open an issue or email
-the address on <https://github.com/veer0608>.
+Both fixed tiers check out on Gumroad and the licence arrives by email, naming
+whoever you give at checkout: [Solo, $99](PASTE_GUMROAD_SOLO_LINK) and
+[Company, $299](PASTE_GUMROAD_COMPANY_LINK). Nothing here is a subscription, so
+there is no account to keep and nothing to cancel later.
+
+An agency case is quoted rather than fixed, because the range is wide. Say
+roughly what you do, by email to the address on
+<https://github.com/veer0608>, and you will get a number. Email rather than an
+issue: what you are describing is your business, and an issue is public.
 
 ## First thing to do after buying: switch the voice to Polly
 
