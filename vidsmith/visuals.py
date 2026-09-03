@@ -852,8 +852,16 @@ def long_shot_warnings(scene: Scene, cfg: VisualConfig) -> List[str]:
 
     A drawn scene is exempt. `[diagram: ...]` is one frame for the whole scene
     by design, however long it is held.
+
+    So is a build that never went looking for footage. `cards` generates one
+    frame per scene and `local` matches whatever is on disk, so "one shot for
+    the whole scene" is the correct output there rather than a fault. The first
+    run of this warning fired on five scenes of `projects/gil`, which is a cards
+    build, and every one of them was right to be a single frame.
     """
     if scene.diagram or not scene.shots:
+        return []
+    if cfg.provider in ("cards", "local"):
         return []
     ceiling = max(cfg.max_shot_seconds, 0.1) * LONG_SHOT_FACTOR
     longest = max(s["duration"] for s in scene.shots)

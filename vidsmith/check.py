@@ -47,23 +47,40 @@ def frozen_shots(build: Path, aspect: str, scenes: List[dict]) -> List[str]:
     """
     ledger = build / f"visuals{aspect_tag(aspect)}" / "credits.json"
     if not ledger.exists():
-        return []                     # a cards or local build owes no credits
+        return []                     # nothing went looking for footage
     try:
         credits = json.loads(ledger.read_text(encoding="utf-8"))
     except (ValueError, OSError):
         return []
 
+    # Every entry is a shot, credited or not, because that is what the count has
+    # to mean. What decides whether a scene is judged at all is whether anything
+    # in it was footage: a cards build writes the ledger too, with an empty
+    # credit per scene, and one generated frame held for a whole scene is the
+    # correct output rather than a fault. Reading counts off it reported every
+    # scene of `projects/gil` as frozen.
+    #
+    # Skipping the uncredited *entries* instead was the first fix and it was
+    # wrong in the other direction: `projects/indexes` mixes a card and a clip
+    # inside one scene, so dropping the card left a two-shot scene looking like
+    # a single 10.1s hold. Count the shots, filter the scenes.
     counts: dict = {}
-    for key in credits:
+    footage: set = set()
+    for key, entry in credits.items():
         scene_index = str(key).split(":")[0]
         counts[scene_index] = counts.get(scene_index, 0) + 1
+        if (entry or {}).get("credit"):
+            footage.add(scene_index)
 
     problems = []
     for scene in scenes:
         # a drawn scene is one frame on purpose, however long it is held
         if scene.get("diagram"):
             continue
-        shots = counts.get(str(scene.get("index")), 0)
+        index = str(scene.get("index"))
+        if index not in footage:
+            continue                  # generated frames, not a search that failed
+        shots = counts.get(index, 0)
         duration = float(scene.get("duration") or 0.0)
         if not shots or not duration:
             continue

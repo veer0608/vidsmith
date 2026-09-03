@@ -368,3 +368,59 @@ def test_a_build_with_no_ledger_is_not_a_fault(tmp_path):
 
     (tmp_path / "build").mkdir()
     assert frozen_shots(tmp_path / "build", "16:9", [{"index": 0, "duration": 20.0}]) == []
+
+
+def test_a_cards_build_is_not_a_frozen_shot(tmp_path):
+    """A cards build writes credits.json too, with an empty credit per scene,
+    because generated frames owe no attribution. Counting those as shots
+    reported every scene of `projects/gil` as frozen."""
+    from vidsmith.check import frozen_shots
+
+    build = tmp_path / "build"
+    (build / "visuals").mkdir(parents=True)
+    (build / "visuals" / "credits.json").write_text(json.dumps({
+        "0:0": {"credit": "", "url": ""},
+        "1:0": {"credit": "", "url": ""},
+    }), encoding="utf-8")
+    scenes = [{"index": 0, "heading": "One", "duration": 14.4},
+              {"index": 1, "heading": "Two", "duration": 16.5}]
+
+    assert frozen_shots(build, "16:9", scenes) == []
+
+
+def test_a_scene_that_used_footage_is_still_judged(tmp_path):
+    """A mixed build can still hold one clip for a whole scene, and that is the
+    fault. Only scenes where nothing was footage are exempt."""
+    from vidsmith.check import frozen_shots
+
+    build = tmp_path / "build"
+    (build / "visuals").mkdir(parents=True)
+    (build / "visuals" / "credits.json").write_text(json.dumps({
+        "0:0": {"credit": "", "url": ""},
+        "1:0": {"credit": "A Creator", "url": "https://x"},
+    }), encoding="utf-8")
+    scenes = [{"index": 0, "heading": "Card", "duration": 20.0},
+              {"index": 1, "heading": "Footage", "duration": 16.5}]
+
+    problems = frozen_shots(build, "16:9", scenes)
+    assert len(problems) == 1 and "scene 1" in problems[0]
+
+
+def test_a_card_inside_a_footage_scene_still_counts_as_a_shot(tmp_path):
+    """`projects/indexes` mixes a generated card and a clip inside one scene.
+
+    Dropping the uncredited entry was the first fix and it was wrong in the
+    other direction: a two-shot scene looked like a single 10.1s hold. Count the
+    shots, filter the scenes.
+    """
+    from vidsmith.check import frozen_shots
+
+    build = tmp_path / "build"
+    (build / "visuals").mkdir(parents=True)
+    (build / "visuals" / "credits.json").write_text(json.dumps({
+        "4:0": {"credit": "", "url": ""},
+        "4:1": {"credit": "Diego Castro Calderon", "url": "https://x"},
+    }), encoding="utf-8")
+    scenes = [{"index": 4, "heading": "Maintenance Overhead", "duration": 10.1}]
+
+    assert frozen_shots(build, "16:9", scenes) == [],         "two shots of about 5s each is an ordinary edit"
