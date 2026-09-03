@@ -9,6 +9,17 @@ from typing import Any, Dict
 import yaml
 
 # 16:9 landscape, 9:16 shorts, 1:1 square
+# How far past `max_shot_seconds` a single shot has to sit before it stops being
+# an ordinary overrun and starts being a scene that ran out of footage. Going a
+# little over is normal: the shot plan must sum to the narration slot exactly, so
+# the last shot in a scene routinely absorbs the remainder.
+#
+# It lives here because two places need the same number and they must not drift:
+# `visuals.long_shot_warnings()` warns during the build, and
+# `check.frozen_shots()` fails the delivery. A build that passes quietly and then
+# fails `check` teaches people to ignore one of the two.
+LONG_SHOT_FACTOR = 1.6
+
 ASPECTS = {
     "16:9": (1920, 1080),
     "9:16": (1080, 1920),

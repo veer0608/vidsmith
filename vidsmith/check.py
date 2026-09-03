@@ -15,10 +15,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from . import ffmpeg_util as ff
-from .config import ASPECTS, aspect_tag
+from .config import ASPECTS, LONG_SHOT_FACTOR, aspect_tag
 
 _END = re.compile(r"--> (\d+:\d+:\d+[,.]\d+)")
 
@@ -31,7 +31,25 @@ _END = re.compile(r"--> (\d+:\d+:\d+[,.]\d+)")
 LONG_SHOT_SECONDS = 9.0
 
 
-def frozen_shots(build: Path, aspect: str, scenes: List[dict]) -> List[str]:
+def settings(out: Path) -> dict:
+    """What the build said about itself, or {} when it did not say.
+
+    Written by `pipeline.write_build_info()`. Everything here is optional: a
+    delivery from before this existed, or one assembled by hand, is still
+    checked on the inference that predates it.
+    """
+    path = out / "build.json"
+    if not path.is_file():
+        return {}
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+def frozen_shots(build: Path, aspect: str, scenes: List[dict],
+                 cfg: Optional[dict] = None) -> List[str]:
     """Scenes whose picture sits on one clip for far too long.
 
     This is the one check that reads `build/` rather than `out/`, because the
@@ -45,6 +63,15 @@ def frozen_shots(build: Path, aspect: str, scenes: List[dict]) -> List[str]:
     already on disk, so this costs no ffprobe calls and stays usable on a day the
     quota is gone.
     """
+    cfg = cfg or {}
+    # When the build said which provider it used, believe it rather than reading
+    # the ledger's tea leaves. `cards` and `local` never search, so one frame per
+    # scene is their correct output.
+    if cfg.get("provider") in ("cards", "local"):
+        return []
+    ceiling = float(cfg.get("max_shot_seconds") or 0.0) * LONG_SHOT_FACTOR \
+        or LONG_SHOT_SECONDS
+
     ledger = build / f"visuals{aspect_tag(aspect)}" / "credits.json"
     if not ledger.exists():
         return []                     # nothing went looking for footage
@@ -85,7 +112,7 @@ def frozen_shots(build: Path, aspect: str, scenes: List[dict]) -> List[str]:
         if not shots or not duration:
             continue
         longest = duration / shots
-        if longest > LONG_SHOT_SECONDS:
+        if longest > ceiling:
             heading = scene.get("heading") or scene.get("text", "")[:40]
             problems.append(
                 f"the {aspect} cut holds one shot for {longest:.1f}s on scene "
@@ -183,8 +210,9 @@ def check(out_dir: Path) -> List[str]:
             scenes = json.loads(scenes_json.read_text(encoding="utf-8"))
         except (ValueError, OSError):
             scenes = []
+        cfg = settings(out)
         for aspect, _cut in cuts:
-            problems.extend(frozen_shots(build, aspect, scenes))
+            problems.extend(frozen_shots(build, aspect, scenes, cfg))
 
     meta_path = out / "youtube.json"
     desc_path = out / "description.txt"
