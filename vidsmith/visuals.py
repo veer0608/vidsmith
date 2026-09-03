@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import requests
 from PIL import Image
 
-from .config import CaptionConfig, ThemeConfig, VisualConfig
+from .config import LONG_SHOT_FACTOR, CaptionConfig, ThemeConfig, VisualConfig
 from .script_parser import Scene
 from .theme import Theme, resolve as resolve_theme
 from . import cards
@@ -824,21 +824,6 @@ class VisualBuilder:
         return [s["path"] for s in scene.shots]
 
 
-# How far past the configured ceiling a shot has to sit before it is worth
-# interrupting a build for. `max_shot_seconds` is the target, and going a little
-# over is ordinary: the plan has to sum to the narration slot exactly, so the
-# last shot in a scene routinely runs long to absorb the remainder. Half again
-# is not ordinary. It means `collapse()` merged the plan because reranking left
-# fewer usable clips than the scene needed shots.
-#
-# 1.6 rather than a rounder 2.0 so that at the default 5.5s ceiling this fires
-# at 8.8s, just under the 9.0s `check.LONG_SHOT_SECONDS` reports at. The two
-# rules look at different things - this one at the plan, that one at the
-# delivered edit - and the relationship that matters is that the build never
-# stays quiet about something the delivery check will fail on. A build that
-# passes silently and then fails `check` teaches people to ignore one of them.
-# `test_the_build_warns_before_check_would` holds that.
-LONG_SHOT_FACTOR = 1.6
 
 
 def long_shot_warnings(scene: Scene, cfg: VisualConfig) -> List[str]:

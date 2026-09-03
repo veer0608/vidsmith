@@ -352,6 +352,8 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         # is not thrown away over something wrong beside it. Only after a full
         # build, because a --stop-after run is incomplete by design and would
         # report that as fault.
+        write_build_info(proj.out, cfg)
+
         from .check import check
 
         try:
@@ -423,6 +425,34 @@ def credits_block(scenes: Sequence[Scene], provider: str) -> str:
     site = {"pexels": "Pexels (https://www.pexels.com)",
             "pixabay": "Pixabay (https://pixabay.com)"}.get(provider, provider)
     return f"Footage from {site}\n" + "\n".join(rows) + "\n"
+
+
+def write_build_info(out_dir: Path, cfg: Config) -> Path:
+    """Record how this build was configured, beside what it delivered.
+
+    `check` reads `out/` and nothing else, which is the property that makes it
+    worth trusting. The cost is that it had to *infer* things it could have been
+    told, and inferring the footage provider from the credits ledger produced two
+    false positives in a row: every scene of a cards build reported as a frozen
+    shot, then a mixed scene under-counted when that was fixed by reading the
+    ledger differently. It also meant the frozen-shot threshold was a constant
+    rather than the project's own `max_shot_seconds`.
+
+    So the build states it. Small and derived, never authoritative: a delivery
+    without this file is still checked, on the inference that is still there.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    from . import build_info
+
+    body = {
+        "provider": cfg.visuals.provider,
+        "min_shot_seconds": cfg.visuals.min_shot_seconds,
+        "max_shot_seconds": cfg.visuals.max_shot_seconds,
+        "commit": build_info.commit(),
+    }
+    path = out_dir / "build.json"
+    path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:

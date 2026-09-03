@@ -10,7 +10,8 @@ from __future__ import annotations
 import pytest
 
 from vidsmith.config import VisualConfig
-from vidsmith.visuals import LONG_SHOT_FACTOR, long_shot_warnings
+from vidsmith.config import LONG_SHOT_FACTOR
+from vidsmith.visuals import long_shot_warnings
 
 
 def _scene(scene_factory, durations, index=3, diagram=""):
