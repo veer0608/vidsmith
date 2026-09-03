@@ -22,6 +22,60 @@ from .config import ASPECTS, aspect_tag
 
 _END = re.compile(r"--> (\d+:\d+:\d+[,.]\d+)")
 
+# A shot this long was not chosen, it was survived. `max_shot_seconds` defaults
+# to 5.5, so anything near double that means `plan_shots` had fewer usable clips
+# than the slot needed and `collapse()` merged them to keep the total exact.
+# Measured case: a 9:16 cut shipped one 16.8s shot after the reranker logged
+# "rejected 15 of 15 as the wrong subject", and check called the delivery
+# consistent because nothing here looked at the edit.
+LONG_SHOT_SECONDS = 9.0
+
+
+def frozen_shots(build: Path, aspect: str, scenes: List[dict]) -> List[str]:
+    """Scenes whose picture sits on one clip for far too long.
+
+    This is the one check that reads `build/` rather than `out/`, because the
+    fault is invisible in the delivered file: Ken Burns is still panning and the
+    karaoke captions still change every word, so neither `freezedetect` nor scene
+    detection sees anything wrong with sixteen seconds of the same clip.
+
+    Shot counts come from the per-aspect `credits.json` and durations from the
+    shared `scenes.json`, which is safe in that direction: a scene's length is
+    narration, so it is shape-independent, while its shot list is not. Both are
+    already on disk, so this costs no ffprobe calls and stays usable on a day the
+    quota is gone.
+    """
+    ledger = build / f"visuals{aspect_tag(aspect)}" / "credits.json"
+    if not ledger.exists():
+        return []                     # a cards or local build owes no credits
+    try:
+        credits = json.loads(ledger.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+
+    counts: dict = {}
+    for key in credits:
+        scene_index = str(key).split(":")[0]
+        counts[scene_index] = counts.get(scene_index, 0) + 1
+
+    problems = []
+    for scene in scenes:
+        # a drawn scene is one frame on purpose, however long it is held
+        if scene.get("diagram"):
+            continue
+        shots = counts.get(str(scene.get("index")), 0)
+        duration = float(scene.get("duration") or 0.0)
+        if not shots or not duration:
+            continue
+        longest = duration / shots
+        if longest > LONG_SHOT_SECONDS:
+            heading = scene.get("heading") or scene.get("text", "")[:40]
+            problems.append(
+                f"the {aspect} cut holds one shot for {longest:.1f}s on scene "
+                f"{scene.get('index')} ('{heading}'); the reranker probably left "
+                f"too few usable clips")
+    return problems
+
 
 def seconds(stamp: str) -> float:
     """Accept both a chapter's `1:23` and an SRT's `00:01:23,400`."""
@@ -72,6 +126,17 @@ def check(out_dir: Path) -> List[str]:
             problems.append(
                 f"the two cuts disagree on length: {runtime:.0f}s and "
                 f"{ff.duration(cut):.0f}s ({cut.name})")
+
+    # the edit itself: a scene that ran out of footage and sat on one clip
+    build = out.parent / "build"
+    scenes_json = build / "scenes.json"
+    if scenes_json.exists():
+        try:
+            scenes = json.loads(scenes_json.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            scenes = []
+        for aspect, _cut in cuts:
+            problems.extend(frozen_shots(build, aspect, scenes))
 
     meta_path = out / "youtube.json"
     desc_path = out / "description.txt"

@@ -277,3 +277,89 @@ def test_the_readme_documents_every_command_that_exists():
         encoding="utf-8")
     missing = sorted(c for c in commands if f"vidsmith {c}" not in readme)
     assert not missing, f"undocumented commands: {missing}"
+
+
+# ---- a scene that ran out of footage ---------------------------------- #
+
+def _edit(tmp_path: Path, tag: str, shots_per_scene, durations, diagrams=()):
+    """A build/ holding one aspect's shot ledger and the shared scene timings."""
+    build = tmp_path / "build"
+    (build / f"visuals{tag}").mkdir(parents=True, exist_ok=True)
+    credits = {}
+    scenes = []
+    for index, (shots, duration) in enumerate(zip(shots_per_scene, durations)):
+        for shot in range(shots):
+            credits[f"{index}:{shot}"] = {"credit": "A Creator", "url": "http://x"}
+        scenes.append({
+            "index": index,
+            "heading": f"Scene {index}",
+            "duration": duration,
+            "diagram": diagrams[index] if index < len(diagrams) else "",
+        })
+    (build / f"visuals{tag}" / "credits.json").write_text(
+        json.dumps(credits), encoding="utf-8")
+    return build, scenes
+
+
+def test_a_scene_that_sat_on_one_clip_is_a_fault(tmp_path):
+    """The 9:16 `uses` cut shipped 11.6s of one clip and check called it fine.
+
+    `plan_shots` asks for shots between 2.4s and 5.5s, so a scene holding one
+    clip for triple that did not choose it: reranking left too few usable
+    candidates and `collapse()` merged the plan to keep the total exact. The
+    build log said so - "rejected 15 of 15 as the wrong subject" - and nothing
+    carried that as far as the delivery.
+    """
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "-9x16", shots_per_scene=[1, 3],
+                          durations=[16.8, 12.0])
+    problems = frozen_shots(build, "9:16", scenes)
+
+    assert len(problems) == 1
+    assert "16.8s" in problems[0]
+    assert "9:16" in problems[0] and "Scene 0" in problems[0]
+
+
+def test_an_ordinary_edit_is_not_a_fault(tmp_path):
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", shots_per_scene=[4, 3, 2],
+                          durations=[16.0, 12.0, 9.0])
+
+    assert frozen_shots(build, "16:9", scenes) == []
+
+
+def test_a_drawn_scene_is_allowed_to_hold(tmp_path):
+    """`[diagram: ...]` is one frame by design, however long the scene runs."""
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", shots_per_scene=[1], durations=[20.0],
+                          diagrams=["how a b-tree splits"])
+
+    assert frozen_shots(build, "16:9", scenes) == []
+
+
+def test_each_aspect_is_read_from_its_own_ledger(tmp_path):
+    """`scenes.json` is shared across cuts; the shot list is not.
+
+    Reading shot counts from the shared file would report whichever aspect was
+    built last, which is the same empty-tag family of fault that had `thumbs`
+    and `check` both sampling the wrong cut.
+    """
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", shots_per_scene=[4], durations=[16.0])
+    _edit(tmp_path, "-9x16", shots_per_scene=[1], durations=[16.0])
+
+    assert frozen_shots(build, "16:9", scenes) == []
+    assert len(frozen_shots(build, "9:16", scenes)) == 1
+
+
+def test_a_build_with_no_ledger_is_not_a_fault(tmp_path):
+    """A cards or local build owes no credits, and a job pulled down from the
+    web service arrives as out/ with no build/ beside it at all."""
+    from vidsmith.check import frozen_shots
+
+    (tmp_path / "build").mkdir()
+    assert frozen_shots(tmp_path / "build", "16:9", [{"index": 0, "duration": 20.0}]) == []
