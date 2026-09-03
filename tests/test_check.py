@@ -59,9 +59,14 @@ def delivery(tmp_path):
     (out / "captions-9x16.srt").write_text(SRT, encoding="utf-8")
     (out / "credits.txt").write_text(
         "Footage from Pexels\nThumbnail: Real Name - https://p\n", encoding="utf-8")
-    (out / "description.txt").write_text(
-        "A description.\n\n0:00 Start\n\nThumbnail: Real Name - https://p\n",
-        encoding="utf-8")
+    # the whole credits block, as description_box() actually writes it: the
+    # "Footage from ..." line is the prominent link the API terms ask for, not
+    # a heading, so a description missing it is under-crediting
+    for tag in ("", "-9x16"):
+        (out / f"description{tag}.txt").write_text(
+            "A description.\n\n0:00 Start\n\n"
+            "Footage from Pexels\nThumbnail: Real Name - https://p\n",
+            encoding="utf-8")
     (out / "youtube.json").write_text(json.dumps(
         {"title": "A Title", "chapters": [{"time": "0:00", "label": "Start"}]}),
         encoding="utf-8")

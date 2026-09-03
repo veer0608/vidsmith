@@ -106,6 +106,37 @@ def delivered(out: Path) -> List[tuple]:
     return cuts
 
 
+def credits_published(out: Path) -> List[str]:
+    """Every cut's attribution, against the description that cut will publish.
+
+    Attribution is a licence condition and `description<tag>.txt` is the file
+    that gets pasted, so a credit living only in `credits<tag>.txt` has not been
+    given. Each ledger is read against its own description: checking all of them
+    against one file let a 9:16 credit pass because the 16:9 description happened
+    to name the same photographer.
+
+    The "Footage from ..." line counts. It is the prominent link back that the
+    Pexels API guidelines ask for, not a heading over the real credits.
+    """
+    problems: List[str] = []
+    for ledger in sorted(out.glob("credits*.txt")):
+        tag = ledger.stem[len("credits"):]
+        desc_file = out / f"description{tag}.txt"
+        if not desc_file.exists():
+            problems.append(f"{ledger.name} has no {desc_file.name} beside it, "
+                            "so its credits would not be published")
+            continue
+        published = desc_file.read_text(encoding="utf-8")
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and line not in published:
+                problems.append(
+                    f"a credit in {ledger.name} is not in {desc_file.name}, so "
+                    f"it would not be published: {line[:60]}")
+                break                      # one per cut is enough to act on
+    return problems
+
+
 def check(out_dir: Path) -> List[str]:
     """Everything wrong with this delivery, as plain sentences."""
     out = Path(out_dir)
@@ -192,11 +223,7 @@ def check(out_dir: Path) -> List[str]:
 
     # attribution is a licence condition, and description.txt is what gets
     # published: a credit that lives only in credits.txt has not been given
-    for cf in sorted(out.glob("credits*.txt")):
-        for line in cf.read_text(encoding="utf-8").splitlines():
-            if line.startswith("Thumbnail:") and desc and line.strip() not in desc:
-                problems.append(f"the thumbnail credit in {cf.name} is not in "
-                                "description.txt, so it would not be published")
+    problems.extend(credits_published(out))
 
     # a thumbnail nothing delivers, left by a refresh that resolved the wrong name
     named = {p.stem for _, p in cuts}

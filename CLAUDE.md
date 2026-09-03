@@ -346,6 +346,21 @@ competing with the voice.
   Both past failures were silent: a second aspect overwrote the first's credits
   file, and a cached rebuild kept the clip but lost the credit. Generated cards
   need no attribution, so an empty block there is correct rather than a bug.
+- **The file you paste has to belong to the cut you are publishing.** There was
+  one `description.txt` holding every aspect's credits stacked under `[16:9]`
+  and `[9:16]` labels, and it is the file whose entire purpose is to be pasted
+  into YouTube. On a real build the two cuts shared **no footage at all** - 22
+  credits against 18, zero lines in common - so pasting it named twenty-odd
+  photographers whose clips are not in the video, and trimming it by hand
+  instead dropped ones that are. Both happened, on published videos, and the
+  hand-trim was done on the strength of the Pexels *content* licence, which says
+  attribution is not required. That licence does not govern here: vidsmith is an
+  API consumer, and the **API Guidelines** are a different document that asks
+  for a prominent Pexels link and photographer credit. Read the one that applies
+  to how the asset was obtained. `write_metadata()` now writes one
+  `description<tag>.txt` per ledger, the 16:9 one keeping the unsuffixed name
+  because that is what `aspect_tag()` calls it. `youtube.txt` keeps the labelled
+  everything, because that one is for reading rather than pasting.
 - **Dashes are kept out by two different mechanisms, and neither covers the
   script.** The voice reads an em dash as a pause the writing did not ask for.
   `llm.undash()` turns em and en dashes into commas, a range between digits into
@@ -487,8 +502,10 @@ competing with the voice.
   aspect that exists, not the default one.
 - **`vidsmith check <name>` exists because reading the output beat reading the
   source three times in one day.** It compares delivered files against each
-  other rather than against the code that wrote them: the credit in
-  `credits.txt` against the one in `description.txt`, each thumbnail's
+  other rather than against the code that wrote them: every credit in
+  `credits<tag>.txt` against `description<tag>.txt`, its own cut's, because
+  checking them all against one description let a 9:16 credit pass whenever the
+  16:9 description happened to name the same photographer; each thumbnail's
   orientation against the cut it names, caption and chapter timings against the
   runtime, and any jpg that matches no delivered cut. Every check in it is a
   fault that actually shipped, and each one looked correct in isolation. It
