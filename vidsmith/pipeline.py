@@ -443,8 +443,31 @@ def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:
     if block:
         text += "\nCREDITS\n" + block
     (out_dir / "youtube.txt").write_text(text, encoding="utf-8")
-    (out_dir / "description.txt").write_text(
-        description_box(meta, block), encoding="utf-8")
+
+    # One description per cut, each carrying only that cut's credits.
+    #
+    # There used to be a single description.txt holding every aspect's block
+    # stacked under [16:9] and [9:16] labels, and it is the file whose whole
+    # purpose is to be pasted into YouTube. Pasting it named photographers whose
+    # clips are not in the video you are publishing and, when the blocks were
+    # trimmed by hand instead, dropped ones that are. Both happened on real
+    # uploads. youtube.txt keeps the labelled everything, because that one is
+    # for reading rather than pasting.
+    #
+    # The 16:9 file stays `description.txt`, unsuffixed, because that is what
+    # aspect_tag() calls it and a second naming convention here is how the
+    # `*{tag}.mp4` family of faults keeps happening.
+    written = False
+    for credits_file in sorted(out_dir.glob("credits*.txt")):
+        tag = credits_file.stem[len("credits"):]
+        (out_dir / f"description{tag}.txt").write_text(
+            description_box(meta, credits_file.read_text(encoding="utf-8")),
+            encoding="utf-8")
+        written = True
+    if not written:
+        # a cards or local build owes no footage credit and writes no ledger
+        (out_dir / "description.txt").write_text(
+            description_box(meta, ""), encoding="utf-8")
     return text
 
 
