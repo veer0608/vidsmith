@@ -48,6 +48,12 @@ class Scene:
     query: str = ""
     hold: float = 0.0
     diagram: str = ""      # "[diagram: ...]" forces a drawn frame for this scene
+    # The "[visual: ...]" value exactly as written, or "" when the scene has no
+    # directive. `query` is not a substitute: llm.suggest_queries() overwrites it
+    # for undirected scenes, so a cached query cannot be compared against a fresh
+    # parse to decide whether the script changed. This field is never written by
+    # anything downstream of the parser, which is the whole point of it.
+    directive: str = ""
     # filled in by later stages
     audio: str = ""
     words: List[Dict[str, Any]] = field(default_factory=list)
@@ -61,6 +67,16 @@ class Scene:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    def source_key(self) -> tuple:
+        """Everything about this scene that came from the script.
+
+        Cache reuse is decided by comparing this against a fresh parse. Comparing
+        `text` alone meant an edited "[visual: ...]" line was invisible: the build
+        reported success, reused the previous Gemini query, and fetched footage
+        for a shot the script no longer asked for.
+        """
+        return (self.heading, self.text, self.directive, self.diagram, self.hold)
 
     @property
     def est_seconds(self) -> float:
@@ -104,6 +120,7 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
                 query=cur_query or cur_heading,
                 hold=cur_hold,
                 diagram=cur_diagram,
+                directive=cur_query,
             )
         )
         cur_query = ""
