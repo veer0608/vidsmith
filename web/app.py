@@ -256,3 +256,20 @@ def download(job_id: str, name: str,
         path, filename=path.name,
         content_disposition_type="inline" if inline else "attachment",
     )
+
+
+@app.get("/api/jobs/{job_id}/archive")
+def archive(job_id: str, _: None = Depends(guard)) -> FileResponse:
+    """Everything the render produced, in one file.
+
+    The mp4 alone is not the deliverable. `credits*.txt` carries attribution the
+    stock licence requires and `description.txt` is the file that gets pasted
+    into YouTube, and both were being left behind because taking one link is
+    easier than taking six. Jobs are swept an hour after they finish.
+    """
+    path = jobs.archive(job_id)
+    if path is None:
+        raise HTTPException(404, "nothing to download yet")
+    return FileResponse(path, filename=path.name,
+                        media_type="application/zip",
+                        content_disposition_type="attachment")
