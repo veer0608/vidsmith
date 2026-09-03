@@ -242,12 +242,14 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # ---- captions -------------------------------------------------------- #
     ass: Optional[Path] = proj.build / f"captions{tag}.ass"
     srt = proj.out / f"captions{tag}.srt"
+    vtt = proj.out / f"captions{tag}.vtt"
     wants_overlay = cfg.theme.watermark or cfg.theme.lower_thirds
     if (cfg.captions.enabled and cfg.captions.style != "none") or wants_overlay:
         cap.write_ass(scenes, ass, cfg.captions, cfg.size, cfg.voice.lead_in,
                       theme, cfg.theme, total)
         cap.write_srt(scenes, srt, cfg.captions, cfg.voice.lead_in)
-        log(f"captions {ass.name} + {srt.name}")
+        cap.write_vtt(scenes, vtt, cfg.captions, cfg.voice.lead_in)
+        log(f"captions {ass.name} + {srt.name} + {vtt.name}")
     else:
         # Nothing is burned in, so there is no subtitle file to hand the render.
         # This must be None and not Path(""): Path("") is Path("."), which is
