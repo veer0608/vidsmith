@@ -34,21 +34,39 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
         parts.append(f"[{i}:a]aresample=48000,adelay={delay_ms}:all=1[a{i}]")
         labels.append(f"[a{i}]")
 
+    # `apad=whole_dur=` rather than a bare `apad`, so the graph holds nothing
+    # that generates forever.
+    #
+    # A bare apad pads until something downstream stops asking. `atrim` drops the
+    # frames past the end but does not propagate EOF upstream, so apad goes on
+    # producing silence for atrim to discard, and the only thing that ends the
+    # encode is a bound outside the graph. macOS CI has hung inside this call six
+    # times. The fifth occurrence is the first that said anything, because
+    # `-progress pipe:1` was added for it: it reached out_time=00:00:21.342000 of
+    # a 22.746s output and then sat for the full 45s timeout. So it is not
+    # failing to start and the graph is not failing to produce; it stops near the
+    # tail, which is the region a bare apad owns.
+    #
+    # Bounding apad is a narrowing rather than a proven fix - the hang is
+    # intermittent and does not reproduce off macOS - but it removes the one
+    # unbounded element, and the tail is where the evidence points. Measured on
+    # real ffmpeg against the same three-input graph: identical 22.746s output,
+    # and less work, 0.18s against 0.30s.
+    pad = f"apad=whole_dur={total:.3f}"
     n = len(scenes)
     if n == 1:
-        graph = parts[0] + f";[a0]apad,atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
+        graph = parts[0] + f";[a0]{pad},atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
     else:
         graph = ";".join(parts)
         graph += (
             ";" + "".join(labels)
             + f"amix=inputs={n}:normalize=0:dropout_transition=0[mixed]"
-            + f";[mixed]apad,atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
+            + f";[mixed]{pad},atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
         )
 
-    # `-t` as well as the atrim: apad is infinite by definition, and leaving the
-    # graph as the only thing that ends the output means one filter declining to
-    # pass EOF hangs the encode outright. master() has always bounded its output
-    # this way; this one did not, and it is the call macOS CI hung inside.
+    # `-t` stays as well, and so does the atrim. Three bounds is not belt and
+    # braces for its own sake: each one covers a different way of failing to
+    # stop, and this call has already proved it can find one of them.
     ff.run(inputs + [
         "-filter_complex", graph, "-map", "[out]",
         "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2",
