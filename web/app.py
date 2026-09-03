@@ -124,8 +124,14 @@ def healthz(x_vidsmith_token: str = Header(default=""),
     is required for that field and for nothing else, so the deploy check in
     deploy/aws.md still works by passing it.
     """
-    from vidsmith import cards
+    from vidsmith import build_info, cards
     from vidsmith import ffmpeg_util as ff
+
+    # The live box was six commits behind and nothing here said so: both the
+    # endpoints deploy/aws.md calls the honest witnesses were green against
+    # stale code. Reported unconditionally, above the token gate, because it is
+    # what a deploy check asks and it discloses nothing a git remote does not.
+    commit = build_info.commit()
 
     # fonts are reported rather than enforced: a missing face is a cosmetic
     # downgrade, and the build deliberately does not fail over one
@@ -133,8 +139,10 @@ def healthz(x_vidsmith_token: str = Header(default=""),
     try:
         ffmpeg = ff.ffmpeg_bin()
     except RuntimeError as exc:
-        return {"ok": False, "ffmpeg": str(exc), "fonts": bundled}
+        return {"ok": False, "ffmpeg": str(exc), "fonts": bundled,
+                "commit": commit}
     body: Dict[str, Any] = {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
+                            "commit": commit,
                             "busy": jobs.busy(), "max_minutes": MAX_MINUTES}
     if authorised(x_vidsmith_token, t):
         body["keys"] = {name: bool(value) for name, value in _keys().items()}

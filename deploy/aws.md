@@ -167,9 +167,18 @@ curl -s https://vidsmith.duckdns.org/healthz
 curl -s https://vidsmith.duckdns.org/api/busy
 ```
 
-`fonts` should list the two DejaVu files, and `/api/busy` should carry a
-`waiting` field. Both are one request, and between them they have caught every
-deploy here that reported success and had changed nothing.
+`commit` is the one to read first: it is the sha the running process is actually
+on, so `git log --oneline -1` on the box and this field agreeing is the whole
+deploy check. `fonts` should list the two DejaVu files, and `/api/busy` should
+carry a `waiting` field. All three are one request, and between them they have
+caught every deploy here that reported success and had changed nothing.
+
+`commit` exists because the two fields above it were not enough. The box sat six
+commits behind `main` while both of them stayed green, because neither says
+anything about the code: a stale process has fonts and a queue too. It is
+reported without the token, since the repo is public and a deploy check that
+needs a secret is the thing being replaced. `vidsmith doctor` prints the same
+line locally.
 
 ## Keys and the token
 
