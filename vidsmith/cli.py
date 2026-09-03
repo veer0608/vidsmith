@@ -247,8 +247,20 @@ def cmd_check(args) -> int:
 
     proj = Project(_project_dir(args.name))
     problems = check(proj.out)
+
+    # --published is the one part of check that touches the network, and it is
+    # opt-in so the offline guarantee above still holds by default.
+    if getattr(args, "published", None):
+        from .published import Unreachable, check_published
+
+        try:
+            problems.extend(check_published(proj.out, args.published))
+        except (Unreachable, ValueError) as exc:
+            print(f"warn     could not read the published video: {exc}")
+
     if not problems:
-        print(f"ok       {proj.out} is consistent and ready to upload")
+        where = " and matches what is published" if getattr(args, "published", None) else ""
+        print(f"ok       {proj.out} is consistent{where} and ready to upload")
         return 0
     print(f"\n{len(problems)} problem(s) in {proj.out}:\n")
     for line in problems:
@@ -401,6 +413,9 @@ def main(argv=None) -> int:
     ck = sub.add_parser("check", help="read a finished build for faults "
                                       "before publishing it")
     ck.add_argument("name")
+    ck.add_argument("--published", metavar="ID_OR_URL",
+                    help="also read the live video and check the description, "
+                         "chapters, tags and caption track against this build")
     ck.set_defaults(func=cmd_check)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
