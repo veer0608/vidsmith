@@ -824,6 +824,46 @@ class VisualBuilder:
         return [s["path"] for s in scene.shots]
 
 
+# How far past the configured ceiling a shot has to sit before it is worth
+# interrupting a build for. `max_shot_seconds` is the target, and going a little
+# over is ordinary: the plan has to sum to the narration slot exactly, so the
+# last shot in a scene routinely runs long to absorb the remainder. Half again
+# is not ordinary. It means `collapse()` merged the plan because reranking left
+# fewer usable clips than the scene needed shots.
+#
+# 1.6 rather than a rounder 2.0 so that at the default 5.5s ceiling this fires
+# at 8.8s, just under the 9.0s `check.LONG_SHOT_SECONDS` reports at. The two
+# rules look at different things - this one at the plan, that one at the
+# delivered edit - and the relationship that matters is that the build never
+# stays quiet about something the delivery check will fail on. A build that
+# passes silently and then fails `check` teaches people to ignore one of them.
+# `test_the_build_warns_before_check_would` holds that.
+LONG_SHOT_FACTOR = 1.6
+
+
+def long_shot_warnings(scene: Scene, cfg: VisualConfig) -> List[str]:
+    """Say, during the build, that a scene is going to sit on one clip.
+
+    `vidsmith check` reports this too, but only after the encode, which is the
+    expensive half: a 2:25 video costs about four minutes of ffmpeg. The build
+    already knows - it has just logged "rejected 15 of 15 as the wrong subject"
+    a line earlier - and saying nothing until the delivery is checked wastes the
+    render. Two real cuts shipped this way, one of them published.
+
+    A drawn scene is exempt. `[diagram: ...]` is one frame for the whole scene
+    by design, however long it is held.
+    """
+    if scene.diagram or not scene.shots:
+        return []
+    ceiling = max(cfg.max_shot_seconds, 0.1) * LONG_SHOT_FACTOR
+    longest = max(s["duration"] for s in scene.shots)
+    if longest <= ceiling:
+        return []
+    return [f"    warning: scene {scene.index} holds one shot for "
+            f"{longest:.1f}s, past {cfg.max_shot_seconds:.1f}s; too few usable "
+            f"clips came back. Split the scene or reword its [visual: ...]"]
+
+
 def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
               fps: int, workdir: Path, keys: Dict[str, str], force: bool = False,
               log=print, theme: Optional[Theme] = None,
@@ -840,3 +880,5 @@ def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
         log(f"  visual  scene {scene.index:>3}  {len(scene.shots)} shot"
             f"{'s' if len(scene.shots) != 1 else ' '}  {cuts:<22} "
             f"{scene_query(scene)[:38]}")
+        for line in long_shot_warnings(scene, cfg):
+            log(line)
