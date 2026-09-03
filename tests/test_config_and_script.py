@@ -298,3 +298,50 @@ def test_a_video_opens_on_its_hook_by_default():
         "a fresh project opens on a static card instead of its hook"
     assert ThemeConfig().end_card is True, \
         "the end card costs nothing at the point people have already stayed"
+
+
+def test_a_changed_visual_directive_invalidates_the_cache(tmp_path):
+    """Editing only "[visual: ...]" used to be invisible to cache reuse.
+
+    `pipeline.build()` compared `c.text == s.text`, so a rewritten directive left
+    the cached scenes in place and the build reused the previous Gemini query.
+    It reported success and fetched footage for a shot the script no longer asked
+    for. Observed on a real build: the directive was changed to "close up of code
+    scrolling on a monitor at night" and the log still read "progress bar filling
+    on a computer mon".
+    """
+    body = "# T\n\n## One\n[visual: {shot}]\nThe narration does not change.\n"
+    before = parse_script(_write(tmp_path, body.format(shot="a progress bar")))[1]
+    after = parse_script(_write(tmp_path, body.format(shot="code on a monitor")))[1]
+
+    assert before[0].text == after[0].text, "only the directive moved"
+    assert before[0].source_key() != after[0].source_key()
+
+
+def test_an_llm_written_query_does_not_look_like_a_script_change(tmp_path):
+    """The reason `query` cannot be the thing compared.
+
+    `llm.suggest_queries()` overwrites `query` for scenes with no directive, so a
+    cached scene holds the model's search while a fresh parse holds the heading
+    fallback. Comparing `query` would invalidate the cache on every single build
+    of every undirected script, re-voicing narration that never changed.
+    """
+    path = _write(tmp_path, "# T\n\n## The empty studio\nNarration here.\n")
+    _, scenes = parse_script(path)
+    cached, = parse_script(path)[1]
+
+    assert scenes[0].directive == "", "no directive was written"
+    cached.query = "a ring light in an empty room"   # what Gemini would fill in
+
+    assert cached.source_key() == scenes[0].source_key(), \
+        "a model-written query is not an edit to the script"
+
+
+@pytest.mark.parametrize("field,value", [("hold", 4.0), ("diagram", "a tree")])
+def test_other_script_authored_directives_are_compared_too(tmp_path, field, value):
+    path = _write(tmp_path, "# T\n\n## One\n[visual: a desk]\nNarration.\n")
+    _, scenes = parse_script(path)
+    edited, = parse_script(path)[1]
+    setattr(edited, field, value)
+
+    assert edited.source_key() != scenes[0].source_key()
