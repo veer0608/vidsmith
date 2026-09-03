@@ -305,18 +305,18 @@ def write_ass(scenes: Sequence[Scene], path: Path, cfg: CaptionConfig,
     return path
 
 
-def write_srt(scenes: Sequence[Scene], path: Path, cfg: CaptionConfig,
-              lead_in: float) -> Path:
-    """A plain .srt alongside the ASS, for uploading to YouTube as a caption track."""
-    def srt_ts(t: float) -> str:
-        ms = int(round(t * 1000))
-        h, ms = divmod(ms, 3600000)
-        m, ms = divmod(ms, 60000)
-        s, ms = divmod(ms, 1000)
-        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+def cues(scenes: Sequence[Scene], cfg: CaptionConfig,
+         lead_in: float) -> List[Tuple[float, float, str]]:
+    """Every caption cue as `(start, end, text)`, in order.
 
-    blocks: List[str] = []
-    n = 1
+    Pulled out of `write_srt` when WebVTT was added. Both formats are the same
+    cue list with different punctuation around it, and this file has already
+    been bitten twice by a number living in two places: the shot ceiling, and
+    the aspect tag. A second copy of this loop would drift the same way, and it
+    would drift silently, because a caption that is half a second late still
+    looks like a caption.
+    """
+    out: List[Tuple[float, float, str]] = []
     for scene in scenes:
         if not scene.words:
             continue
@@ -327,10 +327,45 @@ def write_srt(scenes: Sequence[Scene], path: Path, cfg: CaptionConfig,
             nxt = (base + groups[gi + 1][0]["start"] - 0.02
                    if gi + 1 < len(groups) else scene.start + scene.duration)
             end = min(base + group[-1]["end"] + 0.18, nxt)
-            blocks.append(
-                f"{n}\n{srt_ts(start)} --> {srt_ts(end)}\n"
-                + " ".join(t["text"] for t in group)
-            )
-            n += 1
+            out.append((start, end, " ".join(t["text"] for t in group)))
+    return out
+
+
+def _stamp(t: float, sep: str) -> str:
+    """`HH:MM:SS,mmm` for SRT, `HH:MM:SS.mmm` for WebVTT."""
+    ms = int(round(t * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}{sep}{ms:03d}"
+
+
+def write_srt(scenes: Sequence[Scene], path: Path, cfg: CaptionConfig,
+              lead_in: float) -> Path:
+    """A plain .srt alongside the ASS, for uploading to YouTube as a caption track."""
+    blocks = [f"{n}\n{_stamp(start, ',')} --> {_stamp(end, ',')}\n{text}"
+              for n, (start, end, text) in enumerate(cues(scenes, cfg, lead_in), 1)]
     path.write_text("\n\n".join(blocks) + "\n", encoding="utf-8")
+    return path
+
+
+def write_vtt(scenes: Sequence[Scene], path: Path, cfg: CaptionConfig,
+              lead_in: float) -> Path:
+    """The same cues as WebVTT, which is what a browser's <track> wants.
+
+    YouTube accepts the SRT, so this is not for YouTube. It is for the delivery
+    being usable anywhere else - a <video> on a landing page, an embed, a player
+    that is not YouTube - without anyone having to convert a file by hand.
+
+    The cue text is escaped: WebVTT parses a small amount of markup, so a script
+    that says "a < b" would otherwise open a tag that never closes and swallow
+    the rest of the cue.
+    """
+    lines = ["WEBVTT", ""]
+    for start, end, text in cues(scenes, cfg, lead_in):
+        safe = (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        lines.append(f"{_stamp(start, '.')} --> {_stamp(end, '.')}")
+        lines.append(safe)
+        lines.append("")
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path
