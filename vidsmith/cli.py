@@ -258,6 +258,11 @@ def cmd_check(args) -> int:
 
 def cmd_doctor(args) -> int:
     ok = True
+    from . import build_info
+
+    sha = build_info.commit()
+    print(f"[ok]   commit    {sha}" if sha else
+          "[--]   commit    not a git checkout")
     try:
         from . import ffmpeg_util as ff
 
