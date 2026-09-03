@@ -121,3 +121,17 @@ def test_build_all_logs_the_warning(monkeypatch, tmp_path, scene_factory):
                       keys={}, log=lines.append)
 
     assert any("warning" in line and "14.4s" in line for line in lines), lines
+
+
+def test_a_cards_build_is_not_a_frozen_shot(scene_factory):
+    """`cards` generates one frame per scene, and `local` matches what is on
+    disk. One shot for the whole scene is the correct output there.
+
+    The first run of this warning fired on five scenes of `projects/gil`, a
+    cards build, and every one of them was right to be a single frame.
+    """
+    scene = _scene(scene_factory, [14.4], index=1)
+    for provider in ("cards", "local"):
+        cfg = VisualConfig(provider=provider)
+        assert long_shot_warnings(scene, cfg) == [], provider
+    assert long_shot_warnings(scene, VisualConfig(provider="pexels")) != []
