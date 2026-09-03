@@ -586,6 +586,32 @@ competing with the voice.
   time. And progress lines are stripped out of ordinary failure messages by
   `_without_progress()`, because a broken filtergraph buried under half a
   second of counters is a worse message than the one we had.
+  **Sixth occurrence, 2026-09-03, on PR #69, and the progress line paid for
+  itself.** Same test, ubuntu and windows green, and a re-run of the same job
+  passing. What it said this time:
+
+  ```
+  it reached out_time=00:00:21.342000 before it was killed
+  ```
+
+  21.342 of a 22.746s output. So it is **not** failing to start and the graph is
+  **not** failing to produce - it gets to within a second and a half of the end
+  and then sits for the whole 45s. Five rounds of theorising had no way to tell
+  those apart; one line of output did.
+  The tail is the region a bare `apad` owns, so `build_narration` now uses
+  `apad=whole_dur=<total>` and the graph holds nothing that generates forever.
+  A bare apad pads until something downstream stops asking, and `atrim` drops
+  the frames past the end **without propagating EOF upstream**, so apad went on
+  producing silence for atrim to throw away. Measured against real ffmpeg on the
+  same three-input graph before changing it: identical 22.746s output either
+  way, and less work bounded, 0.18s against 0.30s.
+  **This is a narrowing, not a proven fix, and the next person should not read
+  it as one.** The hang is intermittent and does not reproduce off macOS, so
+  nothing here has watched it stop happening. What is true is that the one
+  unbounded element is gone and the evidence points at the region it owned. If
+  it happens a seventh time, that reading is wrong and the pad is not the
+  culprit: look at `amix` with `dropout_transition=0`, which is the other filter
+  in the tail, and read the new `out_time` before theorising again.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did
