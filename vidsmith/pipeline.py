@@ -160,7 +160,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if scenes_json.exists():
         cached = load_scenes(scenes_json)
         same = len(cached) == len(scenes) and all(
-            c.text == s.text for c, s in zip(cached, scenes)
+            c.source_key() == s.source_key() for c, s in zip(cached, scenes)
         )
         if not same:
             invalidate(proj, log)
