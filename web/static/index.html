@@ -378,6 +378,15 @@ function forgetToken() {
 }
 const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
 
+/* Everything but the video is a few KB, and rounding those to megabytes printed
+   `credits.txt · 0.0 MB`. The licence-bearing files were the ones that read as
+   empty, which is exactly the wrong impression to give of the file people
+   already skip. */
+const humanSize = (bytes) =>
+  bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB`
+  : bytes >= 1e3 ? `${Math.round(bytes / 1e3)} KB`
+  : `${bytes} B`;
+
 /* A token carried in the link, so the owner can send one URL rather than a URL
    and a string to paste. Only ever a convenience: the field and localStorage
    remain the source of truth, and an instance with no token configured ignores
@@ -743,11 +752,21 @@ function render(job) {
   $("stage").textContent = "done";
   const files = $("files");
   files.innerHTML = "";
+  if (job.outputs.length) {
+    // First and styled as the main action. Taking the mp4 alone leaves the
+    // captions behind and, worse, the credits: attribution is a licence
+    // condition and jobs are swept an hour after they finish.
+    const all = document.createElement("a");
+    const bytes = job.outputs.reduce((sum, f) => sum + f.size, 0);
+    all.href = `/api/jobs/${job.id}/archive${authQuery()}`;
+    all.textContent = `everything · ${job.outputs.length} files · ${humanSize(bytes)}`;
+    all.className = "main";
+    files.appendChild(all);
+  }
   for (const f of job.outputs) {
     const a = document.createElement("a");
     a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${authQuery()}`;
-    a.textContent = `${f.name} · ${(f.size / 1e6).toFixed(1)} MB`;
-    if (f.kind === "mp4") a.className = "main";
+    a.textContent = `${f.name} · ${humanSize(f.size)}`;
     files.appendChild(a);
   }
   const video = job.outputs.find((f) => f.kind === "mp4");

@@ -20,6 +20,7 @@ import threading
 import time
 import traceback
 import uuid
+import zipfile
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from typing import Any, Deque, Dict, List, Optional
 import yaml
 
 from vidsmith import pipeline
+from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
 
 # stage -> fraction of the run that is behind you once it starts.
@@ -434,6 +436,47 @@ class Jobs:
         target = (out / name).resolve()
         if out not in target.parents or not target.is_file():
             return None
+        return target
+
+    def archive(self, job_id: str) -> Optional[Path]:
+        """Every delivered file in one zip.
+
+        The page has always listed the srt, the credits and the description
+        beside the mp4, and people take the mp4 and leave. That is not a UI
+        quibble: attribution is a licence condition carried in `credits*.txt`
+        and folded into `description.txt`, and jobs are swept an hour after they
+        finish. A real download went out as the video alone and the credits were
+        recovered by hand off the box, with about an hour to spare.
+
+        Built beside the job rather than inside `out/`, so it is not collected as
+        an output, not offered as a download of itself, and not seen by
+        `vidsmith check` as a file matching no delivered cut.
+        """
+        job = self.get(job_id)
+        if job is None or job.root is None:
+            return None
+        out = job.root / "out"
+        if not out.is_dir() or not any(p.is_file() for p in out.iterdir()):
+            return None
+
+        # the name the build already chose, rather than slugging the title a
+        # second time: a second slugger is how `thumbs --refresh` came to write
+        # `untitled.jpg` beside correctly named cuts and report success
+        cuts = delivered(out)
+        wide = next((p for aspect, p in cuts if aspect == "16:9"), None)
+        stem = (wide or cuts[0][1]).stem if cuts else "vidsmith"
+        target = job.root / f"{stem}.zip"
+        newest = max(p.stat().st_mtime for p in out.iterdir() if p.is_file())
+        if target.exists() and target.stat().st_mtime >= newest:
+            return target                      # nothing has been rewritten since
+
+        # write beside it and move, so a half-written zip is never served
+        partial = target.with_suffix(".zip.part")
+        with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as bundle:
+            for path in sorted(out.iterdir()):
+                if path.is_file():
+                    bundle.write(path, arcname=f"{stem}/{path.name}")
+        partial.replace(target)
         return target
 
     # -- housekeeping -------------------------------------------------------- #
