@@ -30,6 +30,16 @@ from typing import Dict, List, Optional
 
 _ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})")
 _PLAYER = re.compile(r"ytInitialPlayerResponse\s*=\s*(\{.*?\});", re.S)
+# a chapter line as YouTube parses one: a timestamp at the start of a line,
+# then a label. `1:05` and `1:02:03` are both legal.
+_STAMP = re.compile(r"^[ \t]*((?:\d+:)?\d{1,2}:\d{2})[ \t]+(\S.*)$", re.M)
+
+
+def _seconds(stamp: str) -> float:
+    parts = [float(x) for x in stamp.split(":")]
+    while len(parts) < 3:
+        parts.insert(0, 0.0)
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
 
 # Where a credit line points decides what crediting it needs, and the line says
 # so itself. Pexels' API Guidelines ask for the photographer by name and a link
@@ -168,6 +178,44 @@ def attribution(live_description: str, out: Path) -> List[str]:
     return problems
 
 
+def chapters(live_description: str, built: int) -> List[str]:
+    """Whether the published chapter list will work, not whether it matches.
+
+    The first rule here asked that every label the build wrote appear in the
+    published description. Run across four real videos it reported six missing
+    chapters and every one was wrong: the labels had been reworded by hand
+    ("Runs on Your Hardware" became "Local Hardware") and the chapters were
+    working perfectly. Rewording is the normal thing to do to a chapter label,
+    and a check that fires on it stops being read - which is worse than not
+    having it, because the credit findings beside it are real.
+
+    What YouTube actually requires is structural, so that is what is checked:
+    at least three entries, the first at 0:00, and ascending. Break one of those
+    and the video shows no chapters at all, with no error anywhere.
+    """
+    if built < 1:
+        return []
+    found = _STAMP.findall(live_description)
+    if not found:
+        return [f"the build wrote {built} chapters but the published description "
+                "has no chapter list at all"]
+
+    times = [_seconds(stamp) for stamp, _label in found]
+    problems: List[str] = []
+    if times[0] != 0:
+        problems.append(
+            f"the published chapter list starts at {found[0][0]} rather than "
+            "0:00, so YouTube will ignore every chapter")
+    if len(times) < 3:
+        problems.append(
+            f"the published description has {len(times)} chapter line(s); "
+            "YouTube needs at least three or it shows none")
+    if times != sorted(times):
+        problems.append("the published chapters are out of order, so YouTube "
+                        "will ignore every one of them")
+    return problems
+
+
 def check_published(out_dir: Path, vid: str,
                     live: Optional[Dict] = None) -> List[str]:
     """Everything wrong with the published video, as plain sentences.
@@ -202,12 +250,8 @@ def check_published(out_dir: Path, vid: str,
             problems.append(
                 f"the published title is '{live.get('title')}', which does not "
                 f"contain the built title '{title}'")
-        for chapter in meta.get("chapters") or []:
-            label = chapter.get("label")
-            if label and label not in live["description"]:
-                problems.append(
-                    f"chapter '{label}' is missing from the published "
-                    "description, so YouTube will show no chapters at all")
+        problems.extend(chapters(live["description"],
+                                 len(meta.get("chapters") or [])))
         if (meta.get("tags") or []) and not live.get("tags"):
             problems.append("the build wrote tags but the published video has none")
 

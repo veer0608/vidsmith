@@ -14,8 +14,8 @@ import json
 
 import pytest
 
-from vidsmith.published import (Unreachable, attribution, check_published,
-                                video_id)
+from vidsmith.published import (Unreachable, attribution, chapters,
+                                check_published, video_id)
 
 
 def _live(**over):
@@ -139,11 +139,57 @@ def test_an_empty_description_is_the_only_thing_reported(out):
     assert problems == ["the published video has no description at all"]
 
 
-def test_a_dropped_chapter_is_reported(out):
-    desc = _live()["description"].replace("0:18 The Popular Myth\n", "")
-    problems = check_published(out, "0PkBP0dk4Lw", live=_live(description=desc))
-    assert any("The Popular Myth" in p for p in problems)
-    assert any("no chapters at all" in p for p in problems)
+def test_a_reworded_chapter_label_is_not_a_finding(out):
+    """The bug this replaced.
+
+    Run over four real published videos, the old rule - every built label must
+    appear in the published description - reported six missing chapters, and all
+    six were wrong. The labels had been reworded by hand ("Runs on Your Hardware"
+    became "Local Hardware") and the chapters were working perfectly.
+
+    Rewording a chapter label is the normal thing to do to one, and a check that
+    fires on it stops being read - which then costs you the credit findings
+    sitting beside it, and those were real.
+    """
+    desc = (_live()["description"]
+            .replace("0:00 The Final Collapse", "0:00 The Collapse")
+            .replace("0:18 The Popular Myth", "0:18 The Myth"))
+    assert check_published(out, "0PkBP0dk4Lw", live=_live(description=desc)) == []
+
+
+def test_a_missing_chapter_list_is_a_finding(out):
+    problems = check_published(
+        out, "0PkBP0dk4Lw",
+        live=_live(description="Prose, credits, and no timestamps at all. "
+                               "Footage from Pixabay. Bakr Magrabi on Pexels: "
+                               "https://www.pexels.com"))
+    assert any("no chapter list at all" in p for p in problems)
+
+
+def test_a_list_not_starting_at_zero_is_a_finding():
+    """YouTube drops the entire list rather than the offending line."""
+    assert any("0:00" in p for p in chapters("0:12 One\n0:30 Two\n1:00 Three", 3))
+
+
+def test_fewer_than_three_chapters_is_a_finding():
+    assert any("at least three" in p for p in chapters("0:00 One\n0:30 Two", 3))
+
+
+def test_chapters_out_of_order_are_a_finding():
+    assert any("out of order" in p
+               for p in chapters("0:00 One\n1:00 Two\n0:30 Three", 3))
+
+
+def test_a_valid_list_passes_however_it_is_worded():
+    assert chapters("0:00 Anything\n0:30 At\n1:00 All", 7) == []
+
+
+def test_an_hour_long_timestamp_parses():
+    assert chapters("0:00 One\n0:30 Two\n1:02:03 Three", 3) == []
+
+
+def test_a_build_with_no_chapters_is_not_judged():
+    assert chapters("no timestamps anywhere here", 0) == []
 
 
 def test_an_appended_title_is_not_a_finding(out):
