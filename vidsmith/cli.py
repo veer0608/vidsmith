@@ -393,7 +393,8 @@ def main(argv=None) -> int:
     b.add_argument("--watermark", help="channel handle, drawn small bottom-right")
     b.add_argument("--no-cards", action="store_true",
                    help="skip the generated title and end cards")
-    b.add_argument("--force", help="comma list of stages to redo: voice,visuals,render")
+    b.add_argument("--force", help="comma list of stages to redo: "
+                                  "voice,visuals,render,diagrams")
     b.add_argument("--stop-after", choices=pipeline.STAGES)
     b.set_defaults(func=cmd_build)
 
