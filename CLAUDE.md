@@ -30,6 +30,7 @@ before writing anything. The traps are the reason this file exists.
 | Show it to someone | Deploying | The tunnel beats both hosts |
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
+| Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
@@ -511,6 +512,25 @@ competing with the voice.
   fault that actually shipped, and each one looked correct in isolation. It
   calls no model and no network, so it works on a spent day, which is exactly
   when a hurried refresh gets published. Run it before uploading anything.
+- **And it cannot see the one place every shipped fault actually landed.**
+  `check` passed a delivery as ready while the published video's description had
+  silently failed to save, its tags had been lost to the same trap, and its only
+  caption track was YouTube's own transcription rather than the exact edge-tts
+  timings the whole pipeline exists to produce. `published.py` reads the public
+  watch page - one unauthenticated GET, no key, no OAuth, no quota, so it keeps
+  the property that makes `check` worth running - and pulls title, description,
+  tags and the caption track list out of `ytInitialPlayerResponse`. A track with
+  no `kind` was uploaded; `kind: "asr"` is YouTube guessing. It is opt-in behind
+  `--published` precisely because the offline half must stay offline.
+  The attribution rule is applied **per credit line, by the domain in the line**,
+  not in bulk: a Pexels line needs the photographer named, a Pixabay line needs
+  only that Pixabay is named as the source. Bulk-checking either way is wrong in
+  a direction that has already shipped - demanding every Pixabay uploader makes
+  it cry wolf on correct videos, and excusing Pexels contributors is the trim
+  that dropped eleven and thirteen photographers from two published
+  descriptions. Run against the live `rome` video the hour it was written, it
+  found a real one: the thumbnail's Pexels photographer was not in the published
+  description.
 - **Replacing a thumbnail invalidates `description.txt`, which is the file that
   gets published.** `description.txt` and `youtube.txt` are composed from the
   `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the
