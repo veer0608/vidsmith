@@ -279,16 +279,23 @@ def check(out_dir: Path) -> List[str]:
     problems.extend(publish_drift(out))
 
     cuts = delivered(out)
-    wide = next((p for aspect, p in cuts if aspect == "16:9"), None)
-    if wide is None:
-        return problems + ["no widescreen mp4 in out/; nothing has been delivered"]
-    runtime = ff.duration(wide)
+    if not cuts:
+        return problems + ["no mp4 in out/; nothing has been delivered"]
+
+    # `delivered()` sorts widescreen first, so this is the 16:9 cut whenever one
+    # exists. It is only the *reference* for runtime and chapters, not a
+    # requirement: a Shorts-only project is a real thing - `projects/promo-short`
+    # is one - and demanding a landscape cut meant every check of it returned
+    # "nothing has been delivered" while a finished vertical video sat in out/.
+    # Its captions, thumbnail, credits and chapters went unexamined for as long
+    # as it existed, which is the same shape of fault as the empty tag below:
+    # a shape assumption dressed up as a delivery check.
+    reference_aspect, reference = cuts[0]
+    runtime = ff.duration(reference)
 
     # every cut is the same edit at a different size, so any disagreement here
     # means one of them was rebuilt and the others were not
-    for aspect, cut in cuts:
-        if aspect == "16:9":
-            continue
+    for aspect, cut in cuts[1:]:
         if abs(runtime - ff.duration(cut)) > 1.0:
             problems.append(
                 f"the two cuts disagree on length: {runtime:.0f}s and "

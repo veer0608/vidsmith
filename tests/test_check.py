@@ -132,7 +132,49 @@ def test_a_missing_thumbnail_is_caught(delivery):
 
 
 def test_an_empty_directory_says_so(tmp_path):
-    assert check(tmp_path) == ["no widescreen mp4 in out/; nothing has been delivered"]
+    assert check(tmp_path) == ["no mp4 in out/; nothing has been delivered"]
+
+
+def test_a_shorts_only_delivery_is_checked_rather_than_refused(tmp_path, monkeypatch):
+    """`projects/promo-short` is vertical and has no landscape cut, which is a
+    real thing to build rather than an incomplete delivery.
+
+    `check` resolved the widescreen cut and returned "nothing has been
+    delivered" when it found none, so a finished vertical video sat in out/ with
+    its captions, thumbnail, credits and chapters examined by nothing. Same shape
+    as the empty-tag faults below: a shape assumption dressed up as a delivery
+    check.
+    """
+    from vidsmith import check as check_mod
+
+    (tmp_path / "a-title-9x16.mp4").write_bytes(b"")
+    (tmp_path / "captions-9x16.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nhello\n", encoding="utf-8")
+    (tmp_path / "description.txt").write_text("A description.\n", encoding="utf-8")
+    monkeypatch.setattr(check_mod.ff, "duration", lambda p: 30.0)
+
+    def _portrait(path):
+        class Img:
+            size = (1080, 1920)
+        return Img()
+
+    problems = check(tmp_path)
+
+    assert not any("nothing has been delivered" in p for p in problems), problems
+    # it is now actually looked at: the missing thumbnail is a real finding
+    assert any("thumbnail" in p for p in problems), problems
+
+
+def test_a_shorts_only_delivery_does_not_report_a_length_disagreement(
+        tmp_path, monkeypatch):
+    """One cut cannot disagree with itself, and the reference must not be
+    compared against itself."""
+    from vidsmith import check as check_mod
+
+    (tmp_path / "a-title-9x16.mp4").write_bytes(b"")
+    monkeypatch.setattr(check_mod.ff, "duration", lambda p: 30.0)
+
+    assert not any("disagree on length" in p for p in check(tmp_path))
 
 
 # --------------------------------------------------------------------------- #
