@@ -181,6 +181,45 @@ def credits_published(out: Path) -> List[str]:
     return problems
 
 
+# A scene the model swapped for a drawing is not automatically wrong - one
+# unfilmable idea in a video is ordinary. Two is a pattern, and a pattern usually
+# means the queries are bad rather than the subjects being unfilmable. The share
+# matters too, so a long video is not judged by the same count as a short one.
+SUBSTITUTION_FLOOR = 2
+SUBSTITUTION_SHARE = 0.2
+
+
+def substituted_scenes(cfg: dict) -> List[str]:
+    """Scenes the model swapped for a drawing when footage was asked for.
+
+    Only the model's substitutions count. A `[diagram: ...]` in the script is a
+    decision the writer already made and reporting it would be noise - which is
+    the difference between this and the first version of the rule, which counted
+    every generated frame and stayed silent on the build that prompted it.
+
+    That build is the case to keep in mind: a promo opened on fifteen seconds of
+    a static card because scene 0 was substituted, and the only record was a
+    build log in a terminal that had been closed. `check` passed it.
+
+    `cards` and `local` are exempt, as with the frozen-shot rule: every scene is
+    a generated frame there and that is what they are for. A dead provider key is
+    exempt for the same reason and is visible anyway - the build falls back to
+    `cards` and `build.json` says so.
+    """
+    if cfg.get("provider") in ("cards", "local"):
+        return []
+    total = int(cfg.get("scenes") or 0)
+    swapped = list(cfg.get("substituted") or [])
+    if total < 1 or len(swapped) < SUBSTITUTION_FLOOR:
+        return []
+    if len(swapped) < total * SUBSTITUTION_SHARE:
+        return []
+    return [f"the model replaced {len(swapped)} of {total} scenes with drawings "
+            f"rather than footage (scenes {', '.join(str(i) for i in swapped)}); "
+            f"the searches for those are probably not filmable. Rebuild with "
+            f"--force diagrams,visuals,render to judge them again"]
+
+
 def publish_drift(out: Path) -> List[str]:
     """The delivery was rebuilt after it was verified against a live video.
 
@@ -266,6 +305,7 @@ def check(out_dir: Path) -> List[str]:
         cfg = settings(out)
         for aspect, _cut in cuts:
             problems.extend(frozen_shots(build, aspect, scenes, cfg))
+        problems.extend(substituted_scenes(cfg))
 
     meta_path = out / "youtube.json"
     desc_path = out / "description.txt"

@@ -212,6 +212,20 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if cfg.visuals.provider == "pixabay" and not keys["pixabay"]:
         log("         no PIXABAY_API_KEY found - generating cards instead")
         cfg.visuals.provider = "cards"
+    # `--force diagrams` is separate from `--force visuals` on purpose. Whether a
+    # scene is drawn is an editorial decision about the narration, so it is made
+    # once and every aspect obeys it; clearing it whenever footage is rebuilt
+    # would let a re-forced 9:16 decide differently from an already-rendered
+    # 16:9, which is the divergence `_decision_path()` exists to prevent.
+    #
+    # It needs to be reachable, though. A scene that came out as a generated card
+    # stays one for every later build, because the decision is only made when the
+    # file has no entry for it - so `--force visuals` on its own redraws the same
+    # card with new footage around it, and the only way back was editing the JSON
+    # by hand. That happened.
+    if "diagrams" in force:
+        clear_diagram_decisions(proj, log)
+
     vis_dir = proj.build / f"visuals{tag}"
     visuals.build_all(scenes, cfg.visuals, cfg.size, cfg.render.fps, vis_dir, keys,
                       force="visuals" in force, log=log, theme=theme,
@@ -354,7 +368,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         # is not thrown away over something wrong beside it. Only after a full
         # build, because a --stop-after run is incomplete by design and would
         # report that as fault.
-        write_build_info(proj.out, cfg)
+        write_build_info(proj.out, cfg, drawn_scenes(proj, scenes), len(scenes))
 
         from .check import check
 
@@ -429,7 +443,59 @@ def credits_block(scenes: Sequence[Scene], provider: str) -> str:
     return f"Footage from {site}\n" + "\n".join(rows) + "\n"
 
 
-def write_build_info(out_dir: Path, cfg: Config) -> Path:
+def clear_diagram_decisions(proj: Project, log=print) -> int:
+    """Make every scene's drawn-or-filmed verdict again on the next build.
+
+    Deliberately not folded into `--force visuals`. Whether a scene is drawn is
+    an editorial decision about the narration, so it is made once and every
+    aspect obeys it; clearing it whenever footage is rebuilt would let a
+    re-forced 9:16 decide differently from an already-rendered 16:9, which is the
+    divergence `_decision_path()` exists to prevent.
+
+    It still has to be reachable. A scene that came out as a generated card stays
+    one for every later build, because the decision is only made when the file
+    has no entry for it - so `--force visuals` alone redraws the same card with
+    new footage around it, and the only way back was editing the JSON by hand.
+    That happened, on a promo that opened on fifteen seconds of a static card.
+    """
+    removed = 0
+    for name in ("diagram_scenes.json", "diagrams.json"):
+        path = proj.build / name
+        if path.exists():
+            path.unlink()
+            removed += 1
+    if removed:
+        log("         diagram decisions cleared; every scene is judged again")
+    return removed
+
+
+def drawn_scenes(proj: Project, scenes: Sequence[Scene]) -> Dict[str, List[int]]:
+    """Which scenes ended up as generated frames rather than footage.
+
+    The two routes are kept apart, because only one of them can be a fault. A
+    `[diagram: ...]` in the script is a decision the writer already made; a
+    substitution is the model overruling a request for footage, and two of those
+    usually means the searches are bad rather than the subjects unfilmable.
+
+    `diagram_scenes.json` records only the model's decisions, because an explicit
+    directive is re-read from the script on every build.
+    """
+    decided = {}
+    path = proj.build / "diagram_scenes.json"
+    if path.exists():
+        try:
+            decided = json.loads(path.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError):
+            decided = {}
+    asked = sorted(s.index for s in scenes if s.diagram)
+    swapped = sorted(s.index for s in scenes
+                     if not s.diagram and decided.get(str(s.index)))
+    return {"drawn": sorted(set(asked) | set(swapped)), "substituted": swapped}
+
+
+def write_build_info(out_dir: Path, cfg: Config,
+                     drawn: Optional[Dict[str, List[int]]] = None,
+                     scene_count: int = 0) -> Path:
     """Record how this build was configured, beside what it delivered.
 
     `check` reads `out/` and nothing else, which is the property that makes it
@@ -451,6 +517,12 @@ def write_build_info(out_dir: Path, cfg: Config) -> Path:
         "min_shot_seconds": cfg.visuals.min_shot_seconds,
         "max_shot_seconds": cfg.visuals.max_shot_seconds,
         "commit": build_info.commit(),
+        # which scenes are generated frames rather than film. It reached the
+        # build log and nowhere else, so "a third of this video is cards" was
+        # only knowable from a terminal you had already closed.
+        "drawn": list((drawn or {}).get("drawn") or []),
+        "substituted": list((drawn or {}).get("substituted") or []),
+        "scenes": scene_count,
     }
     path = out_dir / "build.json"
     path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
