@@ -20,3 +20,7 @@ web/__pycache__/
 # Local agent state, including git worktrees. 2.6 MB of checkouts of this same
 # repo, so committing it would nest the repository inside itself.
 .claude/
+
+# Launch drafts. Local working notes, deliberately not published: the posts
+# should be read where they are posted, not found in the repo beforehand.
+docs/launch-*.md
