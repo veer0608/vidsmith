@@ -31,6 +31,7 @@ before writing anything. The traps are the reason this file exists.
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
+| Rebuild anything already uploaded | `check` reports publish drift | A clean `--published` leaves a receipt; changing the files after it means the pasted description is stale |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |

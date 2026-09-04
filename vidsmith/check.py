@@ -181,15 +181,68 @@ def credits_published(out: Path) -> List[str]:
     return problems
 
 
+def publish_drift(out: Path) -> List[str]:
+    """The delivery was rebuilt after it was verified against a live video.
+
+    `check --published` reads the watch page, so it can only see a *public*
+    video - and the moment a stale description is most likely is while a draft
+    is still private and being pasted into the form. This is the half that works
+    then, and offline: `published.py` leaves a receipt naming the video and what
+    the files looked like, and this notices when they have moved since.
+
+    The case it was written for: a video was uploaded and its description
+    pasted, the build was then rerun to replace one scene, and the new footage
+    carried two photographers the pasted description does not name. Every local
+    file agreed with every other, so `check` said the delivery was consistent -
+    correctly, and uselessly, because the wrong copy was on YouTube.
+
+    Reads only files already on disk, so it costs nothing and keeps this module
+    free of the network.
+    """
+    path = out / "published.json"
+    if not path.is_file():
+        return []                     # never published from here; nothing to say
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    if not isinstance(body, dict):
+        return []
+
+    from .published import digest
+
+    vid = body.get("video_id") or "the published video"
+    when = (body.get("checked") or "")[:10]
+    moved = []
+    for name, was in (body.get("files") or {}).items():
+        now = digest(out / name)
+        if was and now and now != was:
+            moved.append(name)
+        elif was and not now:
+            moved.append(f"{name} (now missing)")
+
+    if not moved:
+        return []
+    return [f"{', '.join(moved)} changed since this delivery was checked against "
+            f"https://youtu.be/{vid}{' on ' + when if when else ''}, so the "
+            f"description published there is probably stale; re-paste it and run "
+            f"check --published {vid}"]
+
+
 def check(out_dir: Path) -> List[str]:
     """Everything wrong with this delivery, as plain sentences."""
     out = Path(out_dir)
     problems: List[str] = []
 
+    # first, because it is the one finding that does not depend on the delivery
+    # existing: a receipt outlives the files it witnessed, and "the description
+    # on YouTube is stale" stays true even when out/ has been emptied
+    problems.extend(publish_drift(out))
+
     cuts = delivered(out)
     wide = next((p for aspect, p in cuts if aspect == "16:9"), None)
     if wide is None:
-        return ["no widescreen mp4 in out/; nothing has been delivered"]
+        return problems + ["no widescreen mp4 in out/; nothing has been delivered"]
     runtime = ff.duration(wide)
 
     # every cut is the same edit at a different size, so any disagreement here

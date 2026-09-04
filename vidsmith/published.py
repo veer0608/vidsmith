@@ -23,8 +23,10 @@ quota - the same property that makes `check` worth running.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -266,3 +268,40 @@ def check_published(out_dir: Path, vid: str,
             problems.append("the published video has no caption track")
 
     return problems
+
+
+# --------------------------------------------------------------------------- #
+# the receipt
+# --------------------------------------------------------------------------- #
+RECEIPT = "published.json"
+
+# What a publish is actually a promise about. The description is the file that
+# gets pasted, and the credits are the licence condition inside it; if either
+# has moved since the video was verified, the copy on YouTube is stale.
+WITNESSED = ("description.txt", "credits.txt")
+
+
+def digest(path: Path) -> str:
+    """Twelve hex characters of the file, or "" when it is not there."""
+    if not path.is_file():
+        return ""
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def record(out_dir: Path, vid: str) -> Path:
+    """Write down that this delivery was verified against this video.
+
+    `check --published` can only read a *public* video, so it cannot help while
+    a draft is private - which is exactly when the description is being pasted
+    and is easiest to get wrong. This is the offline half of that: what was
+    verified, and what the files looked like at the time.
+    """
+    out = Path(out_dir)
+    body = {
+        "video_id": video_id(vid),
+        "checked": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "files": {name: digest(out / name) for name in WITNESSED},
+    }
+    path = out / RECEIPT
+    path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+    return path
