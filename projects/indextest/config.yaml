@@ -1,0 +1,74 @@
+title: Why Database Indexes Slow Down Your Writes
+theme:
+  preset: ink
+  accent: ''
+  font: ''
+  watermark: ''
+  title_card: true
+  title_seconds: 2.4
+  subtitle: ''
+  end_card: true
+  end_seconds: 2.2
+  end_line: ''
+  lower_thirds: false
+  progress_bar: true
+  scrim: true
+  scene_counter: true
+voice:
+  provider: polly
+  engine: long-form
+  name: Gregory
+  rate: +8%
+  pitch: +0Hz
+  volume: +0%
+  gap: 0.35
+  lead_in: 0.25
+visuals:
+  provider: pexels
+  local_dir: assets/clips
+  orientation: landscape
+  ken_burns: true
+  zoom: 1.12
+  min_clip_seconds: 2.0
+  diagrams: true
+  diagram_on_reject: 0.7
+  rerank: true
+  rerank_pool: 8
+  cut_on_sentences: true
+  min_shot_seconds: 2.4
+  max_shot_seconds: 5.5
+  card_text: auto
+  per_scene_queries: 1
+captions:
+  enabled: true
+  style: karaoke
+  font: ''
+  size: 62
+  primary: ''
+  highlight: ''
+  outline: ''
+  outline_width: 4
+  shadow: 1
+  box: false
+  fade_ms: 110
+  pop: true
+  margin_v: 150
+  max_chars: 34
+  max_words: 6
+  uppercase: false
+audio:
+  music: auto
+  mood: calm
+  music_gain_db: -18.0
+  duck: true
+  normalize: true
+  lufs: -14.0
+render:
+  aspect: '16:9'
+  fps: 30
+  crf: 20
+  preset: medium
+  transition: cut
+  transition_seconds: 0.4
+  intro_seconds: 0.0
+  outro_seconds: 1.0

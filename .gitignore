@@ -16,3 +16,7 @@ web/__pycache__/
 
 # Stock-search results, cached for the day Pixabay's terms require.
 .cache/
+
+# Local agent state, including git worktrees. 2.6 MB of checkouts of this same
+# repo, so committing it would nest the repository inside itself.
+.claude/
