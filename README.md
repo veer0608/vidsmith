@@ -2,9 +2,21 @@
 
 Script in, narrated and captioned YouTube video out.
 
+![Seven seconds of a finished vidsmith render: stock footage, captions landing on
+the word being spoken, cuts on the sentence](docs/demo.gif)
+
+That is untouched output. Nothing transcribed the audio to place those captions:
+the speech engine reports when each word starts and stops, and those numbers are
+what you see. The same timings decide where the picture cuts.
+
+Whole videos made this way: [Why Rome Never Really
+Fell](https://youtu.be/0PkBP0dk4Lw). Or run one in the browser without installing
+anything at [vidsmith.duckdns.org](https://vidsmith.duckdns.org).
+
 You write a markdown script. vidsmith speaks it in a neural voice, finds a shot
 for every scene, burns word-timed captions, mixes music under the narration, and
-encodes a delivery-ready mp4, plus an `.srt` and a draft title/description/chapters.
+encodes a delivery-ready mp4, plus an `.srt`, a `.vtt` and a draft
+title/description/chapters.
 
 ```bash
 git clone https://github.com/veer0608/vidsmith.git
@@ -18,7 +30,7 @@ python -m venv .venv
 script   4 scenes, ~35s estimated
 voice    en-US-AndrewNeural at +8%
 visuals  provider=cards 1920x1080
-captions captions.ass + captions.srt
+captions captions.ass + captions.srt + captions.vtt
 render   32.7s of picture, mixing and encoding
 done     out/why-your-bank-statement-lies.mp4  (32.7s, 6.5 MB, 62s to build)
 ```
@@ -428,7 +440,7 @@ parse   -> scenes.json          script split into scenes
 queries -> scenes.json          Gemini writes a b-roll search per scene
 voice   -> build/audio/*.mp3    edge-tts or Polly, plus word timings
 visuals -> build/visuals/*.mp4  one normalised clip per scene
-captions-> build/captions.ass   karaoke ASS + a plain .srt for YouTube
+captions-> build/captions.ass   karaoke ASS, plus .srt and .vtt in out/
 render  -> out/*.mp4            three ffmpeg passes: narration, picture, master
 meta    -> out/youtube.txt      title, description, chapters, tags
 ```
@@ -443,6 +455,7 @@ projects/demo/out/
   why-your-bank-statement-lies.mp4    delivery file, faststart, AAC 192k, -14 LUFS
   why-your-bank-statement-lies.jpg    thumbnail frame
   captions.srt                        upload as a caption track
+  captions.vtt                        the same cues as WebVTT, for any other player
   youtube.txt / youtube.json          title, description, chapters, tags
   credits.txt                         creator attribution when stock footage was used
 ```
