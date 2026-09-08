@@ -228,7 +228,8 @@ def _refresh_thumbnails(args) -> int:
     meta_json = proj.out / "youtube.json"
     if meta_json.exists():
         try:
-            write_metadata(proj.out, json.loads(meta_json.read_text(encoding="utf-8")))
+            write_metadata(proj.out, json.loads(meta_json.read_text(encoding="utf-8")),
+                           source=cfg.source)
             print(f"credits  description.txt now names the photographers in use")
         except (OSError, ValueError) as exc:
             print(f"warning: could not refresh description.txt ({exc});"
@@ -340,7 +341,7 @@ def cmd_meta(args) -> int:
     # Through the pipeline's own writer, not a second copy of it: the copy that
     # used to live here omitted the credits block, so regenerating a description
     # stripped the attribution out of the file you paste into YouTube.
-    print(pipeline.write_metadata(proj.out, meta))
+    print(pipeline.write_metadata(proj.out, meta, source=cfg.source))
     return 0
 
 

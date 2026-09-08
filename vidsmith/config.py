@@ -145,6 +145,11 @@ class RenderConfig:
 @dataclass
 class Config:
     title: str = "Untitled"
+    # Where the script came from, when it came from something. A video built
+    # out of someone else's writing should say so, and the tool that generated
+    # the script is the only thing that knows. Free text rather than a URL
+    # type: it is written into a description verbatim and never parsed.
+    source: str = ""
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     visuals: VisualConfig = field(default_factory=VisualConfig)

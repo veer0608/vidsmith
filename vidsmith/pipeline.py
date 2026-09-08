@@ -358,7 +358,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
             try:
                 meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"],
                                            log=log)
-                write_metadata(proj.out, meta)
+                write_metadata(proj.out, meta, source=cfg.source)
                 log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
             except Exception as exc:
                 log(f"meta     skipped ({exc})")
@@ -529,7 +529,18 @@ def write_build_info(out_dir: Path, cfg: Config,
     return path
 
 
-def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:
+def source_credit(source: str) -> str:
+    """The attribution line for the material this video was built from.
+
+    Deliberately not passed to the model that writes the description. An
+    attribution that has been paraphrased is not an attribution, and this is
+    the one line in the file that has to survive verbatim.
+    """
+    source = (source or "").strip()
+    return f"Adapted from: {source}" if source else ""
+
+
+def write_metadata(out_dir: Path, meta: Dict[str, Any], source: str = "") -> str:
     """Write youtube.json, youtube.txt and description.txt for one build.
 
     The single writer, deliberately. `vidsmith meta` used to keep its own copy
@@ -544,6 +555,9 @@ def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:
     )
     block = all_credits(out_dir)
     text = _readable_meta(meta)
+    credit = source_credit(source)
+    if credit:
+        text += "\nSOURCE\n" + credit + "\n"
     if block:
         text += "\nCREDITS\n" + block
     (out_dir / "youtube.txt").write_text(text, encoding="utf-8")
@@ -565,14 +579,21 @@ def write_metadata(out_dir: Path, meta: Dict[str, Any]) -> str:
     for credits_file in sorted(out_dir.glob("credits*.txt")):
         tag = credits_file.stem[len("credits"):]
         (out_dir / f"description{tag}.txt").write_text(
-            description_box(meta, credits_file.read_text(encoding="utf-8")),
+            description_box(meta, _attribution(credit, credits_file)),
             encoding="utf-8")
         written = True
     if not written:
-        # a cards or local build owes no footage credit and writes no ledger
+        # A cards or local build owes no footage credit, but may still owe a
+        # source one. They are different debts and only one is about footage.
         (out_dir / "description.txt").write_text(
-            description_box(meta, ""), encoding="utf-8")
+            description_box(meta, credit), encoding="utf-8")
     return text
+
+
+def _attribution(credit: str, credits_file) -> str:
+    """The source line and this cut's footage credits, in that order."""
+    footage = credits_file.read_text(encoding="utf-8").strip()
+    return "\n\n".join(part for part in (credit, footage) if part)
 
 
 def all_credits(out_dir: Path) -> str:
