@@ -218,6 +218,11 @@ def load_config(path: Path) -> Config:
         return cfg
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     cfg.title = raw.get("title", cfg.title)
+    # Top-level scalars are read one by one rather than merged wholesale, so a
+    # field added to Config is invisible here until it is named. `source` was,
+    # and a video went out crediting its photographers and not the article it
+    # was built from, with every unit test passing on either side of the gap.
+    cfg.source = raw.get("source", cfg.source)
     _merge(cfg.theme, raw.get("theme"))
     _merge(cfg.voice, raw.get("voice"))
     _merge(cfg.visuals, raw.get("visuals"))

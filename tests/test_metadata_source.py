@@ -72,3 +72,52 @@ def test_the_json_is_untouched_by_it(tmp_path):
     # rendered files, not folded back into what the model said.
     write_metadata(tmp_path, META, source="https://example.com/post")
     assert json.loads((tmp_path / "youtube.json").read_text(encoding="utf-8")) == META
+
+
+def test_a_source_in_the_file_reaches_the_config(tmp_path):
+    """The gap the unit tests left open.
+
+    `Config(source=...)` worked and `write_metadata(source=...)` worked, and
+    nothing exercised the path between them. load_config reads top-level
+    scalars one at a time, so a field added to Config is invisible there until
+    it is named, and a real video was generated crediting its photographers and
+    not the article it was built from while every test passed.
+    """
+    from pathlib import Path
+
+    from vidsmith.config import load_config
+
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "title: A video\nsource: https://example.com/post\nrender:\n  aspect: '9:16'\n",
+        encoding="utf-8",
+    )
+    assert load_config(Path(path)).source == "https://example.com/post"
+
+
+def test_a_config_without_a_source_still_loads(tmp_path):
+    from pathlib import Path
+
+    from vidsmith.config import load_config
+
+    path = tmp_path / "config.yaml"
+    path.write_text("title: A video\n", encoding="utf-8")
+    assert load_config(Path(path)).source == ""
+
+
+def test_the_round_trip_ends_in_the_pasted_description(tmp_path):
+    # config on disk -> load_config -> write_metadata -> description.txt.
+    # Every step in one test, because the fault lived between two of them.
+    from pathlib import Path
+
+    from vidsmith.config import load_config
+    from vidsmith.pipeline import write_metadata
+
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("title: A video\nsource: https://example.com/post\n", encoding="utf-8")
+    cfg = load_config(Path(cfg_path))
+    out = tmp_path / "out"
+    write_metadata(out, META, source=cfg.source)
+    assert "Adapted from: https://example.com/post" in (out / "description.txt").read_text(
+        encoding="utf-8"
+    )
