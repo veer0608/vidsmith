@@ -286,3 +286,32 @@ def test_the_per_scene_callers_hand_their_log_down(call_site):
     path, expected = call_site
     source = (Path(__file__).resolve().parent.parent / path).read_text(encoding="utf-8")
     assert expected in source, f"{path} calls this without the build log"
+
+
+def test_the_default_model_is_pinned_not_an_alias():
+    """An alias repoints to whatever is newest, and newest is cheapest to run out of.
+
+    `gemini-flash-lite-latest` worked here for months, which is what made it
+    dangerous: it resolves silently, so the first sign of it moving is a build
+    failing on quota it should have had. The sibling recut repo lost a run when
+    `gemini-flash-latest` became a model capped at 20 requests per day.
+
+    Free-tier quota is also per model, so the alias decided who this competed
+    with. Pinning decides it here instead.
+    """
+    from vidsmith.llm import DEFAULT_MODEL
+
+    assert not DEFAULT_MODEL.endswith("-latest"), DEFAULT_MODEL
+
+
+def test_the_default_model_is_not_one_a_sibling_project_measures_against():
+    # recut and reruns run on this machine against the same free tier. Hard-coded
+    # rather than imported: this should fail when vidsmith moves onto one of
+    # theirs, not when those repos happen to be checked out.
+    from vidsmith.llm import DEFAULT_MODEL
+
+    taken = {
+        "gemini-3.1-flash-lite", "gemini-3-flash-preview",   # recut
+        "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash",  # reruns
+    }
+    assert DEFAULT_MODEL not in taken
