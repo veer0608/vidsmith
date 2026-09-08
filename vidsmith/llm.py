@@ -17,8 +17,21 @@ import requests
 from .script_parser import Scene
 
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-# gemini-2.5-flash 404s on free keys; the -latest aliases keep working.
-DEFAULT_MODEL = "gemini-flash-lite-latest"
+# Pinned, not an alias. `gemini-flash-lite-latest` worked, which is the problem:
+# an alias repoints to whatever is newest, and newest carries the smallest
+# free-tier allowance. The sibling recut repo lost a run to exactly this when
+# `gemini-flash-latest` became a model capped at 20 requests per day, and it
+# resolves silently, so the first sign is a build failing on quota it should
+# have had.
+#
+# It also decides who this competes with. Free-tier quota is per model, and this
+# machine runs two other projects against Gemini: recut on gemini-3.1-flash-lite
+# and gemini-3-flash-preview, reruns on gemini-3.7-flash, -3.6 and -3.5. An alias
+# can repoint onto any of them without a commit. gemini-3.5-flash-lite is what
+# the alias resolved to on 2026-09-08 and belongs to nothing else here.
+#
+# gemini-2.5-flash 404s on free keys, which is why the alias was used originally.
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
