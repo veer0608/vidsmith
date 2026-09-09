@@ -274,6 +274,88 @@ def cmd_check(args) -> int:
     return 1
 
 
+def cmd_upload(args) -> int:
+    """Fill the upload form from the files the build already wrote.
+
+    `check` runs first and refuses on any fault, because everything it looks for
+    is a fault that is *worse* once published: a description naming photo-
+    graphers who are not in the cut is a licence problem the moment it is public,
+    and pulling a video back down does not unpublish it. --force exists for the
+    case where the operator has read the problems and disagrees.
+
+    The three files this sends are resolved by the same tag, so the description,
+    the thumbnail and the captions all belong to the cut being uploaded. Reading
+    them by their unsuffixed names is how a vertical upload ends up carrying the
+    widescreen credits.
+    """
+    from .check import check
+    from .published import record
+    from .upload import UploadFailed, access_token, publish
+
+    root = _project_dir(args.name)
+    proj = Project(root)
+    cfg = load_config(proj.config_path)
+    if args.aspect:
+        cfg.render.aspect = args.aspect
+    tag = aspect_tag(cfg.render.aspect)
+
+    cut = _delivery_file(proj, cfg, tag)
+    if cut is None:
+        print(f"nothing built for {cfg.render.aspect} yet - run: vidsmith build {args.name}")
+        return 1
+
+    problems = check(proj.out)
+    if problems and not args.force:
+        print(f"\n{len(problems)} problem(s) in {proj.out}, "
+              "so nothing was uploaded:\n")
+        for line in problems:
+            print(f"  - {line}")
+        print("\nfix them, or upload anyway with --force")
+        return 1
+    if problems:
+        print(f"warn     uploading over {len(problems)} unresolved check problem(s)")
+
+    meta_path = proj.out / "youtube.json"
+    if not meta_path.exists():
+        print(f"no {meta_path.name} - run: vidsmith meta {args.name}")
+        return 1
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    desc_path = proj.out / f"description{tag}.txt"
+    if not desc_path.exists():
+        print(f"no {desc_path.name} beside {cut.name}; its credits would not be published")
+        return 1
+    description = desc_path.read_text(encoding="utf-8")
+
+    # Optional inputs are guarded on None, never on truth: Path("") is Path("."),
+    # which is truthy and exists, and that spelling has bitten this project once
+    # already by handing ffmpeg a directory where a subtitle file belonged.
+    srt = proj.out / f"captions{tag}.srt"
+    captions = None if args.no_captions or not srt.exists() else srt
+    jpg = cut.with_suffix(".jpg")
+    thumbnail = None if args.no_thumbnail or not jpg.exists() else jpg
+    if captions is None and not args.no_captions:
+        print(f"warn     no {srt.name}; YouTube will transcribe the audio itself")
+
+    keys = find_keys(root)
+    repo_root = Path(__file__).resolve().parent.parent
+    try:
+        token = access_token(repo_root, keys["yt_client"], keys["yt_secret"])
+        vid = publish(cut, meta, description, token, thumbnail=thumbnail,
+                      captions=captions, category=args.category,
+                      privacy=args.privacy)
+    except UploadFailed as exc:
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 1
+
+    receipt = record(proj.out, vid, tag=tag)
+    print(f"receipt  {receipt.name} witnesses "
+          f"description{tag}.txt and credits{tag}.txt")
+    print(f"\nuploaded as {args.privacy}. When it is public, verify it:\n"
+          f"  vidsmith check {args.name} --published {vid}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     ok = True
     from . import build_info
@@ -424,6 +506,23 @@ def main(argv=None) -> int:
                     help="also read the live video and check the description, "
                          "chapters, tags and caption track against this build")
     ck.set_defaults(func=cmd_check)
+
+    up = sub.add_parser("upload", help="upload a finished build to YouTube")
+    up.add_argument("name")
+    up.add_argument("--aspect", choices=ASPECTS,
+                    help="which cut to upload (default: the project's own)")
+    up.add_argument("--privacy", choices=("private", "unlisted", "public"),
+                    default="private",
+                    help="default private, so the listing can be read before "
+                         "anyone else sees it")
+    up.add_argument("--category", default="28",
+                    help="YouTube category id, default 28 (Science & Technology)")
+    up.add_argument("--no-captions", action="store_true",
+                    help="do not upload the srt; YouTube will transcribe instead")
+    up.add_argument("--no-thumbnail", action="store_true")
+    up.add_argument("--force", action="store_true",
+                    help="upload even though check reported problems")
+    up.set_defaults(func=cmd_upload)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
     d.set_defaults(func=cmd_doctor)

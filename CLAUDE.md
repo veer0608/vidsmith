@@ -31,6 +31,7 @@ before writing anything. The traps are the reason this file exists.
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
+| Upload anything | `vidsmith upload`, Uploading | Resolve every file by the same aspect tag; a caption track is not optional |
 | Rebuild anything already uploaded | `check` reports publish drift | A clean `--published` leaves a receipt; changing the files after it means the pasted description is stale |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
@@ -714,6 +715,54 @@ the winget package directory. A host with no package manager fetches a static
 build at deploy time via `scripts/fetch-runtime-deps.sh`. The themes name Windows
 font families, so `assets/fonts` is handed to the `subtitles` filter as
 `fontsdir`; without it libass silently substitutes a different face.
+
+## Uploading
+
+`upload.py` is the other half of `check`. `check` was written to notice the
+faults that land on the upload form after the fact; this fills that form from
+the files the build already wrote, so there is no pasting step left to get
+wrong. No SDK, for the same reason `llm.py` has none: `requests` against
+documented HTTP, so an auth failure reads as a status code.
+
+**Three endpoints, and the third is the one that matters.** `videos.insert`
+takes the mp4 with the title, description and tags, `thumbnails.set` takes the
+jpg, and `captions.insert` takes the srt. Leave that last call out and YouTube
+transcribes the audio itself, which is exactly the fault `published.py` found on
+a live video: a caption track with `kind: "asr"` on a video whose exact word
+timings were sitting in `out/`. `sync` is sent as `false` deliberately, because
+`true` asks YouTube to re-time the text against the audio, which is the
+transcription step this whole project exists to avoid.
+
+**Every file is resolved by the same aspect tag.** The cut, its
+`description<tag>.txt`, its `captions<tag>.srt` and its thumbnail. This is the
+empty-tag family again, and the one that hurts here is the description:
+publishing the widescreen one under a Shorts cut names photographers whose clips
+are not in it, which is a licence problem rather than a cosmetic one.
+`published.record()` now takes the tag too, because a receipt witnessing
+`description.txt` after a 9:16 upload is a promise about a file nobody
+published.
+
+**`check` runs first and refuses.** Everything it looks for is worse once
+public, and taking a video down does not unpublish it. `--force` exists for the
+operator who has read the problems and disagrees; it prints them either way.
+Uploads are `private` by default, so the listing can be read before anyone else
+sees it, and the command prints the `check --published` line to run once it is
+public.
+
+**The OAuth flow is the standard loopback one and its only security decision is
+the `state`.** The redirect port is open to anything else on this machine, so
+`redirect_result()` refuses a code that does not carry the state we generated;
+it is a module-level function rather than a branch inside the handler precisely
+so it can be tested without a socket. `access_type=offline` with
+`prompt=consent` is what makes Google return a refresh token, and the save path
+never copies a refresh response wholesale: Google omits the refresh token from
+every response after the first, so that would erase it and ask for consent
+again on the next run. The token lands in `.youtube-token.json`, gitignored.
+
+**Quota is the limit nobody meets until they do.** `videos.insert` costs about
+1600 units against a default 10,000 a day, so it is roughly six uploads and then
+a wait until Pacific midnight. Same shape as the Gemini ceiling: it is not in a
+header, and the failure arrives after the render is already paid for.
 
 ## Web service
 
