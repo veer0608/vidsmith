@@ -1,0 +1,96 @@
+# Measures the intermittent macOS narration hang instead of waiting for it.
+#
+# `test_each_scene_speaks_at_its_own_start` has hung on macOS at least seven
+# times, always alone, always passing on a re-run. Against the runs either side
+# that is about 4.4% of macOS runs. `apad=whole_dur` was added on the strength of
+# one progress line and the code says so in as many words: a narrowing, not a
+# proven fix. Forty-one green runs since still leave roughly a one-in-six chance
+# of a streak that lucky, so main going green cannot settle it.
+#
+# Two arms, same graph, one variable. `bounded` is the code as it ships; `bare`
+# restores the unbounded apad it replaced. If bare hangs and bounded does not,
+# the fix is proven. If both hang, the pad was never the culprit and the next
+# suspect is `amix ... dropout_transition=0`, which is what render.py already
+# predicts. If neither hangs, the amplification is not reaching the real trigger
+# and the loop needs rethinking rather than the code.
+#
+# Manual only. It is a diagnostic, not a gate, so it never runs on a push.
+name: narration hang probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "build_narration calls per shard"
+        default: "500"
+      timeout:
+        description: "seconds before a call counts as hung (healthy is ~0.1s)"
+        default: "8"
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [bounded, bare]
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # The same Homebrew build the failing job uses, deliberately. It is ffmpeg
+      # 8.1.2 without libass, and "the environment that reproduces it" includes
+      # which ffmpeg is installed.
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Ask the binary what it is
+        run: |
+          ffmpeg -hide_banner -version
+          ffprobe -hide_banner -version
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # The arm is only real if the patch landed. A silent no-op here would
+      # produce two identical arms and a confident wrong answer, which is the
+      # failure this repo keeps writing down about installers that exit 0 having
+      # done nothing.
+      - name: Restore the unbounded pad
+        if: matrix.arm == 'bare'
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          p = pathlib.Path("vidsmith/render.py")
+          src = p.read_text(encoding="utf-8")
+          old = '    pad = f"apad=whole_dur={total:.3f}"'
+          new = '    pad = "apad"'
+          if old not in src:
+              sys.exit("patch target not found; render.py has moved on and this "
+                       "workflow is measuring something it does not understand")
+          p.write_text(src.replace(old, new, 1), encoding="utf-8")
+          print("patched to bare apad")
+          PY
+          grep -n 'pad = ' vidsmith/render.py | head -1
+
+      - name: Confirm which pad this job will actually run
+        run: |
+          python -c "import inspect,sys; sys.path.insert(0,'.'); from vidsmith import render; print([l.strip() for l in inspect.getsource(render.build_narration).splitlines() if 'pad =' in l][0])"
+
+      - name: Probe
+        env:
+          PROBE_ARM: ${{ matrix.arm }}
+          PROBE_SHARD: ${{ matrix.shard }}
+        run: |
+          echo "| arm | shard | iterations | hangs | rate | errors |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- | --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          python scripts/hang_probe.py \
+            --iterations ${{ github.event.inputs.iterations }} \
+            --timeout ${{ github.event.inputs.timeout }}
