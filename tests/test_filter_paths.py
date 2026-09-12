@@ -347,15 +347,33 @@ def test_progress_lines_stay_out_of_an_ordinary_failure(monkeypatch):
     assert "out_time=" not in said and "progress=" not in said, said
 
 
-def test_every_ci_job_bounds_a_hang():
+def test_every_ci_run_of_the_suite_bounds_a_hang():
     """A hang on ubuntu or windows was as opaque as the macOS one: only macos
     carried a per-test timeout, and none set the ffmpeg one below it, so pytest
-    always killed the test before our own guard could report anything."""
+    always killed the test before our own guard could report anything.
+
+    This counted three of each, one per job, until the ubuntu job started
+    running the suite twice. The count was only ever standing in for the rule,
+    so it asks the workflow which steps run pytest and holds each of them to it
+    instead. Adding a fourth run cannot now pass by bumping a number.
+    """
     from pathlib import Path
 
-    workflow = (Path(__file__).resolve().parent.parent
-                / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
-    assert workflow.count("--timeout=120") == 3, "a job can still hang unbounded"
-    # the setting, not the prose: the comment above it names the variable too
-    assert workflow.count('VIDSMITH_FFMPEG_TIMEOUT: "') == 3, \
-        "without this under the pytest limit, ffmpeg never gets to explain itself"
+    import yaml
+
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parent.parent
+         / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8"))
+
+    runs = [(name, step)
+            for name, job in workflow["jobs"].items()
+            for step in job["steps"]
+            if "python -m pytest" in step.get("run", "")]
+    assert len(runs) >= 3, "every platform should still run the suite"
+
+    for name, step in runs:
+        where = f"{name}: {step.get('name', 'unnamed step')}"
+        assert "--timeout=120" in step["run"], f"{where} can hang unbounded"
+        # the setting, not the prose: the comment above it names the variable too
+        assert step.get("env", {}).get("VIDSMITH_FFMPEG_TIMEOUT"), \
+            f"{where} never lets ffmpeg explain itself"

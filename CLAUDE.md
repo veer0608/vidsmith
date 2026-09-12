@@ -37,6 +37,7 @@ before writing anything. The traps are the reason this file exists.
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
 | Deploy or update the live box | Deploying | `ssh host "commands"`, never a session; check which machine it ran on |
 | Write a test that reloads or spawns | Tests | Module state and threads outlive their test and disarm the next file |
+| Write a test that resolves a key | Tests | `conftest` clears every `KEY_ENV` name; a test must never read the machine's own |
 | Speed the service up | Web service | Concurrency is settled and measured; 78% of a build is ffmpeg |
 | Change the voice provider | Architecture, two providers | Polly's marks are ms with starts and no durations, billed twice |
 | Reach for a version of ffmpeg | Tests | Three are in play and they disagree about libass |
@@ -120,6 +121,26 @@ is never bound. It exists because a thumbnail ranking ran through an undefined
 variable for months behind a bare `except`. It deliberately ignores unused
 imports, so the signal stays worth reading, and it carries a test proving the
 gate itself can still fail.
+
+**No test reads this machine's credentials, and CI proves it.** `config.env()`
+prefers `os.environ` over every dotenv, deliberately, so a developer with real
+keys exported hands them to anything that resolves one.
+`test_env_handles_a_bom` asserted against a live `GEMINI_API_KEY` that way: red
+on the machine it was written on, green in CI, and reported as a `main` failure
+through two PRs before anyone read it. An autouse fixture in `conftest.py` now
+clears every name in `KEY_ENV` before each test, which also means no test can
+spend real Gemini quota or reach a provider by accident. It reads `KEY_ENV`
+rather than keeping a second list, so a credential added there is covered
+without anyone remembering the fixture exists.
+
+Two things keep that guard honest, because a guard nobody can see fail is the
+recurring shape in this file.
+`test_no_test_can_see_this_machines_credentials` fails if the fixture is
+removed, the same way `test_lint.py` carries proof its own gate still works. And
+the ubuntu job runs the suite a **second** time with dummy credentials in the
+environment, because CI exporting nothing is precisely the configuration in
+which this class of fault cannot fail. Anything reading a credential by a route
+the fixture cannot see goes red there instead of on one person's laptop.
 
 **Build scenes with `make_scene()` from `tests/conftest.py`, never by hand.**
 Word timings drive the edit, the captions and the mix, so a test only means
