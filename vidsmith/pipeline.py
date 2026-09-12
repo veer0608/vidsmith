@@ -184,6 +184,8 @@ KEY_ENV = {
     "aws_key": "AWS_ACCESS_KEY_ID",
     "aws_secret": "AWS_SECRET_ACCESS_KEY",
     "aws_region": "AWS_REGION",
+    "yt_client": "YOUTUBE_CLIENT_ID",
+    "yt_secret": "YOUTUBE_CLIENT_SECRET",
 }
 
 KEY_NOTES = {
@@ -193,6 +195,8 @@ KEY_NOTES = {
     "aws_key": "only for voice.provider: polly - see COMMERCIAL.md",
     "aws_secret": "the secret half of the polly access key",
     "aws_region": "required alongside the AWS key, e.g. ap-south-1",
+    "yt_client": "only for vidsmith upload - a Desktop app OAuth client",
+    "yt_secret": "the secret half of that OAuth client",
 }
 
 

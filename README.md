@@ -118,6 +118,7 @@ Or have Gemini draft one:
 | `vidsmith thumbs NAME [--count 6]` | rank thumbnail frames, compose a titled one |
 | `vidsmith thumbs NAME --refresh` | redo the delivery thumbnails from stock, no re-render |
 | `vidsmith check NAME` | read a finished build for faults before publishing it |
+| `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 
 Useful `build` flags:
@@ -364,6 +365,51 @@ looked correct on its own and wrong beside the next one, which is the case a tes
 over the code that wrote them does not catch. It calls no model and no network,
 so it works on a day the quota is gone, which is when a hurried refresh is most
 likely to be published anyway.
+
+## Uploading it
+
+```bash
+.venv/bin/python -m vidsmith upload demo
+```
+
+`check` runs first and refuses the upload if it finds anything, because every
+fault it looks for is worse once the video is public and taking it down does not
+unpublish it. `--force` uploads anyway, after printing what it found.
+
+It sends three things, because YouTube takes them at three endpoints: the mp4
+with the title, description and tags from `youtube.json`; the thumbnail; and
+`captions.srt` as a real caption track. That last one is the point. Leave it out
+and YouTube transcribes the audio itself, which is how a published video here
+ended up carrying a machine transcript of narration whose exact word timings were
+sitting in the repository.
+
+All three files are resolved by the same aspect tag, so `--aspect 9:16` uploads
+the vertical cut with the vertical cut's description. Publishing the widescreen
+description under a Shorts cut names photographers whose clips are not in it,
+which is a licence problem rather than a cosmetic one.
+
+Uploads are `private` by default. Read the listing, then flip it to public
+yourself and verify what is actually live:
+
+```bash
+.venv/bin/python -m vidsmith check demo --published VIDEO_ID
+```
+
+Setting it up is a one-off. In Google Cloud, enable the **YouTube Data API v3**,
+create an OAuth client of type **Desktop app**, and put its two values in `.env`:
+
+```
+YOUTUBE_CLIENT_ID=...
+YOUTUBE_CLIENT_SECRET=...
+```
+
+The first upload opens Google's consent screen in your browser and writes the
+refresh token to `.youtube-token.json`, which is gitignored. Nothing else is
+stored, and the token can be revoked at
+[myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+
+Note the daily quota: the API costs about 1600 units for one `videos.insert`
+against a default allowance of 10,000, so roughly six uploads a day.
 
 ## The look
 

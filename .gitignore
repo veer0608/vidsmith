@@ -24,3 +24,6 @@ web/__pycache__/
 # Launch drafts. Local working notes, deliberately not published: the posts
 # should be read where they are posted, not found in the repo beforehand.
 docs/launch-*.md
+
+# the YouTube refresh token vidsmith upload writes after the consent screen
+.youtube-token.json
