@@ -99,7 +99,9 @@ def test_every_aspect_has_even_dimensions(aspect):
     assert w % 2 == 0 and h % 2 == 0
 
 
-def test_env_reads_dotenv_files(tmp_path):
+def test_env_reads_dotenv_files(tmp_path, monkeypatch):
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
     a = tmp_path / "a.env"
     a.write_text('PEXELS_API_KEY="from-a"\n# comment\n', encoding="utf-8")
     b = tmp_path / "b.env"
@@ -110,8 +112,9 @@ def test_env_reads_dotenv_files(tmp_path):
     assert env("NOT_SET_ANYWHERE", a, b) == ""
 
 
-def test_env_handles_a_bom(tmp_path):
+def test_env_handles_a_bom(tmp_path, monkeypatch):
     """Windows editors write UTF-8 with a BOM and it lands on the first key."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     path = tmp_path / "bom.env"
     path.write_text("GEMINI_API_KEY=abc\n", encoding="utf-8-sig")
     assert env("GEMINI_API_KEY", path) == "abc"
