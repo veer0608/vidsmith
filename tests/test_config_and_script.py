@@ -6,12 +6,14 @@ after, which is how a project ended up with amber captions on an ink theme.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 import yaml
 
 from vidsmith.config import (ASPECTS, CaptionConfig, Config, env, load_config,
                              write_default_config)
-from vidsmith.pipeline import _apply_overrides, _slug
+from vidsmith.pipeline import KEY_ENV, _apply_overrides, _slug
 from vidsmith.script_parser import load_scenes, parse_script, save_scenes
 
 
@@ -110,6 +112,17 @@ def test_env_reads_dotenv_files(tmp_path, monkeypatch):
     assert env("PEXELS_API_KEY", a, b) == "from-a"
     assert env("PEXELS_API_KEY", tmp_path / "missing.env", b) == "from-b"
     assert env("NOT_SET_ANYWHERE", a, b) == ""
+
+
+def test_no_test_can_see_this_machines_credentials():
+    """The conftest fixture, proved rather than assumed.
+
+    This is the test that goes red if the fixture is removed or if a name is
+    added to KEY_ENV in a way it cannot reach. Without it the guard is only
+    load-bearing on a machine that happens to have keys exported, which is the
+    same blind spot that let the BOM fault sit through two PRs.
+    """
+    assert [var for var in KEY_ENV.values() if var in os.environ] == []
 
 
 def test_env_handles_a_bom(tmp_path, monkeypatch):
