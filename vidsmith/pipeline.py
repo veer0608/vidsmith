@@ -9,7 +9,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 from . import captions as cap
 from . import ffmpeg_util as ff
@@ -46,7 +46,35 @@ class Project:
             d.mkdir(parents=True, exist_ok=True)
 
 
-def invalidate(proj: "Project", log=print) -> None:
+def _prune(path: Path, owned) -> int:
+    """Drop the entries some scenes own from an index-keyed cache file.
+
+    `rerank.json` and `diagram_scenes.json` key on the scene index; `credits.json`
+    keys on `index:shot`. One predicate reads both because it only ever looks at
+    the part before the colon.
+
+    A file that will not parse is deleted rather than rewritten. The alternative
+    is trusting it, and every fault in this family started with a stale cache
+    that looked fine.
+    """
+    if not path.exists():
+        return 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict):
+        path.unlink(missing_ok=True)
+        return 1
+    kept = {k: v for k, v in data.items() if not owned(str(k))}
+    if len(kept) == len(data):
+        return 0
+    path.write_text(json.dumps(kept, indent=2), encoding="utf-8")
+    return 1
+
+
+def invalidate(proj: "Project", log=print,
+               only: Optional[Set[int]] = None) -> None:
     """Drop everything keyed by scene index after the script changes.
 
     The diagram decisions, the rerank verdicts and the attribution ledger are all
@@ -56,35 +84,92 @@ def invalidate(proj: "Project", log=print) -> None:
 
     The downloaded footage in cache/ survives: it is keyed by provider id, so it
     is still valid and still worth not fetching twice.
+
+    `only` narrows this to the scenes whose *picture* moved, which is what an
+    edited `[visual: ...]` line changes and nothing else. Their clips and their
+    cache entries go; the narration, the word timings and every other scene's
+    footage stay, because none of them can have changed. Without it, rewording
+    one directive re-ranked all seven scenes of a build - a vision call each,
+    against a daily budget that is not reported anywhere.
     """
     removed = 0
-    # narration.wav is the one that actually reached the viewer: it is only
-    # rebuilt when it is missing, so a redraft left the previous script's voice
-    # mixed under the new picture and simply truncated to the shorter runtime.
-    for name in ("diagram_scenes.json", "diagrams.json", "narration.wav"):
-        path = proj.build / name
-        if path.exists():
-            path.unlink()
-            removed += 1
-    for vis in proj.build.glob("visuals*"):
-        if not vis.is_dir():
-            continue
-        for name in ("rerank.json", "credits.json"):
-            path = vis / name
+    scoped = only is not None
+    wanted = {str(i) for i in (only or ())}
+
+    def owned(key: str) -> bool:
+        return key.split(":")[0] in wanted
+
+    if scoped:
+        for name in ("diagram_scenes.json", "diagrams.json"):
+            removed += _prune(proj.build / name, owned)
+    else:
+        # narration.wav is the one that actually reached the viewer: it is only
+        # rebuilt when it is missing, so a redraft left the previous script's
+        # voice mixed under the new picture and simply truncated to the shorter
+        # runtime.
+        for name in ("diagram_scenes.json", "diagrams.json", "narration.wav"):
+            path = proj.build / name
             if path.exists():
                 path.unlink()
                 removed += 1
-        stale = (list(vis.glob("scene_*.mp4"))
-                 + list(vis.glob("intro*.mp4"))
-                 + list(vis.glob("end*.mp4")))
+
+    for vis in proj.build.glob("visuals*"):
+        if not vis.is_dir():
+            continue
+        if scoped:
+            for name in ("rerank.json", "credits.json"):
+                removed += _prune(vis / name, owned)
+            # the title and end cards are drawn from the title, not from any
+            # scene's directive, so a scoped drop leaves them alone
+            stale = [clip for i in sorted(wanted, key=int)
+                     for clip in vis.glob(f"scene_{int(i):03d}_*.mp4")]
+        else:
+            for name in ("rerank.json", "credits.json"):
+                path = vis / name
+                if path.exists():
+                    path.unlink()
+                    removed += 1
+            stale = (list(vis.glob("scene_*.mp4"))
+                     + list(vis.glob("intro*.mp4"))
+                     + list(vis.glob("end*.mp4")))
         for clip in stale:
             clip.unlink()
             removed += 1
+
+    # the cut is a concatenation of the clips, so it goes either way
     for picture in proj.build.glob("picture*.mp4"):
         picture.unlink()
         removed += 1
-    if removed:
+
+    if removed and scoped:
+        n = len(wanted)
+        log(f"script   the shot changed on {n} scene{'' if n == 1 else 's'}; "
+            f"dropped {removed} stale artifacts and kept the narration")
+    elif removed:
         log(f"script   changed since the last build; dropped {removed} stale artifacts")
+
+
+def carry_timings(cached: List[Scene], fresh: List[Scene],
+                  redrawn: Set[int]) -> List[Scene]:
+    """Keep the voice on a picture-only edit, and drop only the picture.
+
+    The freshly parsed scenes are authoritative about the script - they hold the
+    new directive and the new diagram - so the timings are copied onto them
+    rather than the cached scenes being kept and patched.
+
+    A scene whose picture did not move also keeps its `query`, because
+    `llm.suggest_queries()` wrote that one and a re-parse loses it back to the
+    heading fallback. Without this the model is asked again for every undirected
+    scene in the script, which is the cost this whole path exists to avoid.
+    """
+    for old, new in zip(cached, fresh):
+        new.audio = old.audio
+        new.words = old.words
+        new.duration = old.duration
+        new.start = old.start
+        if new.index not in redrawn:
+            new.query = old.query
+    return fresh
 
 
 # The keys this project reads, and the variable each comes from. One mapping,
@@ -159,11 +244,19 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # reuse cached timings/queries unless the script changed under them
     if scenes_json.exists():
         cached = load_scenes(scenes_json)
-        same = len(cached) == len(scenes) and all(
-            c.source_key() == s.source_key() for c, s in zip(cached, scenes)
-        )
-        if not same:
+        aligned = len(cached) == len(scenes)
+        spoken = aligned and all(c.narration_key() == s.narration_key()
+                                 for c, s in zip(cached, scenes))
+        # the scenes whose "[visual: ...]" or "[diagram: ...]" line moved, which
+        # is a change to the picture and to nothing else
+        redrawn = {s.index for c, s in zip(cached, scenes)
+                   if c.picture_key() != s.picture_key()} if aligned else set()
+        if not spoken:
             invalidate(proj, log)
+        elif redrawn:
+            invalidate(proj, log, only=redrawn)
+            if "voice" not in force and "parse" not in force:
+                scenes = carry_timings(cached, scenes, redrawn)
         elif "voice" not in force and "parse" not in force:
             scenes = cached
             log("         reusing cached scene timings")

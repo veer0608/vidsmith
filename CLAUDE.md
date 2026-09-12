@@ -309,6 +309,21 @@ competing with the voice.
   nothing tying them to the words. `pipeline.invalidate()` drops them when the
   script changes; `build/visuals*/cache/` survives, being keyed by provider id.
   A missed entry here put the previous script's voice under a new picture.
+  **Then dropping all of it on every edit became its own cost.** Rewording one
+  `[visual: ...]` line re-voiced the script and re-ranked all seven scenes of a
+  build, twice, once per aspect: a vision call each, against a Gemini budget
+  that is reported in no header. A scene is now compared as two halves.
+  `narration_key()` is the heading, the text and the `hold` - anything that
+  moves the timings, and a change there still drops everything. `picture_key()`
+  is the `[visual: ...]` and `[diagram: ...]` directives, and a change there
+  calls `invalidate(only={indices})`, which prunes those scenes' entries out of
+  the index-keyed caches, deletes their clips and the cut, and leaves the
+  narration, the untouched scenes' footage and the cards alone. Two rules hold
+  it together: `source_key()` is built from the two halves rather than listing
+  the fields again, and `carry_timings()` copies the cached timings onto the
+  *fresh* scenes, so the new directive is always the one that survives. An
+  unedited scene keeps its cached `query` there too, because a re-parse loses a
+  model-written search back to the heading fallback and asks for it again.
 - **Sizes must key off frame WIDTH, never height.** 15% of 1920 is not the same
   kind of quantity as 15% of 1080; keying box heights to height made portrait
   diagrams nearly square. Portrait then gets larger type deliberately.
