@@ -1,0 +1,98 @@
+# The second probe. The first one measured the wrong thing, on purpose worth
+# recording rather than quietly replacing.
+#
+# `narration-hang.yml` called build_narration 3000 times per arm, bounded pad and
+# bare apad, and got zero hangs either way. That is not an inconclusive result.
+# At the historical 4.4% a bare apad would have produced about 130 hangs in 3000
+# trials, so the hang is not a property of that call in isolation, and the pad
+# cannot be credited with fixing what it may never have caused.
+#
+# What that probe removed was the suite around the call. This repo already knows
+# that matters: module state and threads outlive their tests here, and
+# test_filter_paths sorting ahead of test_integration once left every later file
+# running with a timeout value the job had not set.
+#
+# So the unit here is one whole suite run, invoked exactly as the CI job invokes
+# it, which is also the unit the 4.4% was measured in. Both arms are kept,
+# because "is the fix real" is still open and either arm going red also hands us
+# the reproduction loop we do not yet have.
+#
+# Manual only. A diagnostic, not a gate.
+name: narration hang probe (suite)
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "wall-clock budget per shard, in minutes"
+        default: "20"
+      ffmpeg_timeout:
+        description: "VIDSMITH_FFMPEG_TIMEOUT; CI uses 45"
+        default: "45"
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [bounded, bare]
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Ask the binary what it is
+        run: |
+          ffmpeg -hide_banner -version
+          ffprobe -hide_banner -version
+
+      # requirements-web too, or the web tests skip themselves and the suite
+      # being looped is not the suite that hangs.
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      # Refuses rather than proceeding if the target has moved. Two identical
+      # arms would answer the question confidently and wrongly.
+      - name: Restore the unbounded pad
+        if: matrix.arm == 'bare'
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          p = pathlib.Path("vidsmith/render.py")
+          src = p.read_text(encoding="utf-8")
+          old = '    pad = f"apad=whole_dur={total:.3f}"'
+          new = '    pad = "apad"'
+          if old not in src:
+              sys.exit("patch target not found; render.py has moved on and this "
+                       "workflow is measuring something it does not understand")
+          p.write_text(src.replace(old, new, 1), encoding="utf-8")
+          print("patched to bare apad")
+          PY
+
+      # The bare arm deliberately breaks the tests that assert the bound, so
+      # those failures are expected and are counted as other-failures rather
+      # than hangs. Saying so here means nobody reads the first red as a finding.
+      - name: Confirm which pad this job will actually run
+        run: |
+          python -c "import inspect,sys; sys.path.insert(0,'.'); from vidsmith import render; print([l.strip() for l in inspect.getsource(render.build_narration).splitlines() if 'pad =' in l][0])"
+
+      - name: Probe
+        env:
+          PROBE_ARM: ${{ matrix.arm }}
+          PROBE_SHARD: ${{ matrix.shard }}
+        run: |
+          echo "| arm | shard | suite runs | hangs | rate | other failures |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- | --- | --- | --- | --- |" >> $GITHUB_STEP_SUMMARY
+          python scripts/suite_hang_probe.py \
+            --minutes ${{ github.event.inputs.minutes }} \
+            --ffmpeg-timeout ${{ github.event.inputs.ffmpeg_timeout }}
