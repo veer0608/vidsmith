@@ -16,6 +16,7 @@ import edge_tts
 from .config import VoiceConfig
 from .script_parser import Scene
 from . import ffmpeg_util as ff
+from . import manifest
 
 TICKS = 1e7  # edge-tts reports offsets in 100-nanosecond ticks
 MAX_CONCURRENCY = 3
@@ -63,6 +64,7 @@ async def _edge(scene: Scene, out: Path, cfg: VoiceConfig) -> List[Dict[str, Any
     for attempt in range(RETRIES):
         words: List[Dict[str, Any]] = []
         chunks: List[bytes] = []
+        manifest.note("voice", "edge", requests=1)
         try:
             comm = edge_tts.Communicate(
                 scene.text,
@@ -86,6 +88,7 @@ async def _edge(scene: Scene, out: Path, cfg: VoiceConfig) -> List[Dict[str, Any
             if not chunks:
                 raise RuntimeError("edge-tts returned no audio")
             out.write_bytes(b"".join(chunks))
+            manifest.note("voice", "edge", characters=len(scene.text))
             return words
         except Exception as exc:  # network hiccups against the MS endpoint are common
             last_err = exc

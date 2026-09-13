@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
+from . import manifest
+
 _CACHE: dict[str, str] = {}
 
 # `-progress` writes plain key=value lines. `out_time` is the one worth keeping;
@@ -151,7 +153,8 @@ def run(args: List[str], quiet: bool = True,
     cmd += args
     limit = timeout_limit() if timeout is None else timeout
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
+        with manifest.timed("ffmpeg", "encode"):
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
     except subprocess.TimeoutExpired as expired:
         # Whatever ffmpeg managed to say before it was killed is the only
         # evidence there is about where it stopped. Discarding it left a macOS
@@ -181,15 +184,16 @@ def run(args: List[str], quiet: bool = True,
 
 
 def probe(path: Path) -> dict:
-    proc = subprocess.run(
-        [
-            ffprobe_bin(), "-v", "error", "-print_format", "json",
-            "-show_format", "-show_streams", str(path),
-        ],
-        # reading a header should be instant; a minute means the file is a pipe,
-        # a dead network mount, or truncated mid-write by another build
-        capture_output=True, text=True, timeout=60,
-    )
+    with manifest.timed("ffmpeg", "probe"):
+        proc = subprocess.run(
+            [
+                ffprobe_bin(), "-v", "error", "-print_format", "json",
+                "-show_format", "-show_streams", str(path),
+            ],
+            # reading a header should be instant; a minute means the file is a
+            # pipe, a dead network mount, or truncated mid-write by another build
+            capture_output=True, text=True, timeout=60,
+        )
     if proc.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {path}: {proc.stderr.strip()[:300]}")
     return json.loads(proc.stdout)

@@ -21,6 +21,7 @@ import requests
 
 from . import cards
 from . import llm
+from . import manifest
 from . import ffmpeg_util as ff
 from .theme import Theme, hex_rgb
 
@@ -205,7 +206,8 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
     previews, kept = [], []
     for photo in photos[:8]:
         try:
-            r = requests.get(photo["preview"], timeout=45)
+            with manifest.timed("stock", "previews"):
+                r = requests.get(photo["preview"], timeout=45)
             r.raise_for_status()
             img = Image.open(BytesIO(r.content)).convert("RGB")
             img.thumbnail((384, 384), Image.LANCZOS)
@@ -240,9 +242,11 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
 
     dest = workdir / f"stock_{chosen['id']}.jpg"
     try:
-        r = requests.get(chosen["url"], timeout=60)
+        with manifest.timed("stock", "downloads"):
+            r = requests.get(chosen["url"], timeout=60)
         r.raise_for_status()
         dest.write_bytes(r.content)
+        manifest.note("stock", "downloads", bytes=len(r.content))
     except Exception as exc:
         log(f"         stock thumbnail download failed ({exc})")
         return None

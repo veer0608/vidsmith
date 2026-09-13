@@ -572,6 +572,23 @@ meta    -> out/youtube.txt      title, description, chapters, tags
 Every stage skips work it already has on disk, so a failed encode never costs
 you the narration again. `--force` names the stages to redo.
 
+Every run, including one that fails or stops early, writes
+`build/manifest.json` (`manifest-9x16.json` for a vertical cut): how long each
+stage took, how much of that was ffmpeg, every Gemini request by the helper that
+made it with its retries and waits, stock searches against cache hits, and the
+characters sent to the voice. A 20-second video on local footage:
+
+```
+seconds 29.4   share: ffmpeg 75%, model 15%
+voice    2.3s  edge: 4 requests, 273 characters
+visuals  6.4s  ffmpeg: 5 calls, 6.1s
+render  20.7s  ffmpeg: 46 calls, 15.4s   pick_thumbnail: 1 request, 4.3s
+```
+
+Polly bills the audio and the word timings as separate requests, so its
+character count comes out at twice the script, which is what you are charged
+for.
+
 ## Output
 
 ```

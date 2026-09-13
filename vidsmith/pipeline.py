@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 from . import captions as cap
 from . import ffmpeg_util as ff
-from . import cards, llm, music, render, thumbs, visuals, voice
+from . import cards, llm, manifest, music, render, thumbs, visuals, voice
 from .config import Config, aspect_tag, load_config
 from .theme import resolve as resolve_theme
 from .script_parser import Scene, load_scenes, parse_script, save_scenes
@@ -219,6 +219,29 @@ def find_keys(project_root: Path) -> Dict[str, str]:
 
 def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
           overrides: Optional[Dict[str, str]] = None, log=print) -> Path:
+    """Build the project, and write `build/manifest{tag}.json` however it ends.
+
+    The manifest is written from here rather than at each return inside the
+    build, because the build returns early at every `--stop-after` stage and can
+    fail anywhere: one writer on the way out is the only one that cannot miss a
+    path. A cancellation from the web page is a BaseException, not an Exception,
+    and is recorded as that rather than as a failure.
+    """
+    with manifest.recording() as rec:
+        try:
+            result = _build(project_root, force, stop_after, overrides, log, rec)
+        except BaseException as exc:
+            rec.finish("failed" if isinstance(exc, Exception) else "cancelled", exc)
+            rec.write()
+            raise
+        rec.finish(f"stopped after {stop_after}"
+                   if stop_after and stop_after != STAGES[-1] else "done")
+        rec.write()
+        return result
+
+
+def _build(project_root: Path, force: Sequence[str], stop_after: str,
+           overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder) -> Path:
     started = time.time()
     proj = Project(project_root)
     if not proj.script.exists():
@@ -232,6 +255,13 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # Picture, captions and the delivery file all depend on frame size, so each
     # aspect gets its own artifacts. Narration is shape-independent and shared.
     tag = aspect_tag(cfg.render.aspect)
+    rec.target = proj.build / f"manifest{tag}.json"
+    from . import build_info
+
+    rec.fact("project", project_root.name)
+    rec.fact("aspect", cfg.render.aspect)
+    rec.fact("commit", build_info.commit())
+    rec.fact("voice", f"{cfg.voice.provider} {cfg.voice.name}")
     theme = resolve_theme(cfg.theme.preset, cfg.theme.accent, cfg.theme.font)
     keys = find_keys(project_root)
     force = set(force)
@@ -240,6 +270,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     def done(stage: str) -> bool:
         return bool(stop_after) and STAGES.index(stage) >= STAGES.index(stop_after)
 
+    rec.enter("parse")
     # ---- parse ---------------------------------------------------------- #
     title, scenes = parse_script(proj.script)
     resolve_title(proj, cfg, title)
@@ -268,6 +299,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         save_scenes(scenes, scenes_json)
         return scenes_json
 
+    rec.enter("queries")
     # ---- b-roll queries -------------------------------------------------- #
     if cfg.visuals.provider in ("pexels", "pixabay") and keys["gemini"]:
         filled = llm.suggest_queries(scenes, keys["gemini"], log=log)
@@ -277,6 +309,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         save_scenes(scenes, scenes_json)
         return scenes_json
 
+    rec.enter("voice")
     # ---- narration ------------------------------------------------------- #
     log(f"voice    {cfg.voice.name} at {cfg.voice.rate} via {cfg.voice.provider}")
     voice.narrate(scenes, proj.build / "audio", cfg.voice,
@@ -301,6 +334,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if done("voice"):
         return scenes_json
 
+    rec.enter("visuals")
     # ---- visuals --------------------------------------------------------- #
     log(f"visuals  provider={cfg.visuals.provider} {cfg.size[0]}x{cfg.size[1]}")
     if cfg.visuals.provider == "pexels" and not keys["pexels"]:
@@ -309,6 +343,8 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if cfg.visuals.provider == "pixabay" and not keys["pixabay"]:
         log("         no PIXABAY_API_KEY found - generating cards instead")
         cfg.visuals.provider = "cards"
+    # after the fallback: the provider actually used, not the one asked for
+    rec.fact("footage", cfg.visuals.provider)
     # `--force diagrams` is separate from `--force visuals` on purpose. Whether a
     # scene is drawn is an editorial decision about the narration, so it is made
     # once and every aspect obeys it; clearing it whenever footage is rebuilt
@@ -350,6 +386,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if done("visuals"):
         return proj.build / f"visuals{tag}"
 
+    rec.enter("captions")
     # ---- captions -------------------------------------------------------- #
     ass: Optional[Path] = proj.build / f"captions{tag}.ass"
     srt = proj.out / f"captions{tag}.srt"
@@ -371,6 +408,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     if done("captions"):
         return ass or proj.build
 
+    rec.enter("render")
     # ---- render ---------------------------------------------------------- #
     narration = proj.build / "narration.wav"
     if not narration.exists() or "render" in force or "voice" in force:
@@ -450,6 +488,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     # build that got that far. One call site rather than one per return path:
     # a second copy of this line is how the two would drift apart.
     if not done("render"):
+        rec.enter("meta")
         # ---- upload metadata --------------------------------------------- #
         if keys["gemini"]:
             try:

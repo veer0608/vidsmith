@@ -8,12 +8,16 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sys
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import requests
 
+from . import manifest
 from .script_parser import Scene
 
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -147,8 +151,35 @@ def _network_failure(exc: Exception, api_key: str) -> str:
     return said.replace(api_key, "<key>") if api_key else said
 
 
+# Which helper a request belongs to, so a build manifest says "rank_clips made 14
+# requests" rather than "Gemini made 40". Read off the calling frame rather than
+# passed in, so none of the seven helpers can forget to pass it.
+_CALLER: ContextVar[str] = ContextVar("vidsmith_llm_caller", default="unknown")
+
+
+@contextmanager
+def _counted(caller: str, model: str) -> Iterator[None]:
+    """Time one model call for the build manifest, and count it if it fails."""
+    token = _CALLER.set(caller)
+    manifest.collect("models", model)
+    try:
+        with manifest.timed("model", caller):
+            yield
+    except LLMUnavailable as exc:
+        manifest.note("model", caller, failed=1, gave_up=int(isinstance(exc, GaveUp)))
+        raise
+    finally:
+        _CALLER.reset(token)
+
+
 def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
              temperature: float = 0.4, retries: int = 4, log=None) -> str:
+    with _counted(sys._getframe(1).f_code.co_name, model):
+        return _generate(prompt, api_key, model, temperature, retries, log)
+
+
+def _generate(prompt: str, api_key: str, model: str, temperature: float,
+              retries: int, log) -> str:
     if not api_key:
         raise LLMUnavailable("no GEMINI_API_KEY")
     body = {
@@ -157,6 +188,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
     }
     last = ""
     for attempt in range(retries):
+        manifest.note("model", _CALLER.get(), requests=1)
         try:
             r = requests.post(
                 ENDPOINT.format(model=model),
@@ -167,6 +199,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
         except requests.RequestException as exc:
             # as transient as a 503, so it gets the same backoff
             last = _network_failure(exc, api_key)
+            manifest.note("model", _CALLER.get(), retries=1, waited_seconds=2 ** attempt)
             time.sleep(2 ** attempt)
             continue
         pause = _refuse_if_spent(r)
@@ -177,6 +210,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
             # is deliberate, so say whose limit is being waited out
             if log and wait > 8:
                 log(f"    waiting {wait:.0f}s: {model} is over its rate limit")
+            manifest.note("model", _CALLER.get(), retries=1, waited_seconds=wait)
             time.sleep(wait)
             continue
         if r.status_code != 200:
@@ -194,6 +228,12 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
                     model: str = DEFAULT_MODEL, temperature: float = 0.1,
                     retries: int = 3, log=None) -> str:
     """Same call as generate(), with JPEG stills attached before the prompt."""
+    with _counted(sys._getframe(1).f_code.co_name, model):
+        return _generate_vision(prompt, images, api_key, model, temperature, retries, log)
+
+
+def _generate_vision(prompt: str, images: Sequence[bytes], api_key: str, model: str,
+                     temperature: float, retries: int, log) -> str:
     if not api_key:
         raise LLMUnavailable("no GEMINI_API_KEY")
     parts: List[Dict[str, Any]] = []
@@ -212,12 +252,14 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
     }
     last = ""
     for attempt in range(retries):
+        manifest.note("model", _CALLER.get(), requests=1)
         try:
             r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
                               json=body, timeout=180)
         except requests.RequestException as exc:
             # as transient as a 503, so it gets the same backoff
             last = _network_failure(exc, api_key)
+            manifest.note("model", _CALLER.get(), retries=1, waited_seconds=2 ** attempt)
             time.sleep(2 ** attempt)
             continue
         pause = _refuse_if_spent(r)
@@ -228,6 +270,7 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
             # is deliberate, so say whose limit is being waited out
             if log and wait > 8:
                 log(f"    waiting {wait:.0f}s: {model} is over its rate limit")
+            manifest.note("model", _CALLER.get(), retries=1, waited_seconds=wait)
             time.sleep(wait)
             continue
         if r.status_code != 200:

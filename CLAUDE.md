@@ -874,6 +874,21 @@ parent and repo root, then two sibling projects' `.env` files. Nothing key-drive
 is required: with no keys at all the build still produces narrated, captioned
 video over generated cards.
 
+**Unsetting `GEMINI_API_KEY` in the shell does not stop a build calling Gemini.**
+The sibling `.env` files still resolve, so a build "with the key unset" spent a
+`pick_thumbnail` request anyway, which nothing reported until the build manifest
+counted it. To see what a build actually spent, read `totals.model` in
+`build/manifest{tag}.json` rather than assuming from the environment.
+
+**The manifest is written by `pipeline.build()` on the way out, never inside
+the build.** The body is `_build()`, which returns early at every `--stop-after`
+stage and can fail anywhere; one writer in the wrapper is what catches a failed
+or cancelled run. Recording is a context variable, so a call made outside a
+build records nothing, and `asyncio.to_thread` workers (Polly) still report into
+the build that started them. Counts sit under `totals`, never beside the facts:
+the first real manifest had its `voice` fact overwritten by the `voice` counts.
+Source-inspecting tests that look for build logic read `_build`, not `build`.
+
 `ffmpeg_util` resolves ffmpeg from `FFMPEG_BINARY`, then `bin/`, then PATH, then
 the winget package directory. A host with no package manager fetches a static
 build at deploy time via `scripts/fetch-runtime-deps.sh`. The themes name Windows
@@ -967,6 +982,9 @@ win is already taken - both the per-shot encodes and the master pass run
 `veryfast`, and `crf` is what holds quality. Measure before reopening this; the
 numbers above came from wrapping `ff.run`, `ff.probe` and
 `requests.Session.request` and attributing each call to the running stage.
+Every build now does that itself: `build/manifest{tag}.json` carries seconds per
+stage, ffmpeg time within each, and a `share` line. The first real one, a
+20-second local-footage build, put ffmpeg at 75%, which agrees with the table.
 
 Jobs live in memory under `jobs/<id>/` and are swept an hour after finishing, so
 anything worth keeping is copied into `projects/`. `VIDSMITH_TOKEN` gates the
