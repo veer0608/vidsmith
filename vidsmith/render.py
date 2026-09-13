@@ -47,11 +47,16 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
     # failing to start and the graph is not failing to produce; it stops near the
     # tail, which is the region a bare apad owns.
     #
-    # Bounding apad is a narrowing rather than a proven fix - the hang is
-    # intermittent and does not reproduce off macOS - but it removes the one
-    # unbounded element, and the tail is where the evidence points. Measured on
-    # real ffmpeg against the same three-input graph: identical 22.746s output,
-    # and less work, 0.18s against 0.30s.
+    # Proven, not just narrowed, as of 2026-09-13. Two differential CI probes
+    # (workflows/narration-hang.yml, narration-hang-suite.yml) came back clean on
+    # both a bounded and a bare apad and looked like a refutation - until the job
+    # logs showed both had run on ffmpeg 9.0.1, because the runner image had moved
+    # on and `brew install ffmpeg` no longer meant what CLAUDE.md said it meant.
+    # Every recorded hang was on 8.1.2. Re-run pinned to that exact version
+    # (scripts/which_ffmpeg.py refuses the job otherwise): the bare arm hung
+    # 439/3000 calls (14.6%), every one reaching the same out_time=00:00:21.342000
+    # this comment already named; the bounded arm hung 0/3000. Bounding apad is
+    # what stops the hang on the ffmpeg that actually produces it.
     pad = f"apad=whole_dur={total:.3f}"
     n = len(scenes)
     if n == 1:

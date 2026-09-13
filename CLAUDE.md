@@ -109,8 +109,13 @@ suite for twenty-five minutes and reported nothing: a hang produces no output,
 and a per-test timeout turns it into a failing test with a traceback.
 
 **Three ffmpegs are in play and they do not agree.** Ubuntu 6.1.1 on the
-instance, winget 9.0 on this machine, Homebrew 8.1.2 on the macOS runner - and
-that last one is built without libass, so it has no `subtitles` filter at all.
+instance, winget 9.0 on this machine, Homebrew on the macOS runner - unpinned
+in the regular `tests.yml` job, so it floats to whatever Homebrew's snapshot
+currently ships (8.1.2 through 2026-09-04, 9.0.1 from 2026-09-08; see the
+narration-hang entry below for what that floating cost a debugging session).
+Both versions ship without libass, confirmed on 9.0.1 the same way as 8.1.2, so
+`tests.yml` still reports "subtitles filter: absent" and has no `subtitles`
+filter at all regardless of which one lands.
 Never assume a capability from a version number: `ffmpeg_util.filters()` asks
 the binary and `require_filter()` names what is missing and what it costs. A CI
 job's installer can also succeed while installing nothing, so every job now runs
@@ -689,6 +694,28 @@ competing with the voice.
   it happens a seventh time, that reading is wrong and the pad is not the
   culprit: look at `amix` with `dropout_transition=0`, which is the other filter
   in the tail, and read the new `out_time` before theorising again.
+  **Proven, 2026-09-13, after two attempts that proved nothing.** A CI probe
+  (`workflows/narration-hang.yml`) called `build_narration` 3000 times with the
+  bounded pad and 3000 with the bare one it replaced: zero hangs either way. A
+  second probe (`narration-hang-suite.yml`) looped the whole suite 767 times
+  with the same two arms: zero hangs either way. Both looked like a refutation
+  of everything above. They were not measuring anything: both installed with
+  `brew install ffmpeg`, and by the time they ran that resolved to **9.0.1**.
+  Every hang on record was on **8.1.2** - the macOS runner image had moved on
+  between 2026-09-04 and 2026-09-08, `brew`'s snapshot moved with it, and
+  nothing had checked which version either probe actually ran.
+  Re-run pinned to `ffmpeg@8` (exactly 8.1.2), with `scripts/which_ffmpeg.py`
+  refusing the job outright if vidsmith's own resolver reports anything else:
+  bare **hung 439 of 3000 calls, 14.6%**, every single one reaching the same
+  `out_time=00:00:21.342000` this file already recorded from the real
+  incidents. Bounded hung **0 of 3000**. The fix holds, on the ffmpeg that
+  causes the fault - and reads as clean on a newer one only because that ffmpeg
+  does not reproduce the bug at all. Verifying a fix without first confirming
+  the environment reproduces the failure is the same mistake as reading a
+  healthy `-loglevel error` silence as evidence, three entries up: absence of
+  the symptom is not absence of the cause unless the trigger is actually
+  present. When any future ffmpeg-version bump touches this runner, re-run
+  `narration-hang.yml` before trusting green CI to mean the hang is gone.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did
