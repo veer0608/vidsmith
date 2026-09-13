@@ -260,6 +260,18 @@ def _search_cache_dir() -> Path:
     ))
 
 
+def search_cache_path(provider: str, parts: Sequence[Any],
+                      cache_dir: Optional[Path] = None) -> Path:
+    """Where a search's results are cached. One definition, because the rerank
+    benchmark finds past searches by this name and a second copy of the hash
+    would drift from it in silence. `cache_dir` lets it read another checkout's
+    cache; the default is this one's."""
+    slug = hashlib.sha1(
+        "\x1f".join([provider, *(str(p) for p in parts)]).encode("utf-8")
+    ).hexdigest()[:20]
+    return (cache_dir or _search_cache_dir()) / f"{provider}_{slug}.json"
+
+
 def _cached_search(provider: str, parts: Sequence[Any], fetch) -> List[Dict]:
     """Serve a repeated stock search from disk for `SEARCH_TTL` seconds.
 
@@ -269,10 +281,7 @@ def _cached_search(provider: str, parts: Sequence[Any], fetch) -> List[Dict]:
     read or written is not an error either, because a search that still works is
     better than a build that stops.
     """
-    slug = hashlib.sha1(
-        "\x1f".join([provider, *(str(p) for p in parts)]).encode("utf-8")
-    ).hexdigest()[:20]
-    path = _search_cache_dir() / f"{provider}_{slug}.json"
+    path = search_cache_path(provider, parts)
     try:
         if path.exists() and time.time() - path.stat().st_mtime < SEARCH_TTL:
             return json.loads(path.read_text(encoding="utf-8"))
@@ -286,6 +295,25 @@ def _cached_search(provider: str, parts: Sequence[Any], fetch) -> List[Dict]:
     except OSError:
         pass
     return results
+
+
+def preview_still(url: str) -> Optional[bytes]:
+    """A candidate's still, shrunk to what the reranker is shown.
+
+    Module level so the rerank benchmark judges exactly these bytes. A copy of
+    the resize and the JPEG quality in the benchmark would measure the model
+    against pictures production never sends.
+    """
+    try:
+        r = requests.get(url, timeout=TIMEOUT)
+        r.raise_for_status()
+        img = Image.open(BytesIO(r.content)).convert("RGB")
+        img.thumbnail((320, 320), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=72)
+        return buf.getvalue()
+    except Exception:
+        return None
 
 
 def pexels_search(query: str, key: str, orientation: str, want_h: int) -> List[Dict]:
@@ -548,17 +576,7 @@ class VisualBuilder:
 
     # -- vision reranking ---------------------------------------------------- #
     def _preview(self, url: str) -> Optional[bytes]:
-        """Fetch a candidate's still, small enough to be cheap to look at."""
-        try:
-            r = requests.get(url, timeout=TIMEOUT)
-            r.raise_for_status()
-            img = Image.open(BytesIO(r.content)).convert("RGB")
-            img.thumbnail((320, 320), Image.LANCZOS)
-            buf = BytesIO()
-            img.save(buf, "JPEG", quality=72)
-            return buf.getvalue()
-        except Exception:
-            return None
+        return preview_still(url)
 
     def _rerank(self, hits: List[Dict], scene: Scene, query: str) -> List[Dict]:
         """Reorder search results by what the stills actually show.

@@ -20,7 +20,7 @@ import pytest
 pytest.importorskip("pyflakes", reason="pyflakes is in requirements-dev.txt")
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGES = ("vidsmith", "web", "tests")
+PACKAGES = ("vidsmith", "web", "tests", "bench")
 
 # The faults worth failing a build over: a name that is not defined, a name used
 # before it is assigned, and a nonlocal or global that is never actually bound.
