@@ -487,6 +487,76 @@ Keys are read from the environment first, then from `.env` beside the project,
 its parent, and the repository root. Everything key-dependent is optional:
 narration, captions, cards, music and the encode need no key at all.
 
+## How it fits together
+
+```mermaid
+flowchart TD
+    topic(["draft_script"]) -. "or Gemini drafts one from a topic" .-> script
+    script["script.md"] --> parse
+
+    subgraph build ["vidsmith build"]
+        parse["parse<br/>scenes and directives"]
+        queries["queries<br/>one stock search per scene"]
+        voice["voice<br/>edge-tts or Polly"]
+        visuals["visuals<br/>footage cut on sentence ends"]
+        captions["captions<br/>karaoke .ass, .srt, .vtt"]
+        render["render<br/>narration, picture, master"]
+        meta["meta<br/>title, description, chapters"]
+
+        parse --> queries --> voice
+        voice -- "per-word timings" --> visuals
+        voice -- "per-word timings" --> captions
+        visuals --> captions --> render --> meta
+    end
+
+    subgraph gemini ["Gemini, all optional"]
+        sq(["suggest_queries"])
+        rc(["rank_clips"])
+        dd(["design_diagram"])
+        thumb(["thumbnail_query<br/>pick_thumbnail"])
+        um(["upload_metadata"])
+        sq ~~~ rc ~~~ dd ~~~ thumb ~~~ um
+    end
+
+    queries -. "no key: keywords" .- sq
+    visuals -. "no key: search order" .- rc
+    visuals -. "off by default" .- dd
+    render -. "no key: keyword search, first result" .- thumb
+    meta -. "no key: skipped" .- um
+
+    meta --> out["out/<br/>mp4, thumbnail, captions,<br/>description, credits"]
+    out --> check["vidsmith check<br/>delivered files against each other"]
+
+    classDef model stroke-dasharray: 4 3
+    class topic,sq,rc,dd,thumb,um model
+```
+
+Rounded, dashed boxes are Gemini calls. Every one is optional, and the dotted
+line says what a build does without it: with no keys at all the video still
+comes out, narrated and captioned over generated cards. Footage comes from
+Pexels, Pixabay or a local folder, and a provider with no key falls back to
+cards. Narration, scene timings and diagram specs live in `build/` and are
+shared by every aspect, so a vertical cut costs new footage and an encode, not
+more speech.
+
+```mermaid
+flowchart LR
+    page["browser page<br/>polls each stage"] --> api["FastAPI<br/>one render, three waiting"]
+    api --> pipeline["vidsmith build"]
+    pipeline --> past[("past searches<br/>and verdicts")]
+    past --> bench["bench/rank_clips<br/>collect, label, run, score"]
+    bench --> findings["FINDINGS.md"]
+    bench -.- rc2(["rank_clips"])
+
+    classDef model stroke-dasharray: 4 3
+    class rc2 model
+```
+
+The web service runs the same pipeline as the CLI, one encode at a time,
+because two x264 encodes on a small instance starve each other. The benchmark
+replays searches real builds made, and measures the reranker against the
+search's own order: [what it found](bench/rank_clips/FINDINGS.md).
+
 ## How a build is staged
 
 ```
