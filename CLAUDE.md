@@ -269,6 +269,25 @@ returns photographs of trees. A scene is drawn when the script says
 `[diagram: ...]` or when reranking rejects nearly every candidate. `diagram.py`
 renders a JSON spec (`flow`, `tree`, `stack`, `compare`) in the project theme.
 
+**And they are off by default, because the boxes read as slides.** Published
+videos kept cutting to "MARKDOWN TO SCENES" and "LICENSING OPTIONS" frames that
+explained the subject the way a deck would. `visuals.diagrams` now defaults to
+`false`, which gates all three triggers: an explicit directive, a stored model
+decision, and the on-reject substitution. Existing projects keep what their
+fully expanded `config.yaml` says, so an old project rebuilt still draws.
+
+Two layers keep a *drafted* script away from them, in the same shape as dashes.
+`SCRIPT_PROMPT` offers only `[visual:]` and teaches the hard case, an idea with no
+obvious subject, with worked examples that film the moment the idea touches a
+person or object; its output template no longer shows `[diagram:]`, because a
+template is followed more faithfully than any instruction above it. Then
+`llm.strip_diagrams()` removes any `[diagram:]` line the model writes anyway.
+The line is removed, not renamed to `[visual:]`: a model's diagram description
+describes a graphic, which is the worst possible stock search, and a scene with
+no directive gets a query Gemini writes from its narration. First real draft on
+the subject that produced those frames came back with zero diagram lines. A
+hand-written `[diagram:]` with drawing off is logged, never silently dropped.
+
 **The music bed is synthesised, not sourced.** There is no free API for licensed
 music and an unlicensed track is a copyright strike, so `music.py` builds it in
 ffmpeg: detuned sine triads over a four-chord progression (`calm`, `warm`,

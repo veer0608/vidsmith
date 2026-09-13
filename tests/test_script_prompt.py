@@ -47,16 +47,57 @@ def test_the_budget_is_stated_per_scene_not_only_in_total():
     assert "33" in body and "52" in body, "per-scene range missing"
 
 
-def test_both_directives_are_taught():
-    assert "[visual:" in PROMPT and "[diagram:" in PROMPT
+def test_every_scene_is_told_to_use_a_visual():
+    assert "always [visual:]" in PROMPT.lower()
 
 
-def test_diagrams_are_described_as_diagrams_not_pictures():
-    """The first draft filed 'person closing a laptop' as a diagram."""
+def test_the_draft_is_never_offered_a_diagram():
+    """Drafted scripts explained their subject as box-and-arrow frames, which
+    read as slides rather than a video. The output template used to offer
+    `[visual: ...]  or  [diagram: ...]`, and a template is followed more
+    faithfully than any instruction above it."""
+    low = PROMPT.lower()
+    assert "never write [diagram:]" in low
+    template = PROMPT[PROMPT.index("OUTPUT exactly"):]
+    assert "[diagram" not in template, "the output template still offers a diagram"
+
+
+def test_abstract_ideas_are_filmed_not_drawn():
+    """The hard case is the idea with no obvious subject. Without worked
+    examples a model reaches for 'flowchart of ...', which is a diagram by
+    another name and returns stock infographics."""
     low = PROMPT.lower()
     assert "camera" in low, "no test for what belongs in [visual:]"
-    assert "bad" in low and "good" in low, "no worked examples of the distinction"
-    assert "most scenes are" in low, "nothing discourages over-tagging diagrams"
+    assert "good" in low and "bad" in low, "no worked examples of the distinction"
+    assert "bad   [visual: flowchart" in low, "no bad example of a disguised diagram"
+    assert "bad   [visual: pricing comparison table" in low
+    assert "describe a graphic" in low, "the bad examples are not explained"
+
+
+@pytest.mark.parametrize("draft,expected", [
+    ("## A\n[diagram: four boxes]\nText.\n", "## A\nText.\n"),
+    ("## A\n  [Diagram: boxes]  \nText.\n", "## A\nText.\n"),
+    ("## A\n[visual: hands typing]\nText.\n", "## A\n[visual: hands typing]\nText.\n"),
+    ("## A\n[diagram: last line, no newline]", "## A\n"),
+])
+def test_a_diagram_the_model_wrote_anyway_is_removed(draft, expected):
+    """The prompt forbids it; the output is repaired as well, the same way
+    dashes are, because instructing a model is not enough on its own."""
+    assert llm.strip_diagrams(draft) == expected
+
+
+def test_stripping_leaves_narration_that_mentions_a_diagram_alone():
+    text = "## A\n[visual: whiteboard]\nThe [diagram: word] inside a sentence stays.\n"
+    assert llm.strip_diagrams(text) == text
+
+
+def test_the_draft_goes_through_the_repair(monkeypatch):
+    monkeypatch.setattr(llm, "generate", lambda *a, **k:
+                        "# T\n\n## One\n[diagram: boxes and arrows]\nNarration.\n")
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    assert "[diagram" not in out and "Narration." in out
 
 
 def test_invented_facts_are_forbidden():

@@ -723,6 +723,11 @@ class VisualBuilder:
         spec: Optional[diagram.Spec] = None
         decided = self._decisions().get(str(scene.index))
         wants_drawing = self.cfg.diagrams and (bool(scene.diagram) or decided is True)
+        if scene.diagram and not self.cfg.diagrams:
+            # Said out loud, because otherwise a directive the author wrote
+            # would vanish in silence and the scene would just be footage.
+            self.log(f"    the script asked for a diagram but visuals.diagrams "
+                     f"is off; using footage for '{query[:40]}'")
 
         if wants_drawing:
             # a decided or explicit diagram skips the search entirely - no point

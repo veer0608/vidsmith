@@ -737,31 +737,31 @@ percentages, company announcements or named studies unless they appear in the
 topic above. A confident wrong fact is the worst thing this can produce. If a
 point needs a number you do not have, make the point without it.
 
-EVERY SCENE GETS ONE VISUAL DIRECTIVE:
+EVERY SCENE GETS ONE VISUAL DIRECTIVE, AND IT IS ALWAYS [visual:]:
 
   [visual: 2-5 words, something a camera can point at]
-      Use when the scene has a physical subject: hands, objects, places,
-      machinery, people working. This is searched against a stock library, so
-      it must be a thing that exists on film.
+      This is searched against a stock video library, so it must be a thing
+      that exists on film: hands, objects, places, machinery, people working.
 
-  [diagram: what the diagram itself shows]
-      Use only when the idea has no photographable subject at all - a data
-      structure, a protocol, a sequence of states, a tradeoff.
+NEVER EXPLAIN AN IDEA WITH A GRAPHIC. No diagrams, charts, boxes, arrows, tables,
+labels or words on screen, and never write [diagram:]. The narration carries the
+explanation. The picture shows where the idea happens in the real world.
 
-      Describe the DIAGRAM, not a picture. It is drawn as boxes and arrows, so
-      say what the boxes are:
-        good  [diagram: the four stages a write passes through]
-        good  [diagram: a root node branching down to leaf nodes]
-        good  [diagram: read speed set against write cost]
-        bad   [diagram: magnifying glass over a book]
-        bad   [diagram: person closing a laptop]
-        bad   [diagram: red gear stuck in machinery]
-      The bad ones name objects you could photograph. Those are [visual:].
+When the idea is abstract, film the moment it touches a person or an object:
+    idea: a text file is split into scenes
+        good  [visual: hands typing in a text editor]
+        bad   [visual: flowchart from file to scenes]
+    idea: paying once instead of a subscription
+        good  [visual: card tapped on a shop terminal]
+        bad   [visual: pricing comparison table]
+    idea: how a database index finds a row
+        good  [visual: librarian pulling a book from shelves]
+        bad   [visual: tree structure diagram]
+The bad ones describe a graphic. A stock library answers those with generic
+infographics, or with nothing on the subject at all.
 
-THE TEST: if you can imagine pointing a camera at it, it is [visual:]. Most
-scenes are. Even a technical script usually has only two or three [diagram:]
-scenes, and a script where most scenes are diagrams is wrong - it means
-photographable images were filed as diagrams.
+THE TEST: if you can imagine pointing a camera at it, it belongs. If you would
+have to draw it, name the person, object or place the idea is about instead.
 
 OUTPUT exactly this markdown and nothing else:
 
@@ -770,7 +770,7 @@ OUTPUT exactly this markdown and nothing else:
 #  the title is burned onto the opening card>
 
 ## <scene heading, two or three words, different from every other heading>
-[visual: ...]  or  [diagram: ...]
+[visual: ...]
 <narration>
 """
 
@@ -796,5 +796,27 @@ def draft_script(topic: str, minutes: float, api_key: str,
                              lo=int(per_scene * 0.8), hi=int(per_scene * 1.25)),
         api_key, model, temperature=0.8, log=log,
     )
-    return re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
+    text = re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
                   flags=re.MULTILINE).strip() + "\n"
+    return strip_diagrams(text)
+
+
+# A drafted script never explains itself in boxes. The prompt forbids it, and as
+# with dashes that is not enough on its own: a model that files an idea as
+# [diagram:] anyway still has to come out without one.
+DIAGRAM_LINE = re.compile(r"^[ \t]*\[diagram:[^\]\n]*\][ \t]*\n?",
+                          re.IGNORECASE | re.MULTILINE)
+
+
+def strip_diagrams(script: str) -> str:
+    """Remove every [diagram: ...] line from a drafted script.
+
+    The line goes rather than being renamed to [visual:], because what a model
+    writes after "diagram:" describes a graphic, and a graphic is exactly the
+    wrong search for a stock video library. A scene left with no directive is
+    searched on a query Gemini writes from its narration at build time.
+
+    Drafts only. A hand-written [diagram:] is its author's decision, and
+    `visuals.diagrams` is the switch for that.
+    """
+    return DIAGRAM_LINE.sub("", script)
