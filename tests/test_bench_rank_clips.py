@@ -91,6 +91,15 @@ def test_a_partly_labelled_case_is_left_out():
     assert s["cases"] == 0
 
 
+def test_the_kept_share_difference_counts_by_hand():
+    """Model keeps 2 usable of 2; search order keeps 2 usable of 4, per case."""
+    model = {str(i): {"kept_right": 2, "kept_judged": 2} for i in range(10)}
+    base = {str(i): {"kept_right": 2, "kept_judged": 4} for i in range(10)}
+    mean, lo, hi = rc.kept_interval(model, base)
+    assert mean == lo == hi == pytest.approx(0.5)
+    assert rc.kept_interval({"0": model["0"]}, {"0": base["0"]}) is None
+
+
 def test_the_interval_is_paired_over_shared_cases():
     a = {str(i): {"top": 1.0} for i in range(20)}
     b = {str(i): {"top": 0.0} for i in range(20)}
@@ -140,6 +149,71 @@ def test_the_label_page_does_not_show_search_order():
     shown = json.loads(page.split("const CASES = ")[1].split(";\n")[0])[0]["shown"]
     assert [s["id"] for s in shown] != ids
     assert sorted(s["id"] for s in shown) == sorted(ids)
+
+
+# --------------------------------------------------------------------------- #
+# model-written labels, checked against a human sample
+# --------------------------------------------------------------------------- #
+def test_kappa_by_hand():
+    """4 agree right, 4 agree wrong, 1 each way: observed .8, chance .5, kappa .6."""
+    ids = [str(i) for i in range(10)]
+    case = _case(ids=ids)
+    human = {case["id"]: dict(zip(ids, ["right"] * 5 + ["wrong"] * 5))}
+    model = {case["id"]: dict(zip(ids, ["right"] * 4 + ["wrong"] + ["right"] + ["wrong"] * 4))}
+    a = rc.agreement([case], human, model)
+    assert a["agree"] == pytest.approx(0.8)
+    assert a["kappa"] == pytest.approx(0.6)
+    assert a["matrix"] == {"right/right": 4, "right/wrong": 1, "wrong/right": 1, "wrong/wrong": 4}
+
+
+def test_the_kappa_interval_resamples_cases_and_needs_more_than_one():
+    ids = [str(i) for i in range(4)]
+    cases = [_case(f"p/16x9/{k}", ids) for k in range(6)]
+    same = {c["id"]: {"0": "right", "1": "right", "2": "wrong", "3": "wrong"} for c in cases}
+    assert rc.kappa_interval(cases, same, same) == (1.0, 1.0)
+    assert rc.kappa_interval(cases[:1], same, same) is None
+
+    # half the cases disagree on one still each: the interval must widen below 1
+    noisy = {k: dict(v) for k, v in same.items()}
+    for c in cases[:3]:
+        noisy[c["id"]]["0"] = "wrong"
+    lo, hi = rc.kappa_interval(cases, same, noisy)
+    assert lo < rc.agreement(cases, same, noisy)["kappa"] <= hi <= 1.0
+
+
+def test_agreement_leaves_out_unsure_and_unlabelled_stills():
+    case = _case()
+    human = {case["id"]: {"a": "right", "b": "unsure", "c": "wrong"}}
+    model = {case["id"]: {"a": "right", "b": "right", "c": "wrong", "d": "wrong"}}
+    a = rc.agreement([case], human, model)
+    assert (a["stills"], a["judged"], a["unsure"]) == (3, 2, 1)
+
+
+def test_the_label_file_notes_are_not_a_case(tmp_path):
+    (tmp_path / "labels-ai.json").write_text(json.dumps(
+        {"_about": "a model", "p/16x9/0": {"a": "right"}}), encoding="utf-8")
+    assert rc.load_labels(tmp_path, rc.MODEL) == {"p/16x9/0": {"a": "right"}}
+
+
+def test_the_sample_keeps_started_cases_and_is_fixed_once_chosen(tmp_path):
+    cases = [_case(f"p/16x9/{i}") for i in range(30)]
+    rc.save_label(tmp_path, "p/16x9/7", "a", "right")      # labelled by hand already
+    first = rc.sample_ids(cases, tmp_path, size=20)
+    assert len(first) == 20 and first[0] == "p/16x9/7"
+    assert first != [f"p/16x9/{i}" for i in range(20)], "drawn at random, not page order"
+    rc.save_label(tmp_path, "p/16x9/29", "a", "right")     # later labels change nothing
+    assert rc.sample_ids(cases, tmp_path, size=20) == first
+
+
+def test_scores_against_model_labels_always_carry_the_check(tmp_path):
+    case = _case()
+    (tmp_path / "cases.json").write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+    (tmp_path / "labels-ai.json").write_text(json.dumps(
+        {"_about": "claude", case["id"]: {"a": "wrong", "b": "right", "c": "wrong", "d": "wrong"}}),
+        encoding="utf-8")
+    report = rc.score(tmp_path, labels_name=rc.MODEL)
+    assert "Scored against labels written by claude" in report
+    assert "Do the model's labels match a person's?" in report
 
 
 # --------------------------------------------------------------------------- #
@@ -215,6 +289,39 @@ def test_a_spent_quota_stops_the_run_and_keeps_what_was_paid_for(tmp_path, monke
     assert code == 2
     assert len(rows) == 2
     assert rows[0]["order"] == ["0b", "0a", "0c", "0d"] and rows[0]["reject"] == ["0c"]
+
+
+def test_a_dropped_connection_stops_the_run_instead_of_scoring_it(tmp_path, monkeypatch):
+    """A real run died on ConnectionResetError after 122 calls. Recorded as an
+    error it would be scored as the search order, counting the network against
+    the model. Driven through the real llm retry loop, because llm now turns
+    the reset into an LLMUnavailable, and a plain one is what gets scored."""
+    import requests
+
+    _ready(tmp_path)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+
+    def reset(*a, **k):
+        raise requests.exceptions.ConnectionError("Connection aborted.")
+
+    monkeypatch.setattr(llm.requests, "post", reset)
+    code = rc.run(tmp_path, "key", "m", repeats=2, data_dir=tmp_path, log=lambda *a: None)
+    assert code == 3
+    assert rc.read_results(rc.results_path(tmp_path, "m")) == []
+
+
+def test_an_unusable_answer_is_still_scored_not_retried(tmp_path, monkeypatch):
+    """The model answering with something unparseable is the model's failure,
+    and a build falls back to the search order for it, so that is what counts."""
+    _ready(tmp_path, n_cases=1)
+
+    def junk(*a, **k):
+        raise ValueError("model did not return a ranking")
+
+    monkeypatch.setattr(llm, "rank_clips", junk)
+    assert rc.run(tmp_path, "key", "m", repeats=1, data_dir=tmp_path, log=lambda *a: None) == 0
+    rows = rc.read_results(rc.results_path(tmp_path, "m"))
+    assert len(rows) == 1 and "error" in rows[0]
 
 
 def test_a_second_run_resumes_instead_of_repaying(tmp_path, monkeypatch):

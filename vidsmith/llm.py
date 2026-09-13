@@ -122,6 +122,17 @@ class QuotaExhausted(LLMUnavailable):
     one failure that waiting fixes, and the only sensible advice differs."""
 
 
+class GaveUp(LLMUnavailable):
+    """Every retry met a failure that might have cleared: a dropped connection,
+    a 5xx, a per-minute limit. The model never judged anything.
+
+    Callers that degrade still catch it as LLMUnavailable. It is distinct for
+    the rerank benchmark, which must not score the network as the model's
+    answer. Matching on the message text would be a second copy of this
+    wording that nothing keeps in step.
+    """
+
+
 def _network_failure(exc: Exception, api_key: str) -> str:
     """A connection reset, DNS failure or timeout, fit to repeat back.
 
@@ -176,7 +187,7 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
         except (KeyError, IndexError):
             raise LLMUnavailable(f"unexpected response: {json.dumps(data)[:300]}")
         return "".join(p.get("text", "") for p in parts).strip()
-    raise LLMUnavailable(f"gave up after {retries} attempts - {last}")
+    raise GaveUp(f"gave up after {retries} attempts - {last}")
 
 
 def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
@@ -227,7 +238,7 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
         except (KeyError, IndexError):
             raise LLMUnavailable(f"unexpected response: {json.dumps(data)[:300]}")
         return "".join(p.get("text", "") for p in out).strip()
-    raise LLMUnavailable(f"gave up after {retries} attempts - {last}")
+    raise GaveUp(f"gave up after {retries} attempts - {last}")
 
 
 RERANK_PROMPT = """You are choosing stock B-roll to sit behind one line of narration.
