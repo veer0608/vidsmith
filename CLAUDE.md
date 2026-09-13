@@ -43,6 +43,7 @@ before writing anything. The traps are the reason this file exists.
 | Change the voice provider | Architecture, two providers | Polly's marks are ms with starts and no durations, billed twice |
 | Reach for a version of ffmpeg | Tests | Three are in play and they disagree about libass |
 | Change the price or the buy link | `test_selling_links.py` | Both docs must agree; a `PASTE_GUMROAD_*` token holds CI red on purpose |
+| Measure a model call, or quote a number from one | Benchmarks | `labels.json` is ground truth a person wrote; never write to it from code or a guess |
 
 ## Working in this repo
 
@@ -154,6 +155,36 @@ something against words shaped the way edge-tts reports them: punctuation
 stripped, times in seconds from the start of the speech, `duration` agreeing with
 the words it holds. A hand-written `words` list passes against input the TTS
 could never produce. The `scene` and `scenes` fixtures wrap it.
+
+## Benchmarks
+
+`bench/rank_clips` measures `llm.rank_clips` against the search's own order,
+which is what a build keeps when the call fails or there is no key. Four steps,
+each `python -m bench.rank_clips <step> --root C:/Users/veera/claude/vidsmith`:
+`collect` turns past reranks into `cases.json`, `label` serves a page on port
+8078 that writes `labels.json` on every click, `run` judges each case three
+times into `results/<model>.jsonl`, and `score --write` produces `REPORT.md`.
+
+- **`--root` is the checkout that did the building, not the one running the
+  code.** Searches and verdicts live in its gitignored `.cache/` and
+  `projects/*/build/`. The first collect ran from a worktree, read the
+  worktree's empty cache through the package-relative default, and reported 0
+  cases without complaint.
+- **One query is often cached at two orientations**, one per cut, with
+  different clips. Taking the first found paired vertical verdicts with
+  landscape results. `collect` now prefers the search that holds every clip the
+  verdict judged.
+- **`labels.json` is the answer key, so only a person writes it.** Testing the
+  page means clicking a label, and that label must then be removed: a guessed
+  label silently makes the benchmark agree with whoever guessed.
+- **Stills are not committed and are pinned by hash.** `run` refuses a still
+  whose bytes changed, since a different picture is a different test.
+- **It runs on the free tier's 500 requests a day.** Every call is appended as
+  it returns, a spent quota stops the run, and the next run resumes. A failed
+  call is scored as the search order, because that is what a build does with it.
+- **Scores are paired over shared cases, with a bootstrap interval.** A few
+  dozen cases vary far more between themselves than two systems do. Quote the
+  interval with the number, or the number means nothing.
 
 ## The script
 
