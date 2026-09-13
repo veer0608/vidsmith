@@ -91,6 +91,15 @@ def test_a_partly_labelled_case_is_left_out():
     assert s["cases"] == 0
 
 
+def test_the_kept_share_difference_counts_by_hand():
+    """Model keeps 2 usable of 2; search order keeps 2 usable of 4, per case."""
+    model = {str(i): {"kept_right": 2, "kept_judged": 2} for i in range(10)}
+    base = {str(i): {"kept_right": 2, "kept_judged": 4} for i in range(10)}
+    mean, lo, hi = rc.kept_interval(model, base)
+    assert mean == lo == hi == pytest.approx(0.5)
+    assert rc.kept_interval({"0": model["0"]}, {"0": base["0"]}) is None
+
+
 def test_the_interval_is_paired_over_shared_cases():
     a = {str(i): {"top": 1.0} for i in range(20)}
     b = {str(i): {"top": 0.0} for i in range(20)}
@@ -155,6 +164,21 @@ def test_kappa_by_hand():
     assert a["agree"] == pytest.approx(0.8)
     assert a["kappa"] == pytest.approx(0.6)
     assert a["matrix"] == {"right/right": 4, "right/wrong": 1, "wrong/right": 1, "wrong/wrong": 4}
+
+
+def test_the_kappa_interval_resamples_cases_and_needs_more_than_one():
+    ids = [str(i) for i in range(4)]
+    cases = [_case(f"p/16x9/{k}", ids) for k in range(6)]
+    same = {c["id"]: {"0": "right", "1": "right", "2": "wrong", "3": "wrong"} for c in cases}
+    assert rc.kappa_interval(cases, same, same) == (1.0, 1.0)
+    assert rc.kappa_interval(cases[:1], same, same) is None
+
+    # half the cases disagree on one still each: the interval must widen below 1
+    noisy = {k: dict(v) for k, v in same.items()}
+    for c in cases[:3]:
+        noisy[c["id"]]["0"] = "wrong"
+    lo, hi = rc.kappa_interval(cases, same, noisy)
+    assert lo < rc.agreement(cases, same, noisy)["kappa"] <= hi <= 1.0
 
 
 def test_agreement_leaves_out_unsure_and_unlabelled_stills():
@@ -265,6 +289,28 @@ def test_a_spent_quota_stops_the_run_and_keeps_what_was_paid_for(tmp_path, monke
     assert code == 2
     assert len(rows) == 2
     assert rows[0]["order"] == ["0b", "0a", "0c", "0d"] and rows[0]["reject"] == ["0c"]
+
+
+def test_a_dropped_connection_stops_the_run_instead_of_scoring_it(tmp_path, monkeypatch):
+    """A real run died on ConnectionResetError after 122 calls. Recorded as an
+    error it would be scored as the search order, counting the network against
+    the model."""
+    import requests
+
+    _ready(tmp_path)
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise requests.exceptions.ConnectionError("Connection aborted.")
+        return [0, 1, 2, 3], [], True
+
+    monkeypatch.setattr(llm, "rank_clips", fake)
+    code = rc.run(tmp_path, "key", "m", repeats=2, data_dir=tmp_path, log=lambda *a: None)
+    rows = rc.read_results(rc.results_path(tmp_path, "m"))
+    assert code == 3
+    assert len(rows) == 1 and "error" not in rows[0]
 
 
 def test_a_second_run_resumes_instead_of_repaying(tmp_path, monkeypatch):

@@ -258,6 +258,26 @@ def agreement(cases: Sequence[Dict], a: Dict[str, Dict[str, str]],
             "matrix": {"right/right": rr, "right/wrong": rw, "wrong/right": wr, "wrong/wrong": ww}}
 
 
+def kappa_interval(cases: Sequence[Dict], a: Dict[str, Dict[str, str]],
+                   b: Dict[str, Dict[str, str]], resamples: int = 2000,
+                   seed: int = 0) -> Optional[Tuple[float, float]]:
+    """95% bootstrap interval for kappa, resampling whole cases.
+
+    Cases, not stills, because the eight stills of one case share a query and
+    a labeller's reading of it: resampling stills would treat 80 correlated
+    judgements as 80 independent ones and report an interval far too tight.
+    """
+    if len(cases) < 2:
+        return None
+    rng = random.Random(seed)
+    kappas = sorted(k for k in (
+        agreement([rng.choice(cases) for _ in cases], a, b)["kappa"]
+        for _ in range(resamples)) if k is not None)
+    if len(kappas) < resamples // 2:
+        return None
+    return kappas[int(len(kappas) * 0.025)], kappas[int(len(kappas) * 0.975) - 1]
+
+
 # --------------------------------------------------------------------------- #
 # label: a local page that writes labels.json on every click
 # --------------------------------------------------------------------------- #
@@ -420,6 +440,8 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
     finishes. An error that is not the quota is recorded and scored as the
     search order, because that is exactly what a build does when the call fails.
     """
+    import requests
+
     from vidsmith import llm
 
     cases = load_cases(data_dir)[:limit or None]
@@ -453,6 +475,13 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
             except llm.QuotaExhausted as exc:
                 log(f"stopped after {calls} calls: {exc}")
                 return 2
+            except requests.RequestException as exc:
+                # The network, not the model: recorded as an error it would be
+                # scored as the search order and count against the model. Stop,
+                # and let the next run retry this call.
+                log(f"stopped after {calls} calls on a network failure, everything "
+                    f"so far is saved; run again to resume ({type(exc).__name__})")
+                return 3
             except (llm.LLMUnavailable, ValueError) as exc:
                 row = {"error": str(exc)[:300]}
             row.update({"case": case["id"], "repeat": repeat, "model": model,
@@ -585,6 +614,29 @@ def paired_interval(a: Dict[str, Dict], b: Dict[str, Dict], resamples: int = 200
     return _mean(diffs), means[int(resamples * 0.025)], means[int(resamples * 0.975) - 1]
 
 
+def kept_interval(a: Dict[str, Dict], b: Dict[str, Dict], resamples: int = 2000,
+                  seed: int = 0) -> Optional[Tuple[float, float, float]]:
+    """Difference in the share of kept stills that are usable (a minus b), with
+    a 95% interval from resampling cases, over cases both were scored on.
+
+    This is the number rejection moves. A build cuts a scene into several shots
+    from what was kept, so a wrong subject left in the pool reaches the screen
+    even when the top pick was fine.
+    """
+    shared = [k for k in a if k in b and a[k]["kept_judged"] and b[k]["kept_judged"]]
+    if len(shared) < 2:
+        return None
+
+    def diff(ids):
+        share = lambda s: (sum(s[k]["kept_right"] for k in ids)
+                           / max(1, sum(s[k]["kept_judged"] for k in ids)))
+        return share(a) - share(b)
+
+    rng = random.Random(seed)
+    draws = sorted(diff([rng.choice(shared) for _ in shared]) for _ in range(resamples))
+    return diff(shared), draws[int(resamples * 0.025)], draws[int(resamples * 0.975) - 1]
+
+
 def _pct(value: Optional[float]) -> str:
     return "-" if value is None else f"{value:.0%}"
 
@@ -609,15 +661,25 @@ def agreement_report(data_dir: Path = HERE) -> str:
     if not a["judged"]:
         return "\n".join(lines + ["Nothing to compare yet."]) + "\n"
     m = a["matrix"]
+    interval = kappa_interval(checked, human, model)
+    spread = (f" (95% CI {interval[0]:.2f} to {interval[1]:.2f}, resampling the "
+              f"{len(checked)} cases)" if interval else "")
     lines += [
         f"- Stills compared: {a['judged']} ({a['unsure']} more left out because one "
         f"side was unsure)",
         f"- Same label: {_pct(a['agree'])}",
-        f"- Cohen's kappa: {a['kappa']:.2f}" if a["kappa"] is not None
+        f"- Cohen's kappa: {a['kappa']:.2f}{spread}" if a["kappa"] is not None
         else "- Cohen's kappa: undefined (both sides used one label only)",
         f"- Person right, model wrong: {m['right/wrong']}; person wrong, model right: "
         f"{m['wrong/right']}",
     ]
+    lenient, strict = m["wrong/right"], m["right/wrong"]
+    if lenient and not strict:
+        lines.append("- Every disagreement has the model calling a still usable that the "
+                     "person did not, so scores against the model's labels run high.")
+    elif strict and not lenient:
+        lines.append("- Every disagreement has the model rejecting a still the person "
+                     "accepted, so scores against the model's labels run low.")
     return "\n".join(lines) + "\n"
 
 
@@ -647,19 +709,26 @@ def score(data_dir: Path = HERE, labels_name: str = HUMAN) -> str:
         f"least one usable still. Picking a still at random from those would be "
         f"usable {_pct(chance)} of the time.",
         "",
-        "| system | cases | top pick usable | vs search order (95% CI) | rejects that were wrong subjects | wrong subjects rejected | kept stills usable | same pick every repeat | errors |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| system | cases | top pick usable | vs search order (95% CI) | rejects that were wrong subjects | wrong subjects rejected | kept stills usable | vs search order (95% CI) | same pick every repeat | errors |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
+
+    def spread(interval) -> str:
+        # a difference between two shares is in percentage points, not percent
+        pts = lambda x: f"{x * 100:+.0f}"
+        return (f"{pts(interval[0])} pts ({pts(interval[1])} to {pts(interval[2])})"
+                if interval else "-")
+
     for name, s in summaries.items():
         if not s["cases"]:
             continue
-        diff = "" if name == "search order" else paired_interval(s["per_case"], base)
-        if diff:
-            diff = f"{diff[0]:+.0%} ({diff[1]:+.0%} to {diff[2]:+.0%})"
+        is_base = name == "search order"
+        top_diff = "-" if is_base else spread(paired_interval(s["per_case"], base))
+        kept_diff = "-" if is_base else spread(kept_interval(s["per_case"], base))
         lines.append(
-            f"| {name} | {s['cases']} | {_pct(s['top'])} (n={s['top_n']}) | {diff or '-'} | "
+            f"| {name} | {s['cases']} | {_pct(s['top'])} (n={s['top_n']}) | {top_diff} | "
             f"{_pct(s['reject_precision'])} | {_pct(s['reject_recall'])} | "
-            f"{_pct(s['kept_usable'])} | {_pct(s['agree'])} | {s['errors']} |")
+            f"{_pct(s['kept_usable'])} | {kept_diff} | {_pct(s['agree'])} | {s['errors']} |")
     lines += [
         "",
         "*Top pick usable* is what a build would put on screen: the best clip not "
