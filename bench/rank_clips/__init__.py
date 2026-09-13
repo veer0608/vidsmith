@@ -181,8 +181,81 @@ def load_cases(data_dir: Path = HERE) -> List[Dict]:
     return _read_json(data_dir / "cases.json", {}).get("cases", [])
 
 
-def load_labels(data_dir: Path = HERE) -> Dict[str, Dict[str, str]]:
-    return _read_json(data_dir / "labels.json", {})
+HUMAN = "labels.json"
+MODEL = "labels-ai.json"
+
+
+def load_labels(data_dir: Path = HERE, name: str = HUMAN) -> Dict[str, Dict[str, str]]:
+    """{case id: {candidate id: label}}. Keys starting with `_` are notes about
+    the file - who or what wrote it - and never a case."""
+    raw = _read_json(data_dir / name, {})
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
+# --------------------------------------------------------------------------- #
+# the human sample the model's labels are checked against
+# --------------------------------------------------------------------------- #
+SAMPLE_SEED = "rank_clips-sample-v1"
+
+
+def sample_ids(cases: Sequence[Dict], data_dir: Path = HERE, size: int = 20) -> List[str]:
+    """The cases a person labels to check the model's labels, fixed once chosen.
+
+    Cases already started by hand are kept in it, because they were labelled
+    blind and throwing them away wastes that work. The rest are drawn at random
+    rather than taken from the top of the page, which is ordered by project.
+    Written to sample.json on first use, so a later call cannot quietly choose a
+    different sample after some of the answers are known.
+    """
+    path = data_dir / "sample.json"
+    fixed = _read_json(path, None)
+    known = {c["id"] for c in cases}
+    if isinstance(fixed, list) and fixed:
+        return [i for i in fixed if i in known]
+    started = [c["id"] for c in cases if c["id"] in load_labels(data_dir)]
+    rest = [c["id"] for c in cases if c["id"] not in started]
+    random.Random(SAMPLE_SEED).shuffle(rest)
+    chosen = started + rest[:max(0, size - len(started))]
+    path.write_text(json.dumps(chosen, indent=1), encoding="utf-8")
+    return chosen
+
+
+def agreement(cases: Sequence[Dict], a: Dict[str, Dict[str, str]],
+              b: Dict[str, Dict[str, str]]) -> Dict[str, Any]:
+    """How far two sets of labels agree, over stills both labelled.
+
+    Cohen's kappa over right and wrong, because raw agreement flatters a set
+    where nearly everything is one label: if nine stills in ten are right, two
+    labellers who never look agree most of the time. A still either side
+    marked unsure is left out of kappa and counted separately.
+    """
+    both = rr = rw = wr = ww = unsure = 0
+    for case in cases:
+        la, lb = a.get(case["id"]) or {}, b.get(case["id"]) or {}
+        for cand in case["candidates"]:
+            va, vb = la.get(cand["id"]), lb.get(cand["id"])
+            if va is None or vb is None:
+                continue
+            both += 1
+            if "unsure" in (va, vb):
+                unsure += 1
+            elif va == vb == "right":
+                rr += 1
+            elif va == vb == "wrong":
+                ww += 1
+            elif va == "right":
+                rw += 1
+            else:
+                wr += 1
+    n = rr + rw + wr + ww
+    if not n:
+        return {"stills": both, "judged": 0, "unsure": unsure, "agree": None, "kappa": None,
+                "matrix": {"right/right": 0, "right/wrong": 0, "wrong/right": 0, "wrong/wrong": 0}}
+    observed = (rr + ww) / n
+    expected = ((rr + rw) * (rr + wr) + (wr + ww) * (rw + ww)) / (n * n)
+    kappa = (observed - expected) / (1 - expected) if expected < 1 else None
+    return {"stills": both, "judged": n, "unsure": unsure, "agree": observed, "kappa": kappa,
+            "matrix": {"right/right": rr, "right/wrong": rw, "wrong/right": wr, "wrong/wrong": ww}}
 
 
 # --------------------------------------------------------------------------- #
@@ -269,8 +342,14 @@ def save_label(data_dir: Path, case_id: str, candidate: str, value: str) -> None
     tmp.replace(data_dir / "labels.json")     # a killed server never leaves half a file
 
 
-def serve_labels(root: Path, data_dir: Path = HERE, port: int = 8078) -> None:
+def serve_labels(root: Path, data_dir: Path = HERE, port: int = 8078,
+                 only: Optional[Sequence[str]] = None) -> None:
+    """Serve the labelling page. It only ever reads and writes the human labels,
+    so a person checking the model's labels cannot see them while they work."""
     cases = load_cases(data_dir)
+    if only is not None:
+        order = {case_id: i for i, case_id in enumerate(only)}
+        cases = sorted((c for c in cases if c["id"] in order), key=lambda c: order[c["id"]])
     known = {(c["id"], k["id"]) for c in cases for k in c["candidates"]}
     stills = stills_dir(root)
 
@@ -510,9 +589,41 @@ def _pct(value: Optional[float]) -> str:
     return "-" if value is None else f"{value:.0%}"
 
 
-def score(data_dir: Path = HERE) -> str:
+def agreement_report(data_dir: Path = HERE) -> str:
+    """The model's labels against the human sample, or why there is nothing yet."""
     cases = load_cases(data_dir)
-    labels = load_labels(data_dir)
+    human, model = load_labels(data_dir, HUMAN), load_labels(data_dir, MODEL)
+    about = _read_json(data_dir / MODEL, {}).get("_about", "")
+    sample = set(_read_json(data_dir / "sample.json", []) or [])
+    checked = [c for c in cases if c["id"] in sample
+               and complete_labels(c, human) is not None
+               and complete_labels(c, model) is not None]
+    a = agreement(checked, human, model)
+    lines = [
+        "## Do the model's labels match a person's?",
+        "",
+        f"Model labels: {about or MODEL}. Checked against {len(checked)} of "
+        f"{len(sample)} sample cases a person labelled without seeing them.",
+        "",
+    ]
+    if not a["judged"]:
+        return "\n".join(lines + ["Nothing to compare yet."]) + "\n"
+    m = a["matrix"]
+    lines += [
+        f"- Stills compared: {a['judged']} ({a['unsure']} more left out because one "
+        f"side was unsure)",
+        f"- Same label: {_pct(a['agree'])}",
+        f"- Cohen's kappa: {a['kappa']:.2f}" if a["kappa"] is not None
+        else "- Cohen's kappa: undefined (both sides used one label only)",
+        f"- Person right, model wrong: {m['right/wrong']}; person wrong, model right: "
+        f"{m['wrong/right']}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def score(data_dir: Path = HERE, labels_name: str = HUMAN) -> str:
+    cases = load_cases(data_dir)
+    labels = load_labels(data_dir, labels_name)
     labelled = [c for c in cases if complete_labels(c, labels) is not None]
     usable = [c for c in labelled
               if any(v == "right" for v in labels[c["id"]].values())]
@@ -525,8 +636,12 @@ def score(data_dir: Path = HERE) -> str:
     summaries = {name: summarise(cases, labels, runs) for name, runs in everything.items()}
     base = summaries["search order"]["per_case"]
 
+    who = ("a person" if labels_name == HUMAN else
+           _read_json(data_dir / labels_name, {}).get("_about") or labels_name)
     lines = [
         f"# rank_clips benchmark, {date.today().isoformat()}",
+        "",
+        f"Scored against labels written by {who}.",
         "",
         f"{len(labelled)} of {len(cases)} cases fully labelled; {len(usable)} have at "
         f"least one usable still. Picking a still at random from those would be "
@@ -554,6 +669,9 @@ def score(data_dir: Path = HERE) -> str:
         "candidates. A failed call is scored as the search order, because that is "
         "what a build falls back to.",
     ]
+    if labels_name != HUMAN:
+        # never publish scores against model labels without how well they held up
+        lines += ["", agreement_report(data_dir).rstrip()]
     return "\n".join(lines) + "\n"
 
 
@@ -569,17 +687,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cmd.add_argument("--root", type=Path, default=REPO,
                          help="the checkout whose projects were built")
     sub.choices["label"].add_argument("--port", type=int, default=8078)
+    sub.choices["label"].add_argument(
+        "--sample", type=int, default=0,
+        help="show only the fixed sample of this many cases that checks the model's labels")
     sub.choices["run"].add_argument("--model", default="")
     sub.choices["run"].add_argument("--repeats", type=int, default=3)
     sub.choices["run"].add_argument("--limit", type=int, default=0)
-    sub.add_parser("score").add_argument("--write", action="store_true",
-                                         help="also write REPORT.md")
+    scoring = sub.add_parser("score")
+    scoring.add_argument("--write", action="store_true", help="also write REPORT.md")
+    scoring.add_argument("--labels", choices=("human", "ai"), default="human",
+                         help="score against labels.json or labels-ai.json")
+    sub.add_parser("agree", help="how well the model's labels match the human sample")
     args = p.parse_args(argv)
 
     if args.cmd == "collect":
         collect(args.root.resolve())
     elif args.cmd == "label":
-        serve_labels(args.root.resolve(), port=args.port)
+        only = sample_ids(load_cases(), size=args.sample) if args.sample else None
+        serve_labels(args.root.resolve(), port=args.port, only=only)
+    elif args.cmd == "agree":
+        print(agreement_report())
     elif args.cmd == "run":
         from vidsmith import llm
         from vidsmith.pipeline import find_keys
@@ -590,8 +717,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return run(args.root.resolve(), key, args.model or llm.DEFAULT_MODEL, args.repeats,
                    limit=args.limit)
     elif args.cmd == "score":
-        report = score()
+        name = HUMAN if args.labels == "human" else MODEL
+        report = score(labels_name=name)
         print(report)
         if args.write:
-            (HERE / "REPORT.md").write_text(report, encoding="utf-8")
+            out = "REPORT.md" if name == HUMAN else "REPORT-ai-labels.md"
+            (HERE / out).write_text(report, encoding="utf-8")
     return 0

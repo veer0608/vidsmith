@@ -177,6 +177,14 @@ times into `results/<model>.jsonl`, and `score --write` produces `REPORT.md`.
 - **`labels.json` is the answer key, so only a person writes it.** Testing the
   page means clicking a label, and that label must then be removed: a guessed
   label silently makes the benchmark agree with whoever guessed.
+- **Model-written labels live in `labels-ai.json` and are never quoted alone.**
+  736 stills is a lot of clicking, so all 92 cases were also labelled by Claude,
+  judged blind to `labels.json` and to past verdicts. `label --sample 20` serves
+  a fixed random sample (`sample.json`, chosen once) for a person to label, and
+  `agree` reports Cohen's kappa between the two. Raw agreement is not enough:
+  when most stills are right, two labellers who never look agree most of the
+  time. `score --labels ai` always appends that check. Do not show agreement
+  numbers to the person while the sample is still being labelled.
 - **Stills are not committed and are pinned by hash.** `run` refuses a still
   whose bytes changed, since a different picture is a different test.
 - **It runs on the free tier's 500 requests a day.** Every call is appended as

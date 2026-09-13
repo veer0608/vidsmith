@@ -143,6 +143,56 @@ def test_the_label_page_does_not_show_search_order():
 
 
 # --------------------------------------------------------------------------- #
+# model-written labels, checked against a human sample
+# --------------------------------------------------------------------------- #
+def test_kappa_by_hand():
+    """4 agree right, 4 agree wrong, 1 each way: observed .8, chance .5, kappa .6."""
+    ids = [str(i) for i in range(10)]
+    case = _case(ids=ids)
+    human = {case["id"]: dict(zip(ids, ["right"] * 5 + ["wrong"] * 5))}
+    model = {case["id"]: dict(zip(ids, ["right"] * 4 + ["wrong"] + ["right"] + ["wrong"] * 4))}
+    a = rc.agreement([case], human, model)
+    assert a["agree"] == pytest.approx(0.8)
+    assert a["kappa"] == pytest.approx(0.6)
+    assert a["matrix"] == {"right/right": 4, "right/wrong": 1, "wrong/right": 1, "wrong/wrong": 4}
+
+
+def test_agreement_leaves_out_unsure_and_unlabelled_stills():
+    case = _case()
+    human = {case["id"]: {"a": "right", "b": "unsure", "c": "wrong"}}
+    model = {case["id"]: {"a": "right", "b": "right", "c": "wrong", "d": "wrong"}}
+    a = rc.agreement([case], human, model)
+    assert (a["stills"], a["judged"], a["unsure"]) == (3, 2, 1)
+
+
+def test_the_label_file_notes_are_not_a_case(tmp_path):
+    (tmp_path / "labels-ai.json").write_text(json.dumps(
+        {"_about": "a model", "p/16x9/0": {"a": "right"}}), encoding="utf-8")
+    assert rc.load_labels(tmp_path, rc.MODEL) == {"p/16x9/0": {"a": "right"}}
+
+
+def test_the_sample_keeps_started_cases_and_is_fixed_once_chosen(tmp_path):
+    cases = [_case(f"p/16x9/{i}") for i in range(30)]
+    rc.save_label(tmp_path, "p/16x9/7", "a", "right")      # labelled by hand already
+    first = rc.sample_ids(cases, tmp_path, size=20)
+    assert len(first) == 20 and first[0] == "p/16x9/7"
+    assert first != [f"p/16x9/{i}" for i in range(20)], "drawn at random, not page order"
+    rc.save_label(tmp_path, "p/16x9/29", "a", "right")     # later labels change nothing
+    assert rc.sample_ids(cases, tmp_path, size=20) == first
+
+
+def test_scores_against_model_labels_always_carry_the_check(tmp_path):
+    case = _case()
+    (tmp_path / "cases.json").write_text(json.dumps({"cases": [case]}), encoding="utf-8")
+    (tmp_path / "labels-ai.json").write_text(json.dumps(
+        {"_about": "claude", case["id"]: {"a": "wrong", "b": "right", "c": "wrong", "d": "wrong"}}),
+        encoding="utf-8")
+    report = rc.score(tmp_path, labels_name=rc.MODEL)
+    assert "Scored against labels written by claude" in report
+    assert "Do the model's labels match a person's?" in report
+
+
+# --------------------------------------------------------------------------- #
 # collect and run
 # --------------------------------------------------------------------------- #
 def _project(root, name, aspect_dir, query, verdict):
