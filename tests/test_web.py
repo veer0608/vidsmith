@@ -636,6 +636,29 @@ def test_other_model_failures_stay_502(client, monkeypatch):
                        json={"topic": "a topic worth explaining"}).status_code == 502
 
 
+def test_a_dropped_connection_is_502_not_500(client, monkeypatch):
+    """The stub above raises LLMUnavailable for "connection reset", which is what
+    the route assumed and not what happened: the real reset came out of
+    requests.post as a requests error and became an unhandled 500. So this one
+    fails at the socket and goes through the real llm path."""
+    import requests
+
+    from vidsmith import llm
+
+    def reset(*a, **k):
+        raise requests.exceptions.ConnectionError(
+            "Max retries exceeded with url: /v1beta/m:generateContent?key=sekrit-key")
+
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": "sekrit-key"})
+    monkeypatch.setattr(llm.requests, "post", reset)
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    r = client.post("/api/draft", json={"topic": "a topic worth explaining"})
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert "network" in detail
+    assert "sekrit-key" not in detail, "the key reached the page"
+
+
 def test_the_page_does_not_assume_every_response_is_json(client):
     """Whatever sits in front of the app may answer in HTML."""
     page = client.get("/").text
