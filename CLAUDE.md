@@ -75,7 +75,7 @@ This is a **PowerShell 5.1** machine. `&&` is a parser error there; chain with `
 `.\vidsmith.cmd` wraps `.venv\Scripts\python.exe -m vidsmith`.
 
 ```powershell
-cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 455 tests, ~22s
+cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest          # 694 tests
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest -m "not slow"
 cd ~/claude/vidsmith; .venv\Scripts\python.exe -m pytest tests/test_shot_plan.py::test_plan_sums_to_the_narration_slot
 cd ~/claude/vidsmith; .\vidsmith.cmd doctor                       # ffmpeg, edge-tts, which keys resolve
@@ -782,6 +782,27 @@ competing with the voice.
   read the last element with `Select-Object -Last 1`, which behaves the same on
   a scalar and an array. Testing the same lines with a direct assignment - the
   form that keeps the array - passes every time and proves nothing.
+- **A dropped connection has to become `LLMUnavailable` too, and without the
+  key.** Both request loops handled every HTTP status and none of requests' own
+  exceptions, so a connection reset, a DNS failure or a timeout came out of
+  `generate()` and `generate_vision()` as a requests error and skipped every
+  handler that only catches `LLMUnavailable`. That is more of them than it
+  sounds: `/api/draft` (an unhandled 500), `thumbs --refresh` (a traceback
+  instead of "not refreshing"), `suggest_queries` (the whole build ends at the
+  queries stage rather than falling back to keywords) and `bench.rank_clips
+  run`, which is how it was found: `ConnectionResetError(10054)` after 122 good
+  calls on 2026-09-13. Both loops now retry a `RequestException` on the same
+  backoff as `RETRY_STATUS`, and `test_every_request_loop_handles_the_network`
+  fails by name on any function that posts without catching one.
+  The part worth knowing before repeating a requests error anywhere: the key
+  travels as `?key=` and urllib3 quotes the whole URL, so a DNS failure or
+  connect timeout reads `Max retries exceeded with url: ...?key=AIza...`.
+  Checked against a real lookup, not assumed. `_network_failure()` redacts it,
+  because that text goes into a 502 body, the build log, and bench results
+  files that are not gitignored. The test that should have caught the route
+  stubbed `draft_script` to raise `LLMUnavailable("connection reset")`, which
+  is what the route assumed rather than what the network does; the one added
+  beside it fails at `requests.post`.
 - **A spent model quota is not a retryable failure.** Gemini answers `429
   RESOURCE_EXHAUSTED` when the free allowance is gone, and the generic retry
   loop spent four more requests on a number only the next day restores.

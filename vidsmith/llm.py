@@ -122,6 +122,20 @@ class QuotaExhausted(LLMUnavailable):
     one failure that waiting fixes, and the only sensible advice differs."""
 
 
+def _network_failure(exc: Exception, api_key: str) -> str:
+    """A connection reset, DNS failure or timeout, fit to repeat back.
+
+    Every optional feature degrades by catching LLMUnavailable, so a requests
+    exception escaping the loop skips all of them: a bench run died on a reset
+    after 122 good calls. The message has to lose the key on the way out,
+    because the key travels in the query string and urllib3 quotes the whole
+    URL - a DNS failure reads "Max retries exceeded with url: ...?key=AIza...",
+    and this text goes into a 502 body, the build log and bench results.
+    """
+    said = f"the network failed: {type(exc).__name__}: {exc}"
+    return said.replace(api_key, "<key>") if api_key else said
+
+
 def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
              temperature: float = 0.4, retries: int = 4, log=None) -> str:
     if not api_key:
@@ -132,12 +146,18 @@ def generate(prompt: str, api_key: str, model: str = DEFAULT_MODEL,
     }
     last = ""
     for attempt in range(retries):
-        r = requests.post(
-            ENDPOINT.format(model=model),
-            params={"key": api_key},
-            json=body,
-            timeout=120,
-        )
+        try:
+            r = requests.post(
+                ENDPOINT.format(model=model),
+                params={"key": api_key},
+                json=body,
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            # as transient as a 503, so it gets the same backoff
+            last = _network_failure(exc, api_key)
+            time.sleep(2 ** attempt)
+            continue
         pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
@@ -181,8 +201,14 @@ def generate_vision(prompt: str, images: Sequence[bytes], api_key: str,
     }
     last = ""
     for attempt in range(retries):
-        r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
-                          json=body, timeout=180)
+        try:
+            r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
+                              json=body, timeout=180)
+        except requests.RequestException as exc:
+            # as transient as a 503, so it gets the same backoff
+            last = _network_failure(exc, api_key)
+            time.sleep(2 ** attempt)
+            continue
         pause = _refuse_if_spent(r)
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
