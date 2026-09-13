@@ -2,12 +2,14 @@
 
 The first probe called `render.build_narration` 3000 times per arm, with the
 bounded pad and with the bare `apad` it replaced, and got zero hangs either way.
-At the historical 4.4% that is not a quiet result, it is a refutation: if a bare
-apad were enough on its own, 3000 trials would have produced about 130 hangs.
-So the hang is not a property of that call in isolation, and the pad cannot be
-credited with fixing it.
+This docstring originally called that a refutation of the pad theory. It was
+not: that run, and this script's first run, installed ffmpeg 9.0.1, and every
+recorded hang ran on 8.1.2. A result on the wrong binary refutes nothing. The
+workflows now take the formula as an input and `scripts/which_ffmpeg.py` refuses
+to let a job measure a version other than the one requested.
 
-What the first probe stripped away was the suite around the call. CLAUDE.md
+Measuring whole suite runs is still the right unit, for its own reason: a tight
+in-process loop strips away the suite around the call. CLAUDE.md
 already records that module state and threads outlive their tests here, and that
 `test_filter_paths` sorting before `test_integration` once left a timeout guard
 holding the wrong value for every later file. Those are exactly the conditions a
