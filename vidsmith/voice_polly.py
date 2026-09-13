@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 from xml.sax.saxutils import escape
 
+from . import manifest
 from .config import VoiceConfig
 
 IMPORT_HINT = (
@@ -180,11 +181,17 @@ def _synthesize_blocking(text: str, out: Path, cfg: VoiceConfig, key: str,
     document = ssml(text, cfg, engine)
     common = dict(Text=document, TextType="ssml", VoiceId=cfg.name, Engine=engine)
 
+    # Counted per request for the build manifest, because that is how it is
+    # billed: the marks are a second request over the same text, so the
+    # characters total comes out at twice the script, which is the real cost.
+    usage = f"polly {engine}"
     audio = polly.synthesize_speech(OutputFormat="mp3", **common)["AudioStream"].read()
+    manifest.note("voice", usage, requests=1, characters=len(text))
     if not audio:
         raise RuntimeError("polly returned no audio")
     marks = polly.synthesize_speech(OutputFormat="json", SpeechMarkTypes=["word"],
                                     **common)["AudioStream"].read()
+    manifest.note("voice", usage, requests=1, characters=len(text))
     return audio, marks
 
 

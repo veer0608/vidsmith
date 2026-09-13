@@ -330,7 +330,7 @@ def test_both_writers_format_the_credit_identically():
     disagreed on the format, it would append a second one instead."""
     import inspect
 
-    source = inspect.getsource(pipeline.build)
+    source = inspect.getsource(pipeline._build)
     assert "thumbnail_credit_line(thumb_credit)" in source, \
         "build composes the credit itself, so the refresh cannot match it"
 

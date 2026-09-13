@@ -265,7 +265,7 @@ def test_a_finished_build_reads_its_own_delivery():
 
     from vidsmith import pipeline
 
-    source = inspect.getsource(pipeline.build)
+    source = inspect.getsource(pipeline._build)
     assert "check(proj.out)" in source, "a build never reads back what it wrote"
 
 
@@ -276,7 +276,7 @@ def test_the_check_cannot_fail_a_render():
 
     from vidsmith import pipeline
 
-    source = inspect.getsource(pipeline.build)
+    source = inspect.getsource(pipeline._build)
     tail = source[source.index("from .check import check"):]
     assert "except Exception" in tail, "a fault in the check would lose the render"
     assert "raise" not in tail, "the check must report, never raise"
@@ -292,7 +292,7 @@ def test_a_passing_check_still_says_something():
 
     from vidsmith import pipeline
 
-    source = inspect.getsource(pipeline.build)
+    source = inspect.getsource(pipeline._build)
     assert "delivery is consistent" in source, \
         "a clean check is silent, so it cannot be distinguished from a missing one"
 

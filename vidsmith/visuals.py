@@ -32,6 +32,7 @@ from . import cards
 from . import captions as cap
 from . import diagram
 from . import llm
+from . import manifest
 from . import ffmpeg_util as ff
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
@@ -237,12 +238,14 @@ def normalise_still(src: Path, out: Path, duration: float, size: Tuple[int, int]
 # stock providers
 # --------------------------------------------------------------------------- #
 def _download(url: str, out: Path, headers: Optional[Dict[str, str]] = None) -> Path:
-    with requests.get(url, headers=headers or {}, stream=True, timeout=TIMEOUT) as r:
+    with manifest.timed("stock", "downloads"), \
+            requests.get(url, headers=headers or {}, stream=True, timeout=TIMEOUT) as r:
         r.raise_for_status()
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("wb") as fh:
             for chunk in r.iter_content(chunk_size=1 << 16):
                 fh.write(chunk)
+                manifest.note("stock", "downloads", bytes=len(chunk))
     return out
 
 
@@ -284,11 +287,16 @@ def _cached_search(provider: str, parts: Sequence[Any], fetch) -> List[Dict]:
     path = search_cache_path(provider, parts)
     try:
         if path.exists() and time.time() - path.stat().st_mtime < SEARCH_TTL:
-            return json.loads(path.read_text(encoding="utf-8"))
+            results = json.loads(path.read_text(encoding="utf-8"))
+            # the build manifest counts these apart from `calls`, because the
+            # Pexels quota is requests an hour and a cached answer spends none
+            manifest.note("stock", provider, cached=1)
+            return results
     except (OSError, ValueError):
         pass
 
-    results = fetch()
+    with manifest.timed("stock", provider):
+        results = fetch()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(results), encoding="utf-8")
@@ -305,7 +313,8 @@ def preview_still(url: str) -> Optional[bytes]:
     against pictures production never sends.
     """
     try:
-        r = requests.get(url, timeout=TIMEOUT)
+        with manifest.timed("stock", "previews"):
+            r = requests.get(url, timeout=TIMEOUT)
         r.raise_for_status()
         img = Image.open(BytesIO(r.content)).convert("RGB")
         img.thumbnail((320, 320), Image.LANCZOS)
