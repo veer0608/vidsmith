@@ -23,6 +23,9 @@ TREE = {"kind": "tree", "title": "How it branches",
 def _builder(tmp_path, provider="pexels", **cfg_kwargs):
     workdir = tmp_path / "visuals"
     workdir.mkdir(parents=True, exist_ok=True)
+    # These are about how drawing behaves once it is on. It is off by default,
+    # so each builder turns it on unless the test is about it being off.
+    cfg_kwargs.setdefault("diagrams", True)
     cfg = VisualConfig(provider=provider, **cfg_kwargs)
     return VisualBuilder(cfg, (640, 360), 24, workdir, keys={"gemini": "x"},
                          log=lambda *a: None, theme=resolve("midnight"),
@@ -125,6 +128,35 @@ def test_diagrams_off_means_footage_even_when_decided(tmp_path, scene, monkeypat
 
     builder.build(scene)
     assert not drawn
+
+
+def test_drawing_is_off_unless_a_project_turns_it_on():
+    """Box-and-arrow frames read as slides. A new project, which is written out
+    from these defaults, gets footage for every scene."""
+    assert VisualConfig().diagrams is False
+
+
+def test_a_hand_written_diagram_skipped_by_the_switch_says_so(tmp_path, monkeypatch):
+    """The author wrote [diagram:], so it cannot simply disappear in silence."""
+    from conftest import make_scene
+
+    builder = _builder(tmp_path, diagrams=False)
+    said = []
+    builder.log = said.append
+    scene = make_scene("A root node splits into two children.", diagram="a b-tree")
+    drawn = []
+    monkeypatch.setattr(builder, "_stock_batch", lambda *a, **k: [])
+    monkeypatch.setattr(builder, "_diagram_spec",
+                        lambda *a, **k: drawn.append(1) or Spec.from_dict(TREE))
+    monkeypatch.setattr("vidsmith.visuals.cards.scene_card",
+                        lambda out, *a, **k: out)
+    monkeypatch.setattr("vidsmith.visuals.normalise_still",
+                        lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+
+    builder.build(scene)
+
+    assert not drawn
+    assert any("visuals.diagrams is off" in line for line in said), said
 
 
 def test_the_spec_cache_is_shared_too(tmp_path):

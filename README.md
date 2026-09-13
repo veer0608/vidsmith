@@ -261,7 +261,15 @@ synthesis happened to land on". Measured on the demo: the bed sits around
 
 ## Diagrams for what cannot be filmed
 
-Some ideas have no footage anywhere. A script about B-trees asks for "branching
+**Off by default.** A box-and-arrow frame explains a subject the way a slide
+does, and a video that keeps cutting to them stops feeling like a video. A
+drafted script is told to film the moment an idea touches a person or an object
+instead ("card tapped on a shop terminal", not "pricing comparison table"), and
+any `[diagram:]` a model writes anyway is stripped from the draft. Turn drawing
+on per project with `visuals.diagrams: true`; a hand-written `[diagram:]` with
+it off is logged and gets footage.
+
+With it on: some ideas have no footage anywhere. A script about B-trees asks for "branching
 tree diagram" and every stock library returns a photograph of a tree - the
 reranker cannot fix that, because the footage does not exist.
 
