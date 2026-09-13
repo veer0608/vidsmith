@@ -61,6 +61,29 @@ jobs:
           VIDSMITH_FFMPEG_TIMEOUT: "45"
         run: python -m pytest --timeout=120 --durations=10
 
+      # CI exports no credentials, and that is the one configuration where a
+      # test reading the machine's environment cannot fail. It is why
+      # test_env_handles_a_bom was red on a developer machine and green here
+      # through two PRs that both reported it as failing on main.
+      #
+      # These values are not secrets and reach nothing: the conftest fixture
+      # clears every KEY_ENV name before each test, so this run is the proof
+      # that it does. Anything reading a credential by some route the fixture
+      # cannot see fails here instead of on one person's laptop.
+      #
+      # Ubuntu only, deliberately. The fault is platform-independent and this
+      # repo makes each platform earn its minutes.
+      - name: Run the suite again with credentials in the environment
+        env:
+          VIDSMITH_FFMPEG_TIMEOUT: "45"
+          GEMINI_API_KEY: "ci-not-a-real-key"
+          PEXELS_API_KEY: "ci-not-a-real-key"
+          PIXABAY_API_KEY: "ci-not-a-real-key"
+          AWS_ACCESS_KEY_ID: "ci-not-a-real-key"
+          AWS_SECRET_ACCESS_KEY: "ci-not-a-real-key"
+          AWS_REGION: "us-east-1"
+        run: python -m pytest --timeout=120 --durations=10
+
   windows:
     runs-on: windows-latest
     steps:

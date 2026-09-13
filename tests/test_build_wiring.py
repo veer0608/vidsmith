@@ -249,3 +249,65 @@ def test_a_stopped_build_still_says_done(project, rendered):
     stages = [line.split(" ", 1)[0] for line in lines if line.strip()]
     assert stages[-1] == "done", stages
     assert "check" not in stages, "a stopped build is incomplete by design"
+
+
+# --------------------------------------------------------------------------- #
+# what an edited directive costs
+# --------------------------------------------------------------------------- #
+def _parsed(root):
+    pl.build(root, stop_after="parse", log=lambda *a: None)
+
+
+def test_editing_one_directive_leaves_the_other_scene_alone(tmp_path):
+    """The round trip this saves is a real one, measured on a real build.
+
+    Rewording a single "[visual: ...]" line dropped the narration and every
+    scene's clips, so both cuts were re-voiced, re-ranked and re-encoded to move
+    one shot. The rerank is a vision call per scene against a daily budget that
+    appears in no response header.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "script.md").write_text(SCRIPT, encoding="utf-8")
+    write_default_config(root / "config.yaml", "A Test Video")
+    _parsed(root)
+
+    build = root / "build"
+    vis = build / "visuals"
+    vis.mkdir(parents=True, exist_ok=True)
+    (build / "narration.wav").write_bytes(b"the voice")
+    (vis / "scene_000_00.mp4").write_bytes(b"scene one")
+    (vis / "scene_001_00.mp4").write_bytes(b"scene two")
+
+    (root / "script.md").write_text(
+        SCRIPT.replace("wide empty road", "a lit window at night"), encoding="utf-8")
+    _parsed(root)
+
+    assert (build / "narration.wav").read_bytes() == b"the voice", \
+        "no word of narration changed"
+    assert (vis / "scene_000_00.mp4").exists(), "scene one was not touched"
+    assert not (vis / "scene_001_00.mp4").exists(), "scene two is the edited one"
+
+
+def test_editing_the_narration_still_drops_everything(tmp_path):
+    """The scoped path must not be reachable from a real redraft: a changed line
+    moves the timings, and every scene after it starts somewhere new."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "script.md").write_text(SCRIPT, encoding="utf-8")
+    write_default_config(root / "config.yaml", "A Test Video")
+    _parsed(root)
+
+    build = root / "build"
+    vis = build / "visuals"
+    vis.mkdir(parents=True, exist_ok=True)
+    (build / "narration.wav").write_bytes(b"the voice")
+    (vis / "scene_000_00.mp4").write_bytes(b"scene one")
+
+    (root / "script.md").write_text(
+        SCRIPT.replace("A second line,", "A rewritten second line,"),
+        encoding="utf-8")
+    _parsed(root)
+
+    assert not (build / "narration.wav").exists()
+    assert not (vis / "scene_000_00.mp4").exists()

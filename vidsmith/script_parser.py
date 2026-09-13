@@ -68,6 +68,24 @@ class Scene:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+    def narration_key(self) -> tuple:
+        """The half of the script the voice and the timings come from.
+
+        `hold` is in here rather than in the picture half because it is a floor
+        on the scene's on-screen duration, and the duration is the narration
+        slot every later stage cuts against.
+        """
+        return (self.heading, self.text, self.hold)
+
+    def picture_key(self) -> tuple:
+        """The half that only decides what is on screen.
+
+        The heading is deliberately not here even though an undirected scene is
+        searched on it: a changed heading is a changed narration key already, so
+        it invalidates everything rather than only the shot.
+        """
+        return (self.directive, self.diagram)
+
     def source_key(self) -> tuple:
         """Everything about this scene that came from the script.
 
@@ -75,8 +93,11 @@ class Scene:
         `text` alone meant an edited "[visual: ...]" line was invisible: the build
         reported success, reused the previous Gemini query, and fetched footage
         for a shot the script no longer asked for.
+
+        Built from the two halves rather than listing the fields again, so a
+        field added to either one cannot go missing here.
         """
-        return (self.heading, self.text, self.directive, self.diagram, self.hold)
+        return self.narration_key() + self.picture_key()
 
     @property
     def est_seconds(self) -> float:

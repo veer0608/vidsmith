@@ -27,3 +27,6 @@ docs/launch-*.md
 
 # the YouTube refresh token vidsmith upload writes after the consent screen
 .youtube-token.json
+
+# scratch from scripts/hang_probe.py
+.hang-probe/

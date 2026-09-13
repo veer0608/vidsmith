@@ -238,3 +238,117 @@ def test_a_model_decided_diagram_names_the_model_not_the_script(tmp_path, scene,
                                                   encoding="utf-8")
     out = _log_for(tmp_path, monkeypatch, scene, Spec.from_dict(TREE))
     assert "the model asked" in out
+
+
+# --------------------------------------------------------------------------- #
+# a picture-only edit
+# --------------------------------------------------------------------------- #
+def _staged(tmp_path):
+    """A build directory holding artifacts for two scenes, 0 and 1."""
+    from vidsmith.pipeline import Project
+
+    proj = Project(tmp_path)
+    build = proj.build
+    vis = build / "visuals"
+    vis.mkdir(parents=True)
+    (build / "diagram_scenes.json").write_text('{"0": false, "1": true}',
+                                               encoding="utf-8")
+    (build / "diagrams.json").write_text('{"1": {"kind": "tree"}}', encoding="utf-8")
+    (build / "narration.wav").write_bytes(b"the voice")
+    (build / "picture.mp4").write_bytes(b"x")
+    (vis / "rerank.json").write_text('{"0": {"order": []}, "1": {"order": []}}',
+                                     encoding="utf-8")
+    (vis / "credits.json").write_text(
+        '{"0:0": {"credit": "keep"}, "1:0": {"credit": "drop"}}', encoding="utf-8")
+    (vis / "scene_000_00.mp4").write_bytes(b"x")
+    (vis / "scene_001_00.mp4").write_bytes(b"x")
+    (vis / "end.mp4").write_bytes(b"x")
+    return proj, build, vis
+
+
+def test_a_reworded_directive_keeps_the_narration_and_the_other_scenes(tmp_path):
+    """Editing one "[visual: ...]" line used to re-cut the entire video.
+
+    The narration, the word timings and every untouched scene's footage cannot
+    have changed, but `invalidate()` dropped all of it - so rewording one
+    directive re-ranked all seven scenes of a real build, a vision call each,
+    against a daily budget that is reported in no header.
+    """
+    from vidsmith.pipeline import Project, invalidate
+
+    proj, build, vis = _staged(tmp_path)
+
+    invalidate(proj, log=lambda *a: None, only={1})
+
+    assert (build / "narration.wav").read_bytes() == b"the voice", \
+        "the voice cannot have changed; a shot directive is not narration"
+    assert (vis / "scene_000_00.mp4").exists(), "scene 0 was not edited"
+    assert not (vis / "scene_001_00.mp4").exists(), "scene 1 was"
+    assert (vis / "end.mp4").exists(), "the end card is drawn from the title"
+    assert not (build / "picture.mp4").exists(), "the cut has to be re-concatenated"
+
+    assert json.loads((build / "diagram_scenes.json").read_text()) == {"0": False}
+    assert json.loads((build / "diagrams.json").read_text()) == {}
+    assert list(json.loads((vis / "rerank.json").read_text())) == ["0"]
+    assert json.loads((vis / "credits.json").read_text()) == {"0:0": {"credit": "keep"}}
+
+
+def test_the_scoped_drop_reads_both_key_shapes(tmp_path):
+    """`credits.json` keys on `index:shot`, the rest key on the index alone."""
+    from vidsmith.pipeline import Project, invalidate
+
+    proj, build, vis = _staged(tmp_path)
+    (vis / "credits.json").write_text(
+        '{"1:0": {"credit": "a"}, "1:1": {"credit": "b"}, "10:0": {"credit": "c"}}',
+        encoding="utf-8")
+
+    invalidate(proj, log=lambda *a: None, only={1})
+
+    assert json.loads((vis / "credits.json").read_text()) == {"10:0": {"credit": "c"}}, \
+        "scene 10 is not scene 1, and a prefix match would have taken it"
+
+
+def test_an_unreadable_cache_is_dropped_rather_than_trusted(tmp_path):
+    from vidsmith.pipeline import Project, invalidate
+
+    proj, build, vis = _staged(tmp_path)
+    (vis / "rerank.json").write_text("{ this is not json", encoding="utf-8")
+
+    invalidate(proj, log=lambda *a: None, only={1})
+
+    assert not (vis / "rerank.json").exists()
+
+
+def test_the_scoped_drop_says_it_kept_the_narration(tmp_path):
+    from vidsmith.pipeline import Project, invalidate
+
+    proj, _, _ = _staged(tmp_path)
+    said = []
+    invalidate(proj, log=said.append, only={1})
+
+    line = " ".join(said)
+    assert "1 scene" in line and "kept the narration" in line, line
+
+
+def test_carrying_timings_keeps_the_voice_and_moves_the_shot():
+    """The fresh parse is authoritative about the script, the cache about time."""
+    from vidsmith.pipeline import carry_timings
+    from vidsmith.script_parser import Scene
+
+    cached = [Scene(index=0, text="One.", query="a model wrote this"),
+              Scene(index=1, text="Two.", query="an old desk")]
+    for i, s in enumerate(cached):
+        s.audio, s.duration, s.start = f"{i}.mp3", 3.0, i * 3.0
+        s.words = [{"text": "One", "start": 0.0, "end": 0.4}]
+
+    fresh = [Scene(index=0, text="One.", query="The heading"),
+             Scene(index=1, text="Two.", query="a new desk", directive="a new desk")]
+
+    out = carry_timings(cached, fresh, redrawn={1})
+
+    assert out is fresh, "the new directives are the ones that must survive"
+    assert [s.duration for s in out] == [3.0, 3.0], "the voice did not change"
+    assert out[0].words == cached[0].words
+    assert out[0].query == "a model wrote this", \
+        "asking Gemini again for a scene nobody edited is the cost this avoids"
+    assert out[1].query == "a new desk", "this is the scene that moved"

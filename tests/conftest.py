@@ -11,7 +11,26 @@ from typing import List, Optional
 
 import pytest
 
+from vidsmith.pipeline import KEY_ENV
 from vidsmith.script_parser import Scene
+
+
+@pytest.fixture(autouse=True)
+def no_real_credentials(monkeypatch):
+    """No test reads the credentials of the machine it runs on.
+
+    `config.env()` prefers `os.environ` over every dotenv, deliberately, so a
+    developer with real keys exported hands them to anything that resolves one.
+    `test_env_handles_a_bom` asserted against a live `GEMINI_API_KEY` that way:
+    red on the machine it was written on, green in CI, and read as a `main`
+    failure through two PRs. Clearing them here also means no test can spend
+    real Gemini quota or reach a provider by accident.
+
+    The names come from `KEY_ENV` rather than a list kept here, so a credential
+    added there is covered without anyone remembering this fixture exists.
+    """
+    for var in KEY_ENV.values():
+        monkeypatch.delenv(var, raising=False)
 
 
 def make_scene(text: str, index: int = 0, wps: float = 2.6,

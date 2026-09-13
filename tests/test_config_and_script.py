@@ -6,12 +6,14 @@ after, which is how a project ended up with amber captions on an ink theme.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 import yaml
 
 from vidsmith.config import (ASPECTS, CaptionConfig, Config, env, load_config,
                              write_default_config)
-from vidsmith.pipeline import _apply_overrides, _slug
+from vidsmith.pipeline import KEY_ENV, _apply_overrides, _slug
 from vidsmith.script_parser import load_scenes, parse_script, save_scenes
 
 
@@ -99,7 +101,9 @@ def test_every_aspect_has_even_dimensions(aspect):
     assert w % 2 == 0 and h % 2 == 0
 
 
-def test_env_reads_dotenv_files(tmp_path):
+def test_env_reads_dotenv_files(tmp_path, monkeypatch):
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
     a = tmp_path / "a.env"
     a.write_text('PEXELS_API_KEY="from-a"\n# comment\n', encoding="utf-8")
     b = tmp_path / "b.env"
@@ -110,8 +114,20 @@ def test_env_reads_dotenv_files(tmp_path):
     assert env("NOT_SET_ANYWHERE", a, b) == ""
 
 
-def test_env_handles_a_bom(tmp_path):
+def test_no_test_can_see_this_machines_credentials():
+    """The conftest fixture, proved rather than assumed.
+
+    This is the test that goes red if the fixture is removed or if a name is
+    added to KEY_ENV in a way it cannot reach. Without it the guard is only
+    load-bearing on a machine that happens to have keys exported, which is the
+    same blind spot that let the BOM fault sit through two PRs.
+    """
+    assert [var for var in KEY_ENV.values() if var in os.environ] == []
+
+
+def test_env_handles_a_bom(tmp_path, monkeypatch):
     """Windows editors write UTF-8 with a BOM and it lands on the first key."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     path = tmp_path / "bom.env"
     path.write_text("GEMINI_API_KEY=abc\n", encoding="utf-8-sig")
     assert env("GEMINI_API_KEY", path) == "abc"
@@ -345,3 +361,47 @@ def test_other_script_authored_directives_are_compared_too(tmp_path, field, valu
     setattr(edited, field, value)
 
     assert edited.source_key() != scenes[0].source_key()
+
+
+def test_the_two_halves_of_a_scene_are_compared_separately(tmp_path):
+    """A reworded shot is not a reworded script.
+
+    `source_key()` alone could only answer "did anything change", so an edited
+    `[visual: ...]` line threw away the narration, the word timings and every
+    other scene's footage along with the one shot that actually moved.
+    """
+    body = "# T\n\n## One\n[visual: {shot}]\nThe narration does not change.\n"
+    before = parse_script(_write(tmp_path, body.format(shot="a desk")))[1][0]
+    after = parse_script(_write(tmp_path, body.format(shot="a laptop")))[1][0]
+
+    assert before.narration_key() == after.narration_key(), "the voice is the same"
+    assert before.picture_key() != after.picture_key(), "the picture is not"
+
+
+def test_a_reworded_line_still_changes_the_narration_key(tmp_path):
+    body = "# T\n\n## One\n[visual: a desk]\n{line}\n"
+    before = parse_script(_write(tmp_path, body.format(line="One thing.")))[1][0]
+    after = parse_script(_write(tmp_path, body.format(line="Another thing.")))[1][0]
+
+    assert before.narration_key() != after.narration_key()
+    assert before.picture_key() == after.picture_key(), \
+        "the shot did not move, and re-fetching it would be waste"
+
+
+def test_a_hold_belongs_to_the_narration_half(tmp_path):
+    """`hold` is a floor on the scene's duration, and the duration is the slot
+    every later stage cuts against - so it cannot be a picture-only change."""
+    body = "# T\n\n## One\n[visual: a desk]\n{hold}Narration.\n"
+    before = parse_script(_write(tmp_path, body.format(hold="")))[1][0]
+    after = parse_script(_write(tmp_path, body.format(hold="[hold: 4.0]\n")))[1][0]
+
+    assert before.narration_key() != after.narration_key()
+
+
+def test_the_source_key_is_still_both_halves(tmp_path):
+    """The whole key is built from the two, so a field added to either one
+    cannot go missing from it."""
+    path = _write(tmp_path, "# T\n\n## One\n[diagram: a tree]\nNarration.\n")
+    scene = parse_script(path)[1][0]
+
+    assert scene.source_key() == scene.narration_key() + scene.picture_key()
