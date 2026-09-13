@@ -294,23 +294,34 @@ def test_a_spent_quota_stops_the_run_and_keeps_what_was_paid_for(tmp_path, monke
 def test_a_dropped_connection_stops_the_run_instead_of_scoring_it(tmp_path, monkeypatch):
     """A real run died on ConnectionResetError after 122 calls. Recorded as an
     error it would be scored as the search order, counting the network against
-    the model."""
+    the model. Driven through the real llm retry loop, because llm now turns
+    the reset into an LLMUnavailable, and a plain one is what gets scored."""
     import requests
 
     _ready(tmp_path)
-    calls = []
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
 
-    def fake(*a, **k):
-        calls.append(1)
-        if len(calls) == 2:
-            raise requests.exceptions.ConnectionError("Connection aborted.")
-        return [0, 1, 2, 3], [], True
+    def reset(*a, **k):
+        raise requests.exceptions.ConnectionError("Connection aborted.")
 
-    monkeypatch.setattr(llm, "rank_clips", fake)
+    monkeypatch.setattr(llm.requests, "post", reset)
     code = rc.run(tmp_path, "key", "m", repeats=2, data_dir=tmp_path, log=lambda *a: None)
-    rows = rc.read_results(rc.results_path(tmp_path, "m"))
     assert code == 3
-    assert len(rows) == 1 and "error" not in rows[0]
+    assert rc.read_results(rc.results_path(tmp_path, "m")) == []
+
+
+def test_an_unusable_answer_is_still_scored_not_retried(tmp_path, monkeypatch):
+    """The model answering with something unparseable is the model's failure,
+    and a build falls back to the search order for it, so that is what counts."""
+    _ready(tmp_path, n_cases=1)
+
+    def junk(*a, **k):
+        raise ValueError("model did not return a ranking")
+
+    monkeypatch.setattr(llm, "rank_clips", junk)
+    assert rc.run(tmp_path, "key", "m", repeats=1, data_dir=tmp_path, log=lambda *a: None) == 0
+    rows = rc.read_results(rc.results_path(tmp_path, "m"))
+    assert len(rows) == 1 and "error" in rows[0]
 
 
 def test_a_second_run_resumes_instead_of_repaying(tmp_path, monkeypatch):

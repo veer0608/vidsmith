@@ -440,8 +440,6 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
     finishes. An error that is not the quota is recorded and scored as the
     search order, because that is exactly what a build does when the call fails.
     """
-    import requests
-
     from vidsmith import llm
 
     cases = load_cases(data_dir)[:limit or None]
@@ -475,12 +473,12 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
             except llm.QuotaExhausted as exc:
                 log(f"stopped after {calls} calls: {exc}")
                 return 2
-            except requests.RequestException as exc:
-                # The network, not the model: recorded as an error it would be
-                # scored as the search order and count against the model. Stop,
-                # and let the next run retry this call.
-                log(f"stopped after {calls} calls on a network failure, everything "
-                    f"so far is saved; run again to resume ({type(exc).__name__})")
+            except llm.GaveUp as exc:
+                # The network or the service, not the model: recorded as an
+                # error it would be scored as the search order and count against
+                # the model. Stop, and let the next run retry this call.
+                log(f"stopped after {calls} calls; everything so far is saved, "
+                    f"run again to resume ({exc})")
                 return 3
             except (llm.LLMUnavailable, ValueError) as exc:
                 row = {"error": str(exc)[:300]}

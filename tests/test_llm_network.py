@@ -110,6 +110,28 @@ def test_the_message_does_not_carry_the_key(monkeypatch, no_waiting, call, retri
     assert "Max retries exceeded" in str(exc.value), "redacted too much to read"
 
 
+@pytest.mark.parametrize("outcome", [
+    RESET, Reply({"error": "unavailable"}, 503),
+], ids=["network", "5xx"])
+@pytest.mark.parametrize("call, retries", PATHS)
+def test_spent_retries_are_gave_up_so_nothing_scores_them(monkeypatch, no_waiting,
+                                                         call, retries, outcome):
+    """bench.rank_clips must not record the network as the model's answer, and
+    tells the two apart by class rather than by matching this message."""
+    _answering(monkeypatch, outcome)
+    with pytest.raises(llm.GaveUp):
+        call()
+
+
+def test_a_refusal_is_not_gave_up(monkeypatch, no_waiting):
+    """A 400 and a spent daily quota are answers, not something a retry fixes."""
+    _answering(monkeypatch, Reply({"error": "bad request"}, 400))
+    with pytest.raises(llm.LLMUnavailable) as exc:
+        llm.generate("hello", KEY)
+    assert not isinstance(exc.value, llm.GaveUp)
+    assert not issubclass(llm.QuotaExhausted, llm.GaveUp)
+
+
 def test_a_network_failure_mid_loop_does_not_eat_a_real_error(monkeypatch, no_waiting):
     """A reset then a 400 is a 400: the network note must not mask it."""
     _answering(monkeypatch, RESET, Reply({"error": "bad request"}, 400))

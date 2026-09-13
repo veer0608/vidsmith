@@ -190,6 +190,12 @@ times into `results/<model>.jsonl`, and `score --write` produces `REPORT.md`.
 - **It runs on the free tier's 500 requests a day.** Every call is appended as
   it returns, a spent quota stops the run, and the next run resumes. A failed
   call is scored as the search order, because that is what a build does with it.
+- **But a call the model never answered is not scored.** Spent retries on a
+  dropped connection, a 5xx or a per-minute limit raise `llm.GaveUp`, a subclass
+  of `LLMUnavailable`, and `run` stops on it the way it stops on a spent quota.
+  The first real run lost connection three times. Scored, those would have
+  counted the network against the model. Tell the two apart by class, never by
+  the message text.
 - **Scores are paired over shared cases, with a bootstrap interval.** A few
   dozen cases vary far more between themselves than two systems do. Quote the
   interval with the number, or the number means nothing.
