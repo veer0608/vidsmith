@@ -14,6 +14,12 @@
 # predicts. If neither hangs, the amplification is not reaching the real trigger
 # and the loop needs rethinking rather than the code.
 #
+# Its first run, on 2026-09-12, measured the wrong ffmpeg. Every recorded hang
+# ran on Homebrew ffmpeg 8.1.2; by then `brew install ffmpeg` on macos-26-arm64
+# resolved to 9.0.1, because the runner image build had moved on. Zero hangs in
+# 6000 calls on 9.0.1 says nothing about 8.1.2, so that run settles nothing and
+# the ffmpeg formula is now an input, checked against what vidsmith resolves.
+#
 # Manual only. It is a diagnostic, not a gate, so it never runs on a push.
 name: narration hang probe
 
@@ -26,6 +32,12 @@ on:
       timeout:
         description: "seconds before a call counts as hung (healthy is ~0.1s)"
         default: "8"
+      ffmpeg_formula:
+        description: "Homebrew formula; ffmpeg@8 is 8.1.2, the version every recorded hang ran on"
+        default: "ffmpeg@8"
+      ffmpeg_expect:
+        description: "version the job must actually resolve, or it refuses to run; empty skips the check"
+        default: "8.1.2"
 
 jobs:
   probe:
@@ -45,19 +57,30 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # The same Homebrew build the failing job uses, deliberately. It is ffmpeg
-      # 8.1.2 without libass, and "the environment that reproduces it" includes
-      # which ffmpeg is installed.
+      # A versioned formula is keg-only and never linked, so it goes on PATH for
+      # the shell and into FFMPEG_BINARY / FFPROBE_BINARY for vidsmith, whose
+      # resolver checks those first. Setting both means neither can quietly pick
+      # up some other ffmpeg the image happens to carry.
       - name: Install ffmpeg
-        run: brew install ffmpeg
-
-      - name: Ask the binary what it is
+        env:
+          FORMULA: ${{ github.event.inputs.ffmpeg_formula }}
         run: |
-          ffmpeg -hide_banner -version
-          ffprobe -hide_banner -version
+          brew install "$FORMULA"
+          prefix="$(brew --prefix "$FORMULA")"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          echo "FFMPEG_BINARY=$prefix/bin/ffmpeg" >> "$GITHUB_ENV"
+          echo "FFPROBE_BINARY=$prefix/bin/ffprobe" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+
+      # Asks vidsmith's own resolver, not the shell. The last two probes both
+      # trusted `brew install ffmpeg` to mean the version in CLAUDE.md, and both
+      # measured a different one. This refuses instead.
+      - name: Refuse to measure the wrong ffmpeg
+        env:
+          EXPECT: ${{ github.event.inputs.ffmpeg_expect }}
+        run: python scripts/which_ffmpeg.py
 
       # The arm is only real if the patch landed. A silent no-op here would
       # produce two identical arms and a confident wrong answer, which is the
