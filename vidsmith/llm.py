@@ -534,11 +534,16 @@ Rules:
 - No sentences, no punctuation, no numbers longer than four digits.
 - The diagram must carry the idea in the narration, not decorate it.
 - "title" is at most five words, or an empty string if the layout speaks alone.
+- A compare diagram lights one side and mutes the other, so it takes a side.
+  Set "accent": true on exactly one group: the one the narration favours,
+  recommends or argues for. Set "accent": false on the other. The order of the
+  groups does not decide the emphasis; the flag does.
 
 Return ONLY JSON, one of:
 {{"kind": "flow"|"tree"|"stack", "title": "...", "nodes": ["...", "..."]}}
 {{"kind": "compare", "title": "...",
-  "groups": [{{"label": "...", "items": ["..."]}}, {{"label": "...", "items": ["..."]}}]}}"""
+  "groups": [{{"label": "...", "items": ["..."], "accent": true|false}},
+             {{"label": "...", "items": ["..."], "accent": true|false}}]}}"""
 
 
 def design_diagram(line: str, query: str, api_key: str,
