@@ -45,6 +45,8 @@ class Spec:
                 "label": str(group.get("label", "")).strip(),
                 "items": [str(i).strip() for i in (group.get("items") or [])
                           if str(i).strip()][:4],
+                # the string "false" is truthy, and a model will send one
+                "accent": str(group.get("accent")).strip().lower() in ("true", "1"),
             })
         return cls(kind=kind, title=str(raw.get("title", "")).strip(),
                    nodes=nodes[:MAX_NODES], groups=groups)
@@ -58,6 +60,24 @@ class Spec:
         if self.kind == "compare":
             return sum(len(g["items"]) for g in self.groups) or 1
         return max(1, len(self.nodes))
+
+    @property
+    def accent_column(self) -> int:
+        """Which compare column gets the gold border and the bright label.
+
+        A compare diagram is an argument, not just a layout: one side is lit
+        and the other is muted. The renderer used to gild whichever group came
+        second, and the model writes them in whatever order it likes, so about
+        half the time the emphasis landed on the option the narration was
+        arguing against. A group says `accent: true` to claim it. Column 1
+        remains the default, so every spec written before this - including the
+        ones already cached in a project's `diagrams.json` - renders exactly as
+        it did.
+        """
+        for i, group in enumerate(self.groups):
+            if group.get("accent"):
+                return i
+        return 1
 
     def is_drawable(self) -> bool:
         if self.kind == "compare":
@@ -350,20 +370,22 @@ def _draw_compare(draw, spec, size, theme, shown, clear_below=None):
         y_top = _centre(top, bottom, head_h + box_h * rows + gap_y * (rows - 1))
 
     block = head_h + box_h * rows + gap_y * (rows - 1)
+    lit = spec.accent_column
     seen = 0
     for col, group in enumerate(spec.groups):
         x0 = x_positions[col]
+        emphasised = col == lit
         head_font = cards.font(theme.kicker_file, int(ts * 0.95))
         label = cards.trim(group["label"].upper(), 24)
         tw = draw.textlength(label, font=head_font)
         draw.text((x0 + (col_w - tw) / 2, y_top), label, font=head_font,
-                  fill=hex_rgb(theme.accent if col else theme.muted))
+                  fill=hex_rgb(theme.accent if emphasised else theme.muted))
 
         y = y_top + head_h
         for item in group["items"]:
             on = 1.0 if seen < shown else 0.0
             rect = (x0, y, x0 + col_w, y + box_h)
-            _box(draw, rect, theme, on, accent=bool(col))
+            _box(draw, rect, theme, on, accent=emphasised)
             _label(draw, rect, item, theme, on, label_size)
             y += box_h + gap_y
             seen += 1

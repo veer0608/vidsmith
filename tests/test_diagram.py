@@ -10,7 +10,7 @@ import pytest
 from PIL import Image
 
 from vidsmith.diagram import KINDS, MAX_NODES, Spec, render, reveal_steps
-from vidsmith.theme import resolve
+from vidsmith.theme import hex_rgb, resolve
 
 THEME = resolve("midnight")
 SIZE = (960, 540)
@@ -138,3 +138,97 @@ def test_long_labels_do_not_overflow_the_frame(tmp_path):
                                      "Another one just as long", "Third"]})
     out = render(spec, tmp_path / "long.png", SIZE, THEME)
     assert Image.open(out).size == SIZE
+
+
+# --------------------------------------------------------------------------- #
+# which side of a compare is lit
+# --------------------------------------------------------------------------- #
+# The launch-demo closing diagram listed "The engine" first and "An estimate"
+# second, and the renderer gilded the estimate - the side the narration was
+# arguing against - because it always lit the second group.
+ENGINE = {"label": "The engine", "items": ["Exact per word", "Cannot drift"]}
+ESTIMATE = {"label": "An estimate", "items": ["Guessed later", "Drifts"]}
+
+
+def _compare(first, second, **flags):
+    groups = [dict(first), dict(second)]
+    for i, value in flags.get("accent", {}).items():
+        groups[i]["accent"] = value
+    # no title: it is drawn in the accent colour and would count for both sides
+    return Spec.from_dict({"kind": "compare", "title": "", "groups": groups})
+
+
+def _lit_side(path, theme) -> str:
+    """Which half of the frame carries the accent, counted in exact pixels.
+
+    The lit column's heading is drawn in the accent at full opacity, and so are
+    its box borders once fully revealed; the muted column has neither.
+    """
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    accent = hex_rgb(theme.accent)
+
+    def count(box):
+        half = img.crop(box)
+        colours = half.getcolors(half.width * half.height) or []
+        return next((n for n, c in colours if c == accent), 0)
+
+    left, right = count((0, 0, w // 2, h)), count((w // 2, 0, w, h))
+    assert left + right, "no accent drawn at all"
+    return "left" if left > right else "right"
+
+
+def _render_late(spec, tmp_path, size):
+    # Sample the END of the scene. A compare animates in, so early on the
+    # second column's boxes are still dim and look muted for that reason alone,
+    # which is why the launch-demo fault was invisible in an early still. Only
+    # at full reveal are the lit column's borders drawn in the exact accent.
+    return render(spec, tmp_path / "c.png", size, THEME, reveal=1.0)
+
+
+@pytest.mark.parametrize("size", [SIZE, (540, 960)], ids=["16:9", "9:16"])
+def test_the_flagged_group_is_lit_when_it_comes_first(tmp_path, size):
+    spec = _compare(ENGINE, ESTIMATE, accent={0: True})
+    assert spec.accent_column == 0
+    assert _lit_side(_render_late(spec, tmp_path, size), THEME) == "left"
+
+
+@pytest.mark.parametrize("size", [SIZE, (540, 960)], ids=["16:9", "9:16"])
+def test_the_flagged_group_is_lit_when_it_comes_second(tmp_path, size):
+    spec = _compare(ESTIMATE, ENGINE, accent={1: True})
+    assert spec.accent_column == 1
+    assert _lit_side(_render_late(spec, tmp_path, size), THEME) == "right"
+
+
+def test_an_unflagged_compare_still_lights_the_second_group(tmp_path):
+    """Specs cached in diagrams.json before the flag existed must not change."""
+    spec = _compare(ENGINE, ESTIMATE)
+    assert spec.accent_column == 1
+    assert _lit_side(_render_late(spec, tmp_path, SIZE), THEME) == "right"
+
+
+def test_the_order_alone_no_longer_decides(tmp_path):
+    lit_first = _render_late(_compare(ENGINE, ESTIMATE, accent={0: True}),
+                             tmp_path / "a", SIZE)
+    lit_second = _render_late(_compare(ENGINE, ESTIMATE, accent={1: True}),
+                              tmp_path / "b", SIZE)
+    assert _lit_side(lit_first, THEME) != _lit_side(lit_second, THEME)
+
+
+@pytest.mark.parametrize("value,column", [
+    (True, 0), ("true", 0), ("True", 0), (1, 0),
+    (False, 1), ("false", 1), ("no", 1), (None, 1), (0, 1),
+])
+def test_the_accent_flag_survives_how_a_model_spells_it(value, column):
+    """"false" is a truthy string, and it must not claim the emphasis."""
+    assert _compare(ENGINE, ESTIMATE, accent={0: value}).accent_column == column
+
+
+def test_the_diagram_prompt_teaches_the_flag():
+    """The renderer reads `accent`; a prompt that never asks for it leaves the
+    emphasis to group order again, which is the bug this replaced."""
+    from vidsmith import llm
+    body = llm.DIAGRAM_PROMPT.format(line="a line", query="a shot")
+    assert '"accent"' in body
+    assert "favours" in body
+    assert "order" in body.lower(), "nothing tells the model order is not the flag"
