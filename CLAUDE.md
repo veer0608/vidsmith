@@ -343,6 +343,22 @@ slideshow. That silence is why `/api/options` reports which providers this
 instance can actually reach and the page disables the rest, and why the CLI
 default was moved off `cards`: a deck of cards is not a video.
 
+**`local` had both halves of that silence, and each shipped.** A relative
+`visuals.local_dir` - `assets/clips`, which every `config.yaml` writes - was read
+from the process's current directory, so running from anywhere but the project
+found no files and every scene became a card. `pipeline` now hands the builder
+`proj.root`, relative paths resolve against it, and an empty or missing folder
+is logged with the absolute path it looked in (and a pointer to any
+`assets/clips` left under the current directory). The other half is which file a
+shot gets. A scene cut into three shots took three *different* files, so with
+one image per pose "[visual: byte pointing]" showed pointing, then celebrating,
+then thinking: those two score one below pointing by sharing "byte". Only files
+**tied with the best filename score** are eligible now, for every shot; a lower
+score never wins over reusing the best, because a near miss and a contradiction
+score the same. Fewer tied files than shots means fewer shots, not repeats, and
+the plan collapses. Variety comes from equally named variants
+(`byte-pointing-2.png`), which tie and are spread across scenes by `self.used`.
+
 The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
 sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at
 `-14`. Raising `music_gain_db` without re-checking the mix is how the bed starts

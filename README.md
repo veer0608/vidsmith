@@ -462,7 +462,7 @@ Override any of it per build:
 | `pexels` (default) | free `PEXELS_API_KEY` | real stock video, one clip per scene, no repeats |
 | `pixabay` | free `PIXABAY_API_KEY` | same, different library |
 | `cards` | none | generated gradient cards with Ken Burns motion |
-| `local` | none | your own clips in `assets/clips`, matched on filename |
+| `local` | none | your own clips and images in the project's `assets/clips`, matched on filename |
 
 Without a stock key the build does not fail. It logs the fallback and renders
 cards. With `GEMINI_API_KEY` set, the search query for each scene is written by
@@ -686,6 +686,10 @@ a free instance is roughly ten times slower than a laptop.
 - Crossfades (`transition: fade`) re-encode the whole picture track and are much
   slower than the default hard cuts.
 - `local` provider matching is filename keyword overlap, not content matching.
+  A relative `local_dir` is read from the project folder. Every shot uses a file
+  that matches as well as the best one does, so for several shots of the same
+  subject add numbered variants (`byte-pointing-2.png`); otherwise the scene
+  holds its one best file rather than cutting to a worse match.
 
 ## Licence
 

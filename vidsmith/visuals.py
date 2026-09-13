@@ -407,7 +407,8 @@ class VisualBuilder:
                  theme: Optional[Theme] = None,
                  theme_cfg: Optional[ThemeConfig] = None, total_scenes: int = 0,
                  lead_in: float = 0.25,
-                 caption_cfg: Optional[CaptionConfig] = None):
+                 caption_cfg: Optional[CaptionConfig] = None,
+                 project_root: Optional[Path] = None):
         self.cfg = cfg
         self.theme = theme or resolve_theme()
         self.theme_cfg = theme_cfg or ThemeConfig()
@@ -429,12 +430,35 @@ class VisualBuilder:
         self._filmable = True
         self._local: List[Path] = []
         if cfg.provider == "local":
-            root = Path(cfg.local_dir)
-            if root.exists():
-                self._local = sorted(
-                    p for p in root.rglob("*")
-                    if p.suffix.lower() in VIDEO_EXT | IMAGE_EXT
-                )
+            self._local = self._find_local(project_root)
+
+    def _find_local(self, project_root: Optional[Path]) -> List[Path]:
+        """Every usable file under `local_dir`, and a loud line when there is none.
+
+        A relative `local_dir` belongs to the project, because that is where
+        `config.yaml` lives and every one of them writes `assets/clips`.
+        Resolving it against the process's current directory found nothing
+        whenever vidsmith ran from anywhere else, and nothing is not an error
+        here: every scene quietly became a generated card.
+        """
+        root = Path(self.cfg.local_dir)
+        if not root.is_absolute() and project_root is not None:
+            root = Path(project_root) / root
+        found = sorted(
+            p for p in root.rglob("*")
+            if p.suffix.lower() in VIDEO_EXT | IMAGE_EXT
+        ) if root.is_dir() else []
+        if not found:
+            why = "does not exist" if not root.is_dir() else "holds no video or image files"
+            self.log(f"    local: {root} {why}; every scene will be a generated card")
+            stray = Path(self.cfg.local_dir)
+            if (not stray.is_absolute() and project_root is not None
+                    and stray.resolve() != root.resolve() and stray.is_dir()):
+                self.log(f"    local: there is a {self.cfg.local_dir} under the "
+                         f"current directory ({stray.resolve()}); a relative "
+                         f"local_dir is read from the project, so move it there "
+                         f"or give an absolute path")
+        return found
 
     # -- attribution ledger ------------------------------------------------- #
     def _ledger_path(self) -> Path:
@@ -659,28 +683,44 @@ class VisualBuilder:
         return picked
 
     def _local_batch(self, scene: Scene, query: str, count: int) -> List[Dict]:
+        """Up to `count` distinct files, all of them as good a match as the best.
+
+        Only files tied with the best filename score are eligible, for every
+        shot including the first. A lower score never wins over reusing the
+        best match, because the score counts shared words, not meaning: with
+        one image per pose, `byte-celebrating` scores one below `byte-pointing`
+        on "[visual: byte pointing]" by sharing "byte", which is exactly as
+        close as the wrong pose gets. Taking it cut a pointing scene to
+        celebrating and then thinking, and it looked like a bug because it
+        was one. A near miss and a contradiction score the same, so neither is
+        taken; an author who wants variety adds equally named variants
+        (`byte-pointing-2.png`), which tie and are used.
+
+        Within that tier `self.used` still orders the pick, unused first, so
+        equally good files spread across scenes the way stock results do. When
+        the tier is smaller than `count` this returns fewer files rather than
+        repeating one, and the shot plan collapses to match: a repeated still
+        restarts its Ken Burns move at every cut and a repeated video replays
+        its opening, both of which read as a glitch where one longer shot does
+        not.
+
+        When nothing matches at all, the whole folder ties at zero and the
+        pick is as arbitrary as it always was; that is logged, because it is
+        a script asking for something the folder does not have.
+        """
         if not self._local:
             return []
         terms = set(keywords(query + " " + scene.text, limit=8))
-        scored = sorted(
-            self._local,
-            key=lambda p: (
-                -sum(1 for t in terms if t in p.stem.lower()),
-                p.stem in self.used,
-                p.stem,
-            ),
-        )
-        picked: List[Dict] = []
-        for p in scored:
-            if len(picked) >= count:
-                break
-            if p.stem in self.used:
-                continue
-            self.used.add(p.stem)
-            picked.append({"path": p, "author": "", "page": ""})
-        if not picked and scored:
-            picked.append({"path": scored[0], "author": "", "page": ""})
-        return picked
+        scores = {p: sum(1 for t in terms if t in p.stem.lower()) for p in self._local}
+        best = max(scores.values())
+        if best == 0:
+            self.log(f"    local: no file name matches '{query[:40]}'; "
+                     f"using whatever is least used")
+        tier = sorted((p for p in self._local if scores[p] == best),
+                      key=lambda p: (p.stem in self.used, p.stem))
+        picked = tier[:max(1, count)]
+        self.used.update(p.stem for p in picked)
+        return [{"path": p, "author": "", "page": ""} for p in picked]
 
     # -- public -------------------------------------------------------------- #
     def _shot_paths(self, scene: Scene, n: int) -> List[Path]:
@@ -867,11 +907,12 @@ def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
               log=print, theme: Optional[Theme] = None,
               theme_cfg: Optional[ThemeConfig] = None,
               lead_in: float = 0.25,
-              caption_cfg: Optional[CaptionConfig] = None) -> None:
+              caption_cfg: Optional[CaptionConfig] = None,
+              project_root: Optional[Path] = None) -> None:
     workdir.mkdir(parents=True, exist_ok=True)
     builder = VisualBuilder(cfg, size, fps, workdir, keys, log, theme, theme_cfg,
                             total_scenes=len(scenes), lead_in=lead_in,
-                            caption_cfg=caption_cfg)
+                            caption_cfg=caption_cfg, project_root=project_root)
     for scene in scenes:
         builder.build(scene, force=force)
         cuts = "+".join(f"{s['duration']:.1f}" for s in scene.shots)
