@@ -278,7 +278,14 @@ RECEIPT = "published.json"
 # What a publish is actually a promise about. The description is the file that
 # gets pasted, and the credits are the licence condition inside it; if either
 # has moved since the video was verified, the copy on YouTube is stale.
-WITNESSED = ("description.txt", "credits.txt")
+def witnessed(tag: str = "") -> tuple:
+    """The files a publish is a promise about, for the cut being published.
+
+    Suffixed per aspect, because 16:9 is the unsuffixed default and a receipt
+    naming `description.txt` after a 9:16 upload witnesses a file that was not
+    published. Same empty-tag family as `check.delivered()` and `thumbs`.
+    """
+    return (f"description{tag}.txt", f"credits{tag}.txt")
 
 
 def digest(path: Path) -> str:
@@ -288,7 +295,7 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
-def record(out_dir: Path, vid: str) -> Path:
+def record(out_dir: Path, vid: str, tag: str = "") -> Path:
     """Write down that this delivery was verified against this video.
 
     `check --published` can only read a *public* video, so it cannot help while
@@ -300,7 +307,7 @@ def record(out_dir: Path, vid: str) -> Path:
     body = {
         "video_id": video_id(vid),
         "checked": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "files": {name: digest(out / name) for name in WITNESSED},
+        "files": {name: digest(out / name) for name in witnessed(tag)},
     }
     path = out / RECEIPT
     path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")

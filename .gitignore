@@ -25,5 +25,8 @@ web/__pycache__/
 # should be read where they are posted, not found in the repo beforehand.
 docs/launch-*.md
 
+# the YouTube refresh token vidsmith upload writes after the consent screen
+.youtube-token.json
+
 # scratch from scripts/hang_probe.py
 .hang-probe/
