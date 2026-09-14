@@ -22,6 +22,15 @@ from web.jobs import MAX_QUEUE, Busy, Jobs, stage_sequence
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
 MAX_MINUTES = float(os.environ.get("VIDSMITH_MAX_MINUTES", "4"))
+# Spoken words, at the rate drafting sizes a script by. One number for the
+# check, the drafting and the page's meter: the check used to say 150 words a
+# minute over every word in the file while drafting said 155 over narration,
+# so a script drafted at the limit came back refused by the same instance.
+WORD_CAP = int(MAX_MINUTES * llm.WORDS_PER_MINUTE)
+# How far under the limit a draft aims. `llm.lengthen` has landed anywhere from
+# 90% to 109% of what it is asked for, so a draft asked for exactly the limit
+# would be over it about half the time, on the page that had just written it.
+DRAFT_HEADROOM = 1 / llm.LENGTHEN_OVERSHOOT
 _DOTENVS = (HERE.parent / ".env", Path.cwd() / ".env")
 # Set this before exposing the app to the internet. Every render spends the
 # owner's Pexels and Gemini quota, so an open renderer is an open wallet.
@@ -84,12 +93,12 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(400, f"provider must be one of {list(PROVIDERS)}")
     if req.mood not in music_mod.moods():
         raise HTTPException(400, f"mood must be one of {music_mod.moods()}")
-    # narration runs at roughly 150 words a minute
-    words = len(req.script.split())
-    if words > MAX_MINUTES * 150:
+    words = script_parser.narration_words(req.script)
+    if words > WORD_CAP:
         raise HTTPException(
-            400, f"{words} words is over the {MAX_MINUTES:g} minute limit for "
-                 "this instance; shorten the script or run it locally")
+            400, f"{words} spoken words is over the {MAX_MINUTES:g} minute limit "
+                 f"({WORD_CAP} words) for this instance; shorten the script or "
+                 "run it locally")
 
 
 def _keys() -> Dict[str, str]:
@@ -153,6 +162,9 @@ def healthz(x_vidsmith_token: str = Header(default=""),
 def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
+            # counted the way the check counts, so the meter turns red at
+            # exactly the script that would come back as a 400
+            "word_cap": WORD_CAP,
             # the page needs the bound to know whether there is room to join
             # the line. Without it the only safe assumption is that a busy box
             # refuses, which is what it used to do and is no longer true.
@@ -213,7 +225,7 @@ def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     key = _keys().get("gemini", "")
     if not key:
         raise HTTPException(503, "drafting needs GEMINI_API_KEY on this instance")
-    minutes = max(0.5, min(MAX_MINUTES, req.minutes))
+    minutes = max(0.5, min(MAX_MINUTES * DRAFT_HEADROOM, req.minutes))
     try:
         return {"script": llm.draft_script(req.topic.strip(), minutes, key),
                 "minutes": minutes}

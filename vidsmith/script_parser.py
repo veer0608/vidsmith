@@ -113,7 +113,24 @@ def _clean(text: str) -> str:
 
 
 def parse_script(path: Path) -> tuple[str, List[Scene]]:
-    lines = path.read_text(encoding="utf-8").splitlines()
+    title, scenes = parse_text(path.read_text(encoding="utf-8"))
+    return title or path.stem.replace("-", " ").title(), scenes
+
+
+def narration_words(text: str) -> int:
+    """Words the voice will actually speak: no headings, directives or notes.
+
+    What a length limit has to count. The web check used to count every word in
+    the file, so each scene's heading and `[visual:]` line spent budget the
+    narration never used, and the page's meter, which counts narration, called a
+    script under the limit that the server then refused.
+    """
+    return sum(len(s.text.split()) for s in parse_text(text)[1])
+
+
+def parse_text(text: str) -> tuple[str, List[Scene]]:
+    """`parse_script` without a file; the title is "" when there is no `#`."""
+    lines = text.splitlines()
 
     title = ""
     scenes: List[Scene] = []
@@ -197,7 +214,7 @@ def parse_script(path: Path) -> tuple[str, List[Scene]]:
         buf.append(line.strip())
 
     flush()
-    return title or path.stem.replace("-", " ").title(), scenes
+    return title, scenes
 
 
 def save_scenes(scenes: List[Scene], path: Path) -> None:
