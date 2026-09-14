@@ -181,6 +181,10 @@
   .stage { font-weight: 600; font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
   .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px;
            margin-left: auto; }
+  /* muted rather than red: the render is almost certainly still going, and it
+     is only this page that has lost sight of it */
+  .contact { color: var(--muted); font-size: 13px; }
+  .contact:empty { display: none; }
   .bar { height: 7px; background: var(--sunk); border-radius: 999px; overflow: hidden;
          border: 1px solid var(--edge); }
   /* scaled rather than resized: width is a layout property, and this changes
@@ -371,6 +375,9 @@
   <section class="panel hidden" id="progress" aria-label="Render progress">
     <div class="status">
       <span class="stage" id="stage" role="status" aria-live="polite">starting…</span>
+      <!-- beside the stage rather than over it, so the last stage heard from
+           stays on screen while the page cannot ask for a newer one -->
+      <span class="contact" id="contact" role="status" aria-live="polite"></span>
       <!-- the clock ticks every poll; announcing it would talk over everything -->
       <span class="clock" id="clock" aria-hidden="true"></span>
       <button type="button" class="stop hidden" id="stop">Stop This Render</button>
@@ -678,7 +685,7 @@ async function reattach() {
     running = id;
     $("go").disabled = true;
     render(job);
-    timer = setInterval(() => poll(id), 1500);
+    follow(id);
   } else {
     render(job);
   }
@@ -1004,13 +1011,68 @@ function finished() {
   watchBusy();
 }
 
+/* A dropped connection is not the render failing. The job carries on on the
+   server and reattach() finds it again after a reload, so losing contact keeps
+   the interval, says so beside the stage, and backs off while it lasts. Before
+   this, every tick threw an uncaught `Failed to fetch` and the panel froze with
+   nothing on screen to say why. A 401 or a 404 is still an answer, and still
+   ends the poll. */
+const POLL_EVERY = 1500;
+// Backing off counts ticks rather than milliseconds. A deadline in ms lands a
+// hair after the tick it was meant for and waits a whole extra one, so "six
+// seconds" measured 7.5. As ticks it is 3s, then 6s for as long as it lasts.
+const MOST_TICKS_SKIPPED = 3;
+// The job route itself only ever refuses with a 401 or a 404, so one of these
+// is the tunnel or proxy in front of the app, mid-restart or mid-blip: it
+// passes the way a dropped connection does, and gets the same retry.
+const GATEWAY = new Set([502, 503, 504]);
+let polling = false, pollFailures = 0, ticksToSkip = 0;
+
+function follow(id) {
+  pollFailures = 0;
+  ticksToSkip = 0;
+  $("contact").textContent = "";
+  timer = setInterval(() => poll(id), POLL_EVERY);
+}
+
 async function poll(id) {
-  const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
+  // One request at a time: a stalled connection can hold a fetch open far
+  // longer than the interval, and the ticks would otherwise pile up behind it.
+  if (polling) return;
+  if (ticksToSkip > 0) { ticksToSkip -= 1; return; }
+  polling = true;
+  let r, job;
+  try {
+    r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
+    if (GATEWAY.has(r.status)) throw new Error(`the gateway answered ${r.status}`);
+    if (r.ok) job = await readBody(r);
+  } catch {
+    lostContact();
+    return;
+  } finally {
+    polling = false;
+  }
+  regainedContact();
   if (!r.ok) {
     if (r.status === 401) forgetToken();
     clearInterval(timer); finished(); return;
   }
-  if (render(await readBody(r))) clearInterval(timer);
+  if (render(job)) clearInterval(timer);
+}
+
+function lostContact() {
+  pollFailures += 1;
+  ticksToSkip = Math.min(2 ** pollFailures - 1, MOST_TICKS_SKIPPED);
+  // written once per outage: replacing a live region's text, even with the
+  // same words, can have it read out again on every retry
+  if (pollFailures === 1) $("contact").textContent = "lost contact with the server, retrying…";
+}
+
+function regainedContact() {
+  if (!pollFailures) return;
+  pollFailures = 0;
+  ticksToSkip = 0;
+  $("contact").textContent = "";
 }
 
 function fail(message) {
@@ -1214,7 +1276,7 @@ $("form").addEventListener("submit", async (e) => {
   working($("go"), false);
   $("go").disabled = true;
   render(job);
-  timer = setInterval(() => poll(job.id), 1500);
+  follow(job.id);
 });
 
 loadOptions();
