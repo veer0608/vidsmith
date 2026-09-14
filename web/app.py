@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from vidsmith import llm
 from vidsmith import music as music_mod
-from vidsmith.config import ASPECTS, env
+from vidsmith.config import ASPECTS, VoiceConfig, env
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
@@ -179,7 +179,10 @@ def options() -> Dict[str, Any]:
                           for name in PROVIDERS],
             # the vocabulary the page needs to count scenes as you type. Served
             # rather than duplicated, so changing the parser changes the page.
+            # the pauses around each scene are the voice config's own defaults,
+            # so the page's runtime estimate adds what the render will add
             "script": {"wps": script_parser.WPS,
+                       "lead_in": VoiceConfig.lead_in, "gap": VoiceConfig.gap,
                        "directives": list(script_parser.DIRECTIVE_KINDS),
                        "notes": list(script_parser.NOTE_PREFIXES)}}
 

@@ -256,12 +256,18 @@ three minute script is something like six minutes of work and a 9.5 minute one
 is twenty to thirty, holding the render slot and the line behind it for all of
 that.
 
-9.5 rather than a round 12 because a second limit sits underneath this one:
-`web/jobs.py` refuses a script over 12,000 characters, and the real scripts in
-`projects/` average 7.9 characters per spoken word once headings and
-`[visual:]` lines are counted. That cap arrives at about 9.8 minutes, so a
-minutes limit above it is a promise the queue then refuses. Raising past 9.5
-means raising `MAX_SCRIPT_CHARS` with it.
+The minutes are minutes of video now, which they were not when 9.5 was chosen.
+The limit converts to words at `llm.WORDS_PER_MINUTE`, which was 155 by
+assumption and is 193 derived from the measured speaking rate, so the same 9.5
+used to admit about seven and a half minutes of video and now admits 9.5. Expect
+a render at the limit to take thirty five to forty minutes rather than twenty
+five: the last one here built a 391 second video in 1,641 seconds.
+
+A second limit sits underneath: `web/jobs.py` refuses a script over
+`MAX_SCRIPT_CHARS`, and real scripts run 7.9 characters per spoken word once
+headings and `[visual:]` lines are counted. At 12,000 that refused a 9.5 minute
+script the minutes limit had allowed. It is 20,000 now, about thirteen minutes,
+so raising the minutes past that means raising it too.
 
 `VIDSMITH_FFMPEG_TIMEOUT=3600` goes with it and is not optional. The default
 bound on one ffmpeg call is 900 seconds, and the render stage ran at about

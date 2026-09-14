@@ -514,6 +514,27 @@ def test_the_limit_and_drafting_share_one_speaking_rate():
     assert web_app.WORD_CAP == int(web_app.MAX_MINUTES * web_app.llm.WORDS_PER_MINUTE)
 
 
+def test_the_page_estimates_runtime_with_the_renders_own_pauses(client):
+    """The meter adds a lead-in and a gap to every scene, and kept its own copy
+    of both; the voice config is where the render reads them."""
+    from vidsmith.config import VoiceConfig
+
+    rules = client.get("/api/options").json()["script"]
+    assert rules["lead_in"] == VoiceConfig.lead_in
+    assert rules["gap"] == VoiceConfig.gap
+
+
+def test_a_script_at_the_live_minutes_limit_fits_the_character_limit():
+    """The payload cap refused scripts the minutes limit allowed.
+
+    At the measured speaking rate a 9.5 minute script, the live instance's
+    limit, is about 1,800 spoken words, and real scripts run 7.9 characters per
+    spoken word with their headings and [visual:] lines. 12,000 refused it.
+    """
+    words = int(9.5 * web_app.llm.WORDS_PER_MINUTE)
+    assert words * 7.9 < jobs_mod.MAX_SCRIPT_CHARS
+
+
 def test_a_short_topic_is_refused(client):
     assert client.post("/api/draft", json={"topic": "x"}).status_code == 422
 

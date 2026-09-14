@@ -34,17 +34,39 @@ def test_scene_count_scales_with_runtime(minutes, expected_scenes):
     assert max(5, min(18, round(words / llm.WORDS_PER_SCENE))) == expected_scenes
 
 
-def test_the_word_budget_matches_the_speaking_rate():
-    """155 wpm is what edge-tts actually delivers at the default +8% rate."""
-    assert 145 <= llm.WORDS_PER_MINUTE <= 165
+def test_the_speaking_rate_is_the_measured_one():
+    """155 a minute was assumed and never measured, and it was wrong by a fifth.
+
+    Fourteen real builds, 3,054 words of en-US-AndrewNeural at +8%, spoke at
+    201 words a minute from first word to last. A script sized for eight minutes
+    at 155 came out as a 391 second video.
+    """
+    from vidsmith.script_parser import WPS
+
+    assert 190 <= WPS * 60 <= 210
+
+
+def test_words_per_minute_is_derived_from_the_speaking_rate():
+    """Two hand-written rates are how this went wrong: the parser said 2.6 a
+    second and drafting said 155 a minute, and nothing held them together."""
+    from vidsmith.config import VoiceConfig
+    from vidsmith.script_parser import WPS
+
+    pause = VoiceConfig.lead_in + VoiceConfig.gap
+    assert llm.WORDS_PER_MINUTE == int(60 / (1 / WPS + pause / llm.WORDS_PER_SCENE))
+    # measured across real builds with their pauses: 182 to 195 by scene length
+    assert 180 <= llm.WORDS_PER_MINUTE <= 200
 
 
 def test_the_budget_is_stated_per_scene_not_only_in_total():
     """A lone total was undershot by half; the per-scene figure is the fix."""
     body = _rendered()
-    assert "465" in body, "total word budget missing"
+    words = int(3.0 * llm.WORDS_PER_MINUTE)
+    scenes = max(5, min(18, round(words / llm.WORDS_PER_SCENE)))
+    assert str(words) in body, "total word budget missing"
     assert "hard" in body.lower() and "budget" in body.lower()
-    assert "33" in body and "52" in body, "per-scene range missing"
+    assert (str(int(words / scenes * 0.8)) in body
+            and str(int(words / scenes * 1.25)) in body), "per-scene range missing"
 
 
 def test_every_scene_is_told_to_use_a_visual():

@@ -219,9 +219,17 @@ scene's stock-footage query and also answers to `b-roll`, `broll`, `footage` and
 a still" switch, whatever the name suggests: a still only enters through the
 `local` provider matching an image file on disk. `[diagram: ...]` forces a drawn
 scene, and `[hold: 3.5]` puts a floor under the on-screen duration. Lines opening with `>`,
-`<!--` or `//` are production notes and never reach the narration. `WPS = 2.6`
-is only a pre-flight estimate of scene length; the real timings come from the
-voice.
+`<!--` or `//` are production notes and never reach the narration.
+
+**`WPS` is measured, and everything that sizes a script leans on it.** The real
+timings come from the voice, but before a build `script_parser.WPS` is the only
+speaking rate there is: the page's runtime estimate reads it, and
+`llm.WORDS_PER_MINUTE` is derived from it plus the voice config's lead-in and
+gap, which sizes every draft and the web's word limit. It sat at 2.6 a second by
+assumption while the default voice spoke at 3.35, measured off fourteen builds,
+so drafted videos came out about a fifth short and the page promised eight
+minutes for six and a half. `scripts/speaking_rate.py` reads it back off
+`build/scenes.json`; re-run it after changing the default voice or its rate.
 
 **The drafting prompt is under test, not just under review.** `vidsmith new
 --topic` has Gemini write the script, and `tests/test_script_prompt.py` asserts
