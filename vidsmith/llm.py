@@ -18,7 +18,8 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 import requests
 
 from . import manifest
-from .script_parser import DIRECTIVE, HEADING, NOTE, Scene
+from .config import VoiceConfig
+from .script_parser import DIRECTIVE, HEADING, NOTE, WPS, Scene
 
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 # Pinned, not an alias. `gemini-flash-lite-latest` worked, which is the problem:
@@ -860,9 +861,17 @@ OUTPUT exactly this markdown and nothing else:
 """
 
 
-# edge-tts at the default +8% rate speaks about 155 words a minute
-WORDS_PER_MINUTE = 155
-WORDS_PER_SCENE = 42
+# About sixteen seconds of speech a scene, the same length in seconds the
+# drafting prompt asked for before the speaking rate was measured.
+WORDS_PER_SCENE = 52
+# Words of narration per minute of finished video. Derived rather than written
+# down, so it cannot drift from the speaking rate again: speech at the measured
+# `WPS`, plus the silence the voice config puts around every scene. It was 155,
+# a guess about half a minute out on every draft. Derived it is 193, against 182
+# to 195 measured across real builds and 190 for a delivered 391 second video;
+# the spread is scene length, since a script of short scenes pays more pauses.
+WORDS_PER_MINUTE = int(60 / (1 / WPS + (VoiceConfig.lead_in + VoiceConfig.gap)
+                             / WORDS_PER_SCENE))
 
 
 def draft_script(topic: str, minutes: float, api_key: str,
@@ -903,9 +912,10 @@ LENGTHEN_OVERSHOOT = 1.10
 PARAGRAPH_WORDS = 90
 # Rounds, not requests: a round is one request per chunk of scenes.
 LENGTHEN_ROUNDS = 2
-# Scenes asked for in one request, bounded so the reply fits `maxOutputTokens`:
-# eight scenes at the longest budget a 9.5 minute draft asks for is about two
-# thousand tokens of the 4096.
+# Scenes asked for in one request, bounded so the reply fits `maxOutputTokens`.
+# A chunk can never be asked for more than the whole missing length, and at the
+# 9.5 minute limit that is at most about 1,700 words, some 2,300 tokens of the
+# 4096 with its [visual:] lines.
 LENGTHEN_CHUNK = 8
 # The prompt asks for at least two scenes that are one short sentence. Those
 # are left alone rather than inflated, up to that many.

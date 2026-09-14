@@ -751,20 +751,23 @@ function fmt(s) {
    authoritative; the server still decides.
 
    The vocabulary is served rather than copied: `/api/options` carries the
-   directive set, the note prefixes and WPS straight out of the parser, so
-   adding a directive there adds it here. Only the scene-splitting rule itself
+   directive set, the note prefixes and WPS straight out of the parser, and the
+   pauses around each scene out of the voice config, so adding a directive
+   there adds it here. Only the scene-splitting rule itself
    is reimplemented, and the fallbacks below are for a failed options fetch. */
 let DIRECTIVE = /^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$/i;
 let NOTE = /^\s*(>|<!--|\/\/)/;
-let WPS = 2.6;
+let WPS = 3.35;
 const HEADING = /^(#{1,6})\s+(.*)$/;
-const LEAD_IN = 0.25, GAP = 0.35;
+let LEAD_IN = 0.25, GAP = 0.35;
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function adoptScriptRules(rules) {
   if (!rules) return;
   if (rules.wps > 0) WPS = rules.wps;
+  if (rules.lead_in >= 0) LEAD_IN = rules.lead_in;
+  if (rules.gap >= 0) GAP = rules.gap;
   if (rules.directives && rules.directives.length) {
     // the kinds arrive as written in the pattern, so `b-?roll` stays a pattern
     DIRECTIVE = new RegExp(`^\\s*\\[(${rules.directives.join("|")})\\s*:\\s*(.+?)\\]\\s*$`, "i");

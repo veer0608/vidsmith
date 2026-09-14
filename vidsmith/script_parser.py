@@ -36,8 +36,15 @@ DIRECTIVE = re.compile(
 )
 HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
 NOTE = re.compile(r"^\s*(" + "|".join(re.escape(p) for p in NOTE_PREFIXES) + r")")
-# A rough words-per-second used only to pre-flag scenes that will run long.
-WPS = 2.6
+# Words per second the default voice actually speaks, from first word to last,
+# measured off the word timings of fourteen real builds: 3,054 words at 201 a
+# minute, en-US-AndrewNeural at +8%, every project between 181 and 252. It was
+# 2.6 (156 a minute) by assumption, which made every estimate about a fifth too
+# long and, through `llm.WORDS_PER_MINUTE`, every drafted video about a fifth
+# too short: a script sized for eight minutes came out at six and a half.
+# `scripts/speaking_rate.py` re-measures it from builds on disk; re-run it after
+# changing the default voice or its rate, since both move this number.
+WPS = 3.35
 
 
 @dataclass

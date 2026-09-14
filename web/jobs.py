@@ -50,7 +50,12 @@ STAGE_PROGRESS = {
     "meta": 0.99, "done": 1.0,
 }
 KEEP_SECONDS = 60 * 60          # finished jobs are swept after an hour
-MAX_SCRIPT_CHARS = 12_000
+# A bound on the payload, not on length; the minutes limit in app.py is the
+# length limit. Real scripts run about 7.9 characters per spoken word once
+# headings and [visual:] lines count, so 12,000 refused a 9.5 minute script
+# (about 1,800 words, 14,500 characters) the minutes limit had just allowed.
+# 20,000 is about thirteen minutes, past any limit a small box should be set to.
+MAX_SCRIPT_CHARS = 20_000
 
 # How many submissions may wait behind the running one. Bounded because the
 # wait is the thing being promised: with an unbounded line the tenth caller is
