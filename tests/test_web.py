@@ -114,6 +114,23 @@ def test_options_carries_the_queue_bound_the_page_needs(client):
     assert body["max_queue"] >= 0
 
 
+def test_options_carries_each_themes_colours_for_its_swatch(client):
+    """The page previews a theme with its colours, and must not keep a second
+    copy of them: a preset edited in theme.py has to change its swatch."""
+    from vidsmith.theme import PRESETS
+
+    colours = client.get("/api/options").json()["theme_colours"]
+    assert set(colours) == set(PRESETS)
+    for name, theme in PRESETS.items():
+        assert colours[name] == [theme.bg, theme.accent, theme.text]
+
+
+def test_options_says_how_long_a_finished_job_is_kept(client):
+    """The page shows "kept until" beside the download. The sweep is the
+    server's decision, so the number comes from the server."""
+    assert client.get("/api/options").json()["keep_seconds"] == jobs_mod.KEEP_SECONDS
+
+
 def test_options_carries_the_parser_vocabulary(client):
     """The page counts scenes as you type, and must not hold its own copy of
     the directive set: adding one to the parser has to reach the page."""

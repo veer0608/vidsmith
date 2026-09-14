@@ -3,407 +3,667 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#080C18">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <title>vidsmith</title>
 <!-- Inline so there is no second request and no route to serve it from: the
      app has exactly one static file and this keeps it that way. The `#` in the
      colours must stay percent-encoded or the browser reads the rest as a
      fragment and the icon silently does not load. -->
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1020'/><path d='M13 10l9 6-9 6z' fill='%23FFC24B'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237c3aed'/><stop offset='1' stop-color='%232563eb'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><path d='M13 10l9 6-9 6z' fill='%23fff'/></svg>">
+<!-- Geist for text and Geist Mono for the script and log. The one outside
+     request the page makes; every family below falls back to system faces, so
+     a blocked font changes the look and nothing else. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
+  /* Dark by default and light when the system asks for it. Every colour is a
+     token, and each status colour means one thing wherever it appears: green
+     is ready, amber is building or a warning, red is stopping or failed. */
   :root {
-    /* native scrollbars, form controls and autofill are drawn dark to match */
     color-scheme: dark;
-    --bg: #080C18; --panel: #131A31; --panel-hi: #171F3B; --sunk: #0B1024;
-    --edge: #24304F; --hair: rgba(255,255,255,.055);
-    --text: #F3F6FB; --muted: #8792AC; --accent: #FFC24B; --bad: #E5533D;
-    --ok: #5EE6A8;
-    --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    --lift: 0 18px 40px -26px rgba(0,0,0,.95);
-    --ring: 0 0 0 3px rgba(255,194,75,.16);
+    --bg: #000; --surface: #0a0a0a; --surface-2: #111; --hover: #1a1a1a;
+    --border: #262626; --border-strong: #3a3a3a;
+    --fg: #ededed; --fg-2: #a1a1a1; --fg-3: #8a8a8a;
+    --ok: #3fcf8e; --ok-bg: rgba(63,207,142,.12);
+    --warn: #f5a524; --warn-bg: rgba(245,165,36,.13);
+    --bad: #ff6369; --bad-bg: rgba(255,99,105,.12);
+    --focus: #60a5fa;
+    /* The brand gradient has fixed deep stops in both themes because white text
+       sits on it: lighter ones measured 4.2:1 and 3.7:1 under a 14px label.
+       The lighter hues are for accent text on black, where they read at 7.7:1. */
+    --brand: linear-gradient(135deg, #7c3aed, #2563eb);
+    --brand-a: #a78bfa; --brand-b: #60a5fa; --brand-c: #22d3ee;
+    /* one hue per scene, each measured at 4.9:1 or better against the page */
+    --s0: #a78bfa; --s1: #60a5fa; --s2: #22d3ee; --s3: #34d399;
+    --s4: #a3e635; --s5: #fbbf24; --s6: #fb923c; --s7: #f472b6;
+    --dir: #2dd4bf; --title: #fafafa;
+    --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --r: 8px; --r-sm: 6px; --glow: .22;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #fff; --surface: #fff; --surface-2: #fafafa; --hover: #f3f3f3;
+      --border: #eaeaea; --border-strong: #d4d4d4;
+      --fg: #171717; --fg-2: #5f5f5f; --fg-3: #6f6f6f;
+      --ok: #0a7a3e; --ok-bg: rgba(10,122,62,.09);
+      --warn: #9a4d00; --warn-bg: rgba(217,119,6,.12);
+      --bad: #c9252d; --bad-bg: rgba(201,37,45,.08);
+      --focus: #2563eb;
+      --brand-a: #7c3aed; --brand-b: #2563eb; --brand-c: #0891b2;
+      --s0: #7c3aed; --s1: #2563eb; --s2: #0e7490; --s3: #047857;
+      --s4: #4d7c0f; --s5: #a16207; --s6: #c2410c; --s7: #be185d;
+      --dir: #0f766e; --title: #0a0a0a; --glow: .13;
+    }
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); }
+  body { font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
   /* no 300ms double-tap wait on anything you press, and no grey flash on tap */
   button, a, summary, label, input, select, textarea {
-    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
-  }
-  .skip { position: absolute; left: 12px; top: -60px; z-index: 10;
-          background: var(--accent); color: #171203; padding: 10px 16px;
-          border-radius: 8px; font-weight: 600; text-decoration: none; }
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .hidden { display: none !important; }
+  .skip { position: absolute; left: 12px; top: -60px; z-index: 30; background: var(--fg);
+          color: var(--bg); padding: 10px 16px; border-radius: var(--r-sm); font-weight: 600;
+          text-decoration: none; }
   .skip:focus { top: 12px; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.6 var(--font);
-    -webkit-font-smoothing: antialiased;
-    /* one warm bloom behind the header, so the page has a light source
-       instead of being a flat sheet of navy */
-    background-image:
-      radial-gradient(720px 380px at 50% -160px, rgba(255,194,75,.10), transparent 70%),
-      radial-gradient(600px 300px at 88% 8%, rgba(94,230,168,.045), transparent 70%);
-    background-repeat: no-repeat;
-  }
-  main { max-width: 940px; margin: 0 auto; padding: 54px 20px 100px; }
 
-  header { margin-bottom: 30px; }
-  h1 { font-size: 34px; line-height: 1.1; margin: 0 0 6px; letter-spacing: -.025em;
-       font-weight: 700; text-wrap: balance; }
-  h1 span { color: var(--accent); }
-  h1, h2 { scroll-margin-top: 24px; }
-  .lede { color: var(--muted); margin: 0; font-size: 16px; max-width: 46ch;
-          text-wrap: pretty; }
+  /* ---------------------------------------------------------------- nav */
+  .nav { position: sticky; top: 0; z-index: 10; height: 56px;
+         background: color-mix(in srgb, var(--bg) 82%, transparent);
+         backdrop-filter: saturate(180%) blur(10px); border-bottom: 1px solid var(--border); }
+  .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+  .nav .wrap { height: 100%; display: flex; align-items: center; gap: 12px; }
+  .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--brand);
+          display: grid; place-items: center; flex: none;
+          box-shadow: 0 4px 14px -4px rgba(124,58,237,.7); }
+  .mark svg { width: 11px; height: 12px; fill: #fff; margin-left: 2px; }
+  .brand { font-weight: 600; letter-spacing: -.01em; }
+  .slash { color: var(--border-strong); font-size: 20px; font-weight: 300; }
+  .crumb { color: var(--fg-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 
-  .panel {
-    background: linear-gradient(180deg, var(--panel-hi), var(--panel));
-    border: 1px solid var(--edge); border-radius: 14px; padding: 22px;
-    margin-bottom: 16px;
-    box-shadow: inset 0 1px 0 var(--hair), var(--lift);
-  }
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
+          border: 1px solid var(--border); border-radius: 999px; color: var(--fg-2);
+          font-size: 13px; white-space: nowrap; background: var(--bg); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-bg); }
+  /* three pulses to draw the eye, then still: a light that blinks for the whole
+     half hour of a render is motion nobody can switch off */
+  .dot.live { animation: blink 1.4s ease-in-out 3; }
+  @keyframes blink { 50% { opacity: .3; } }
 
-  .tabs { display: flex; gap: 4px; margin-bottom: 18px;
-          background: var(--sunk); padding: 4px; border-radius: 10px;
-          border: 1px solid var(--edge); width: fit-content; }
-  .tabs button {
-    margin: 0; background: transparent; color: var(--muted); border: 1px solid transparent;
-    border-radius: 7px; padding: 7px 15px; font: 500 14px var(--font); cursor: pointer;
-    transition: color .15s ease, background .15s ease;
-  }
-  .tabs button:hover { color: var(--text); }
-  .tabs button[aria-selected=true] {
-    background: var(--panel-hi); color: var(--text); border-color: var(--edge);
-    box-shadow: inset 0 1px 0 var(--hair);
-  }
+  /* --------------------------------------------------------------- head */
+  .head { position: relative; overflow: hidden; padding: 44px 0 30px;
+          border-bottom: 1px solid var(--border); background: var(--surface-2); }
+  /* three soft blooms in the brand hues, a still image behind the heading */
+  .head::before { content: ""; position: absolute; inset: -40% -10% auto; height: 180%;
+    pointer-events: none; opacity: var(--glow); filter: blur(10px);
+    background:
+      radial-gradient(34% 45% at 18% 40%, #7c3aed, transparent 70%),
+      radial-gradient(30% 40% at 52% 15%, #2563eb, transparent 70%),
+      radial-gradient(26% 38% at 86% 55%, #ec4899, transparent 70%); }
+  .head .wrap { position: relative; display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .head h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 600;
+             letter-spacing: -.035em; text-wrap: balance; scroll-margin-top: 72px; }
+  .grad { background: var(--brand); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .head p { margin: 6px 0 0; color: var(--fg-2); font-size: 15px; text-wrap: pretty; }
+  .head .meta { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 
-  label { display: block; font-size: 11px; letter-spacing: .1em;
-          text-transform: uppercase; color: var(--muted); margin-bottom: 7px;
-          font-weight: 600; }
-  textarea, select, input {
-    width: 100%; background: var(--sunk); color: var(--text);
-    border: 1px solid var(--edge); border-radius: 9px; padding: 11px 13px; font: inherit;
-    transition: border-color .15s ease, box-shadow .15s ease;
-  }
-  textarea { min-height: 260px; resize: vertical; font-family: var(--mono);
-             font-size: 13px; line-height: 1.7; }
-  textarea:hover, select:hover, input:hover { border-color: #2E3C63; }
-  /* the replacement for the outline: an accent border and a ring, on every
-     field, whether it was reached by click or by keyboard */
-  textarea:focus, select:focus, input:focus {
-    outline: none; border-color: var(--accent); box-shadow: var(--ring);
-  }
-  textarea::placeholder, input::placeholder { color: #6C7792; }
+  /* --------------------------------------------------------------- page */
+  main { padding-bottom: 96px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 24px;
+          padding-top: 28px; align-items: start; }
+  .col { display: grid; gap: 24px; min-width: 0; }
+  #page-error { margin: 24px 0 0; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+            border-bottom: 1px solid var(--border); min-height: 52px; flex-wrap: wrap; }
+  .card-h h2 { margin: 0; font-size: 14px; font-weight: 600; scroll-margin-top: 72px; }
+  .card-h .end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .card-b { padding: 16px; }
+  .card-f { padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface-2);
+            color: var(--fg-2); font-size: 13px; border-radius: 0 0 var(--r) var(--r);
+            display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .card-f .end { margin-left: auto; }
+  .chip { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; flex: none;
+          background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
+  .chip svg { width: 13px; height: 13px; }
+  .callout { display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px;
+             border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+             background: linear-gradient(90deg, var(--warn-bg), transparent 80%); color: var(--fg-2); }
+  .callout .dot { margin-top: 6px; }
+  .callout b { color: var(--fg); font-weight: 600; }
+
+  /* segmented tabs */
+  .seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--r-sm);
+         background: var(--surface-2); border: 1px solid var(--border); }
+  .seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent;
+                color: var(--fg-2); font: 500 13px var(--sans); cursor: pointer; }
+  .seg button:hover { color: var(--fg); }
+  .seg button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px var(--border); }
+
+  /* fields */
+  label.l { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-2);
+            margin: 0 0 6px; font-weight: 500; }
+  select, input[type=text], input[type=password], input[type=number] {
+    width: 100%; height: 40px; padding: 0 12px; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm); font: 14px var(--sans);
+    transition: border-color .15s ease, box-shadow .15s ease; }
+  select { appearance: none; padding-right: 32px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--fg-2) 50%),
+                      linear-gradient(135deg, var(--fg-2) 50%, transparent 50%);
+    background-position: calc(100% - 17px) 17px, calc(100% - 12px) 17px;
+    background-size: 5px 5px; background-repeat: no-repeat; }
   /* Windows draws the open list of a native select in light colours otherwise */
-  option { background-color: var(--sunk); color: var(--text); }
-
-  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-         gap: 14px; margin-top: 18px; align-items: end; }
+  option { background-color: var(--bg); color: var(--fg); }
+  select:hover, input:hover { border-color: var(--fg-3); }
+  select:focus, input:focus { outline: none; border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent); }
+  input[aria-invalid="true"] { border-color: var(--bad); }
+  ::placeholder { color: var(--fg-3); }
+  .inline { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 12px; }
+  .inline > :first-child { flex: 1; min-width: 0; }
+  .inline .mins { width: 96px; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
   /* the label wraps the checkbox, so the gap between them is part of the target */
-  label.switch { display: flex; align-items: center; gap: 9px; min-height: 43px;
-                 margin: 0; text-transform: none; letter-spacing: 0; cursor: pointer;
-                 font-size: 14px; color: var(--text); font-weight: 400; }
-  label.switch input { width: auto; margin: 0; accent-color: var(--accent);
-                       inline-size: 18px; block-size: 18px; }
-  label.switch:focus-within { color: var(--accent); }
+  label.check { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; align-self: end; }
+  label.check input { width: 16px; height: 16px; margin: 0; accent-color: #7c3aed; }
+  .swatches { display: inline-flex; margin-left: auto; }
+  .swatches i { width: 12px; height: 12px; border-radius: 50%; margin-left: -4px;
+                border: 2px solid var(--surface); }
+  .aspect { margin-left: auto; border: 1.5px solid var(--fg-2); border-radius: 2px; }
+  .mood-dot { width: 10px; height: 10px; border-radius: 50%; margin-left: auto; }
 
-  .error { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
+  /* The editor: a coloured copy of the script sits exactly under a textarea
+     whose own text is transparent. Colour and backgrounds only, never weight or
+     extra characters, and both layers reserve the scrollbar, so every glyph
+     wraps and sits where the caret thinks it is. */
+  .editor { position: relative; border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+            background: var(--bg); transition: border-color .15s ease, box-shadow .15s ease; }
+  .editor:hover { border-color: var(--fg-3); }
+  .editor:focus-within { border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent); }
+  .editor pre, .editor textarea {
+    margin: 0; padding: 12px 14px; font: 13px/1.75 var(--mono); letter-spacing: 0;
+    white-space: pre-wrap; overflow-wrap: break-word; tab-size: 2; border: 0;
+    scrollbar-gutter: stable; overflow-y: auto; }
+  .editor pre { position: absolute; inset: 0; overflow: hidden; pointer-events: none; color: var(--fg); }
+  .editor textarea { position: relative; display: block; width: 100%; min-height: 340px; resize: vertical;
+    background: transparent; color: transparent; caret-color: var(--fg); outline: none; }
+  .editor textarea::selection { background: color-mix(in srgb, var(--focus) 35%, transparent); color: transparent; }
+  .t-title { color: var(--title); }
+  .t-head { border-radius: 3px; }
+  .t-dir { color: var(--dir); }
+  .t-kw { color: var(--brand-a); }
+  .t-note { color: var(--fg-3); }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px;
+           border-radius: 999px; font-size: 12px; font-weight: 500; background: var(--surface-2);
+           border: 1px solid var(--border); color: var(--fg-2); white-space: nowrap; }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+  .badge.warn { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
+  .badge.brand { color: var(--brand-a); border-color: color-mix(in srgb, var(--brand-a) 35%, transparent);
+                 background: color-mix(in srgb, var(--brand-a) 10%, transparent); }
+  code { font: 12.5px var(--mono); background: var(--surface-2); padding: 1px 5px;
+         border-radius: 4px; border: 1px solid var(--border); color: var(--dir); }
+  .kbd { font: 500 11px var(--mono); padding: 1px 5px; border-radius: 4px;
+         border: 1px solid var(--border-strong); color: var(--fg-2); }
+
+  .hint { color: var(--fg-2); font-size: 13px; margin: 10px 0 0; text-wrap: pretty; }
+  .error { color: var(--bad); font-size: 13px; margin: 10px 0 0; }
   .error::before { content: "! "; font-weight: 700; }
   .error:empty { display: none; }
-  button.link { background: none; border: 0; padding: 2px 4px; margin: 0 0 0 4px;
-                color: var(--accent); font: inherit; text-decoration: underline;
-                text-underline-offset: 3px; cursor: pointer; }
-  button.link:hover { color: #FFD98A; }
+  .warn-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 4px;
+               color: var(--fg-2); font-size: 13px; }
+  .warn-list:empty { display: none; }
+  .warn-list li { padding-left: 18px; position: relative; overflow-wrap: anywhere; }
+  .warn-list li::before { content: "!"; position: absolute; left: 4px; color: var(--warn); font-weight: 700; }
+  button.link { background: none; border: 0; padding: 2px 4px; margin: 0 0 0 2px; color: var(--brand-a);
+                font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  button.link:hover { color: var(--fg); }
 
-  button.go {
-    background: linear-gradient(180deg, #FFD173, var(--accent));
-    color: #171203; border: 0; border-radius: 9px; padding: 12px 24px;
-    font: 600 15px var(--font); cursor: pointer;
-    box-shadow: 0 10px 22px -14px rgba(255,194,75,.9);
-    transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
-  }
-  button.go:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05);
-                                   box-shadow: 0 14px 26px -14px rgba(255,194,75,1); }
-  button.go:active:not(:disabled) { transform: translateY(0); }
-  button.go.ghost { background: transparent; color: var(--text);
-                    border: 1px solid var(--edge); box-shadow: none; }
-  button.go.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent);
-                                         filter: none; }
-  button:disabled { opacity: .42; cursor: not-allowed; }
-  button:focus-visible, a:focus-visible, summary:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* A button that has started something keeps its label and gains a spinner,
-     so it still says what it is doing rather than going blank. */
-  button.spin::before { content: ""; display: inline-block; width: 12px; height: 12px;
-    margin-right: 8px; vertical-align: -1px; border-radius: 50%;
-    border: 2px solid currentColor; border-right-color: transparent;
-    animation: turn .7s linear infinite; }
+  /* buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px;
+         padding: 0 16px; border-radius: var(--r-sm); cursor: pointer; font: 500 14px var(--sans);
+         border: 1px solid var(--border-strong); background: var(--bg); color: var(--fg);
+         text-decoration: none; white-space: nowrap;
+         transition: background-color .15s ease, border-color .15s ease, color .15s ease, filter .15s ease; }
+  .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--fg-3); }
+  .btn.primary { background: var(--brand); color: #fff; border-color: transparent;
+                 box-shadow: 0 6px 20px -8px rgba(124,58,237,.8), inset 0 1px 0 rgba(255,255,255,.18); }
+  .btn.primary:hover:not(:disabled) { background: var(--brand); filter: brightness(1.12); }
+  .btn.danger { color: var(--bad); }
+  .btn.danger:hover:not(:disabled) { border-color: var(--bad); background: var(--bad-bg); }
+  .btn.sm { height: 32px; padding: 0 12px; font-size: 13px; }
+  .btn.block { width: 100%; }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  /* a button that has started something keeps its label and gains a spinner */
+  .btn.spin::before { content: ""; width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid currentColor; border-right-color: transparent; animation: turn .7s linear infinite; }
   @keyframes turn { to { transform: rotate(360deg); } }
-  .hint { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
-  .hint code { font-family: var(--mono); color: var(--text); font-size: 12.5px;
-               background: var(--sunk); padding: 1px 5px; border-radius: 5px;
-               border: 1px solid var(--edge); }
 
-  /* Live read-out under the script. The server rejects an over-long script with
-     a 400 after you press Render; this says so while there is still time. */
-  .meter { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px;
-           font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .meter span { background: var(--sunk); border: 1px solid var(--edge);
-                border-radius: 999px; padding: 4px 11px; }
-  .meter b { color: var(--text); font-weight: 600; }
-  .meter .over { color: var(--bad); border-color: rgba(229,83,61,.45);
-                 background: rgba(229,83,61,.10); }
-  .meter .over b { color: var(--bad); }
-  .warn { margin: 10px 0 0; padding: 0; list-style: none;
-          color: var(--muted); font-size: 12.5px; }
-  .warn li { margin-top: 4px; padding-left: 18px; position: relative;
-             overflow-wrap: anywhere; }
-  .warn li::before { content: "!"; position: absolute; left: 0; top: 0;
-                     color: var(--accent); font-weight: 700; }
+  /* summary column */
+  .summary { position: sticky; top: 80px; display: grid; gap: 24px; min-width: 0; }
+  .kv { display: grid; gap: 12px; margin: 0; }
+  .kv div { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .kv dt { color: var(--fg-2); } .kv dd { margin: 0; font-weight: 500; text-align: right; }
+  .eyebrow { font-size: 12px; color: var(--fg-2); margin: 0 0 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .sep { height: 1px; background: var(--border); margin: 16px 0; border: 0; }
+  .fine { color: var(--fg-3); font-size: 12.5px; margin: 10px 0 0; text-wrap: pretty; }
+  .meter { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0);
+             background: linear-gradient(90deg, var(--ok), var(--brand-c)); transition: transform .3s ease; }
+  .meter.over i { background: var(--bad); }
+  .meter-text { font-size: 13px; color: var(--fg-2); margin: 0; }
+  .meter-text b { color: var(--fg); font-weight: 600; }
+  .meter-text .over { color: var(--bad); }
 
-  .banner { display: flex; align-items: center; gap: 11px;
-            background: linear-gradient(180deg, var(--panel-hi), var(--panel));
-            border: 1px solid var(--edge); border-radius: 12px; padding: 13px 16px;
-            margin-bottom: 16px; font-size: 13.5px; color: var(--muted);
-            box-shadow: inset 0 1px 0 var(--hair); }
-  .banner b { color: var(--text); font-weight: 600; }
-  .banner > span:last-child { min-width: 0; }
-  /* Three pulses to draw the eye, then still: a light that blinks for the whole
-     half hour of someone else's render is motion nobody can switch off. */
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
-         flex: 0 0 auto; box-shadow: 0 0 0 4px rgba(255,194,75,.14);
-         animation: pulse 1.6s ease-in-out 3; }
-  @keyframes pulse { 50% { opacity: .25; } }
-  @media (prefers-reduced-motion: reduce) {
-    .dot, button.spin::before { animation: none; }
-    * { transition-duration: .01ms !important; }
-  }
+  /* a scene per segment, sized by its length, in the colour of its heading */
+  .timeline { display: flex; gap: 2px; height: 28px; }
+  .timeline span { border-radius: 4px; min-width: 4px; opacity: .92; }
+  .legend { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px;
+            max-height: 184px; overflow: auto; font-size: 12.5px; }
+  .legend li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .legend i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .legend .n { color: var(--fg-3); width: 20px; flex: none; }
+  .legend .h { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend .s { color: var(--fg-3); }
+  .empty { color: var(--fg-3); font-size: 13px; margin: 0; }
 
-  .status { display: flex; align-items: center; justify-content: space-between;
-            flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
-  .stage { font-weight: 600; font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
-  .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px;
-           margin-left: auto; }
-  /* muted rather than red: the render is almost certainly still going, and it
-     is only this page that has lost sight of it */
-  .contact { color: var(--muted); font-size: 13px; }
+  /* ---------------------------------------------------------- the render */
+  .title-row { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
+  .title-row h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em;
+                  min-width: 0; overflow-wrap: anywhere; scroll-margin-top: 72px; }
+  .contact { color: var(--fg-2); font-size: 13px; }
   .contact:empty { display: none; }
-  .bar { height: 7px; background: var(--sunk); border-radius: 999px; overflow: hidden;
-         border: 1px solid var(--edge); }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 16px; margin: 16px 0 0; }
+  .facts dt { color: var(--fg-2); font-size: 12.5px; margin-bottom: 2px; }
+  .facts dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+  /* the server names stages in lower case; shown beside Title Case labels */
+  #stage::first-letter { text-transform: uppercase; }
+  .bar { height: 8px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 20px; }
   /* scaled rather than resized: width is a layout property, and this changes
      every poll for half an hour */
-  .bar i { display: block; height: 100%; width: 100%; transform: scaleX(0);
-           transform-origin: left center;
-           background: linear-gradient(90deg, #FFD173, var(--accent));
-           transition: transform .5s ease; }
+  .bar i { display: block; height: 100%; width: 100%; transform-origin: left center; transform: scaleX(0);
+           background: linear-gradient(90deg, var(--warn), #ec4899); transition: transform .5s ease; }
+  .bar.done i { background: linear-gradient(90deg, var(--ok), var(--brand-c)); }
   .bar.failed i { background: var(--bad); }
-  .bar.done i { background: linear-gradient(90deg, #7CF0BC, var(--ok)); }
-  .bar.cancelled i { background: var(--muted); }
+  .bar.cancelled i { background: var(--fg-3); }
+  .player-wrap { margin-top: 20px; }
+  video { display: block; width: 100%; border-radius: var(--r-sm); background: #000; border: 1px solid var(--border); }
+  video.tall { max-width: 360px; margin: 0 auto; }
 
-  /* The stages are known in advance, so show the shape of the wait rather than
-     one moving number: which are behind you, which one you are in, what is left. */
-  .steps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
-  /* .85 is the dimmest these can be and still read: at .55 they measured 2.7:1
-     against their own background, under the 4.5:1 that small text needs */
-  .steps span { font-size: 11.5px; letter-spacing: .02em; color: var(--muted);
-                background: var(--sunk); border: 1px solid var(--edge);
-                border-radius: 999px; padding: 4px 10px; opacity: .85;
-                transition: opacity .2s ease; }
-  .steps span.done { opacity: 1; color: var(--ok); border-color: rgba(94,230,168,.35); }
-  /* done is said with a mark as well as a colour */
-  .steps span.done::before { content: "✓ "; }
-  .steps span.now { opacity: 1; color: #171203; font-weight: 600;
-                    background: var(--accent); border-color: var(--accent); }
+  .steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+  .steps li { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border); }
+  .steps li:first-child { border-top: 0; }
+  .steps .ico { width: 20px; height: 20px; display: grid; place-items: center; flex: none; }
+  .steps .ico svg { width: 16px; height: 16px; }
+  .steps .tag { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+  .steps .name { flex: 1; min-width: 0; }
+  .steps .t { color: var(--fg-3); font-size: 13px; }
+  .steps li.done .ico svg { stroke: var(--ok); }
+  .steps li.now { background: linear-gradient(90deg, var(--warn-bg), transparent 70%); }
+  .steps li.now .name { font-weight: 600; }
+  .steps li.todo .name { color: var(--fg-2); }
+  .steps li.halted { background: linear-gradient(90deg, var(--bad-bg), transparent 70%); }
+  .steps li.halted .ico svg { stroke: var(--bad); }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--warn-bg);
+             border-top-color: var(--warn); animation: turn .8s linear infinite; }
+  .pending { width: 10px; height: 10px; border-radius: 50%; border: 1.5px dashed var(--fg-3); }
+  .stack { display: flex; height: 10px; border-radius: 999px; overflow: hidden; gap: 2px; }
+  .stack span { min-width: 3px; }
 
-  details { margin-top: 16px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-  summary:hover { color: var(--text); }
-  summary::marker { color: var(--edge); }
-  pre { margin: 10px 0 0; max-height: 240px; overflow: auto; font-size: 12.5px;
-        font-family: var(--mono); color: var(--muted); white-space: pre-wrap;
-        background: var(--sunk); border: 1px solid var(--edge); border-radius: 9px;
-        padding: 12px; }
-  pre.err { color: var(--bad); border-color: rgba(229,83,61,.4); }
+  details.log summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px;
+                        padding: 12px 16px; font-weight: 600; min-height: 48px; border-radius: var(--r); }
+  details.log summary::-webkit-details-marker { display: none; }
+  details.log summary:hover { background: var(--surface-2); }
+  details.log summary svg { width: 16px; height: 16px; stroke: var(--fg-2); transition: transform .15s ease; }
+  details.log[open] summary svg { transform: rotate(90deg); }
+  details.log summary .end { margin-left: auto; color: var(--fg-3); font-weight: 400; font-size: 13px; }
+  pre.logs { margin: 0; padding: 12px 16px; max-height: 280px; overflow: auto; border-top: 1px solid var(--border);
+             background: var(--surface-2); font: 12.5px/1.75 var(--mono); color: var(--fg-2);
+             white-space: pre-wrap; overflow-wrap: anywhere; border-radius: 0 0 var(--r) var(--r); }
+  pre.logs.err { color: var(--bad); }
 
-  video { width: 100%; margin-top: 18px; border-radius: 12px; background: #000;
-          display: block; border: 1px solid var(--edge); box-shadow: var(--lift); }
-  video.tall { max-width: 340px; margin-left: auto; margin-right: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 10px 16px; border-top: 1px solid var(--border); vertical-align: middle; }
+  tr:first-child td { border-top: 0; }
+  tr:hover td { background: var(--surface-2); }
+  td.file { font: 13px var(--mono); overflow-wrap: anywhere; }
+  td.file a { color: var(--fg); text-decoration: none; }
+  td.file a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .ext { display: inline-grid; place-items: center; min-width: 34px; height: 20px; padding: 0 4px;
+         margin-right: 10px; border-radius: 4px; font: 600 10px var(--sans); letter-spacing: .04em;
+         text-transform: uppercase; vertical-align: middle;
+         background: color-mix(in srgb, var(--c) 14%, transparent); color: var(--c); }
+  td.size { color: var(--fg-2); text-align: right; white-space: nowrap; width: 1%; }
+  td.act { width: 1%; text-align: right; }
+  .desc { font-size: 13.5px; color: var(--fg-2); white-space: pre-wrap; max-height: 220px;
+          overflow: auto; margin: 0; overflow-wrap: anywhere; }
 
-  .files { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
-  .files a { color: var(--muted); text-decoration: none; font-size: 13px;
-             border: 1px solid var(--edge); border-radius: 999px; padding: 7px 15px;
-             background: var(--sunk); font-variant-numeric: tabular-nums;
-             max-width: 100%; overflow-wrap: anywhere;
-             transition: color .15s ease, border-color .15s ease; }
-  .files a:hover { border-color: var(--accent); color: var(--text); }
-  .files a.main { border-color: rgba(255,194,75,.5); color: var(--accent);
-                  font-weight: 600; }
-
-  .copy { display: flex; align-items: center; justify-content: space-between;
-          gap: 10px; margin-top: 20px; }
-  .copy h2 { margin: 0; font-size: 11px; letter-spacing: .1em;
-             text-transform: uppercase; color: var(--muted); font-weight: 600; }
-  .copy button, button.stop {
-    margin: 0; background: transparent; color: var(--text);
-    border: 1px solid var(--edge); border-radius: 8px;
-    padding: 6px 13px; font: 500 13px var(--font); cursor: pointer;
-    transition: border-color .15s ease, color .15s ease;
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .summary { position: static; }
   }
-  .copy button:hover { border-color: var(--accent); color: var(--accent); }
-  button.stop { color: var(--bad); }
-  button.stop:hover:not(:disabled) { border-color: var(--bad); }
-  .desc { margin-top: 10px; background: var(--sunk); border: 1px solid var(--edge);
-          border-radius: 9px; padding: 14px; max-height: 190px; overflow: auto;
-          font-size: 13px; white-space: pre-wrap; color: var(--muted); }
-  .inline { display: flex; gap: 10px; align-items: flex-end; }
-  .inline > :first-child { flex: 1; min-width: 0; }
-  .inline input.mins { width: 94px; }
-  .actions { display: flex; gap: 10px; align-items: center; margin-top: 20px;
-             flex-wrap: wrap; }
-  .hidden { display: none; }
-
   /* iOS zooms the whole page into any field under 16px when it is tapped */
   @media (max-width: 640px) {
-    input, select, textarea { font-size: 16px; }
-    main { padding-top: 32px; }
+    .wrap { padding: 0 16px; }
+    .head { padding: 28px 0 20px; } .head h1 { font-size: 26px; }
+    select, input, .editor pre, .editor textarea { font-size: 16px !important; }
+    .slash, .crumb, #token-pill { display: none; }
+    .inline { flex-wrap: wrap; } .inline .mins { width: 100%; }
   }
   /* a finger needs 44px; a mouse is fine at the desktop sizes above */
-  @media (pointer: coarse) {
-    button, summary, .files a, label.switch { min-height: 44px; }
-    .files a { display: inline-flex; align-items: center; }
+  @media (pointer: coarse) { .btn, .seg button, details.log summary, label.check { min-height: 44px; } }
+  @media (prefers-reduced-motion: reduce) {
+    .dot.live, .spinner, .btn.spin::before { animation: none; }
+    * { transition-duration: .01ms !important; scroll-behavior: auto !important; }
   }
 </style>
 </head>
 <body>
-<a class="skip" href="#form">Skip to Content</a>
-<main>
-  <header>
-    <h1 translate="no">vid<span>smith</span></h1>
-    <p class="lede">A script in, a narrated and captioned video out.</p>
-  </header>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17" fill="none" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 5.5A2 2 0 0013.5 3.5h-7a2 2 0 00-2 2v7a2 2 0 002 2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3.5h7l4.5 4.5v12.5H7z M14 3.5V8h4.5 M9.5 13h6 M9.5 16.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h4m4 0h8M16 5v4M10 15v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8l8-4.5L20 8v8l-8 4.5L4 16z M4 8l8 4.5L20 8 M12 12.5v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<a class="skip" href="#main">Skip to Content</a>
+
+<header class="nav">
+  <div class="wrap">
+    <span class="mark" aria-hidden="true"><svg viewBox="0 0 10 12"><path d="M0 0l10 6-10 6z"/></svg></span>
+    <span class="brand" translate="no">vidsmith</span>
+    <span class="slash" aria-hidden="true">/</span>
+    <span class="crumb" id="crumb">New Video</span>
+    <div class="right">
+      <span class="pill hidden" id="token-pill"><span class="dot" id="token-dot"></span><span id="token-state">Token Needed</span></span>
+      <span class="pill" id="nav-status"><span class="dot"></span><span>Connecting…</span></span>
+    </div>
+  </div>
+</header>
+
+<section class="head">
+  <div class="wrap">
+    <div>
+      <h1 id="page-title">New <span class="grad">Video</span></h1>
+      <p id="page-sub">A script in, a narrated and captioned video out.</p>
+    </div>
+    <div class="meta">
+      <span class="pill num hidden" id="limit-pill"><span class="dot" style="background:#2563eb"></span><span id="limit-text"></span></span>
+      <span class="pill num hidden" id="queue-pill"><span class="dot" style="background:#7c3aed"></span><span id="queue-text"></span></span>
+    </div>
+  </div>
+</section>
+
+<main id="main" class="wrap" tabindex="-1">
   <!-- Page-level failures that no single field owns, such as the options that
        fill every select not loading. Without it that page was a dead end. -->
-  <p class="error panel" id="page-error" role="alert"></p>
+  <p class="error card callout" id="page-error" role="alert"></p>
 
-  <div class="panel hidden" id="authpanel">
-    <label for="tokenfield">Access token</label>
-    <input type="password" id="tokenfield" name="token" autocomplete="off"
-           spellcheck="false" autocapitalize="off"
-           placeholder="Paste the token this instance was set up with…"
-           aria-describedby="token-hint token-error">
-    <p class="error" id="token-error" aria-live="polite"></p>
-    <p class="hint" id="token-hint">Kept in this browser only. It stops a public URL
-       from being a renderer that spends someone else’s API quota.</p>
-  </div>
-
-  <!-- A render is minutes long and everything about it arrives by mutation, so
-       without live regions none of it reaches a screen reader. polite, not
-       assertive: this should be read at a pause, never cut across typing. -->
-  <div class="banner hidden" id="busybanner" role="status" aria-live="polite">
-    <span class="dot" aria-hidden="true"></span>
-    <span id="busytext">a render is already running</span>
-  </div>
-
-  <!-- novalidate: the page checks the script itself and says what is wrong next
-       to it, rather than the browser's bubble on whichever field it picks -->
-  <form class="panel" id="form" novalidate>
-    <!-- Arrow keys, Home and End move between these (see tabKeys), and only the
-         selected one is in the tab order, per the WAI-ARIA tabs pattern. -->
-    <div class="tabs" role="tablist" aria-label="Where the script comes from">
-      <button type="button" role="tab" id="tab-script" aria-selected="true"
-              aria-controls="pane-script" tabindex="0">Write a Script</button>
-      <button type="button" role="tab" id="tab-topic" aria-selected="false"
-              aria-controls="pane-topic" tabindex="-1">From a Topic</button>
-    </div>
-
-    <div id="pane-topic" class="hidden" role="tabpanel" aria-labelledby="tab-topic">
-      <div class="inline">
-        <div>
-          <label for="topic">Topic</label>
-          <input type="text" id="topic" name="topic" autocomplete="off"
-                 enterkeyhint="go" aria-describedby="draft-hint"
-                 placeholder="why database indexes can make queries slower…">
+  <!-- ======================================================== THE RENDER -->
+  <section class="grid hidden" id="progress" aria-labelledby="job-title">
+    <div class="col">
+      <section class="card">
+        <div class="card-b">
+          <div class="title-row">
+            <h2 id="job-title">Your Video</h2>
+            <span class="badge" id="job-badge"><span class="dot"></span><span id="job-badge-text">Starting</span></span>
+            <!-- beside the stage rather than over it, so the last stage heard
+                 from stays on screen while the page cannot ask for a newer one -->
+            <span class="contact" id="contact" role="status" aria-live="polite"></span>
+          </div>
+          <dl class="facts num">
+            <div><dt>Stage</dt>
+                 <dd id="stage" role="status" aria-live="polite">starting…</dd></div>
+            <!-- the clock ticks every poll; announcing it would talk over everything -->
+            <div><dt>Elapsed</dt><dd id="clock" aria-hidden="true">0s</dd></div>
+            <div><dt>Shape</dt><dd id="fact-shape">—</dd></div>
+            <div><dt id="fact-length-label">Estimated Length</dt><dd id="fact-length">—</dd></div>
+          </dl>
+          <div class="bar" id="bar" role="progressbar" aria-labelledby="stage"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
+          <!-- captions are burned into the picture, so the video carries its own -->
+          <div class="player-wrap hidden" id="player-wrap">
+            <video id="player" controls playsinline preload="metadata"></video>
+          </div>
         </div>
-        <div>
-          <label for="minutes">Minutes</label>
-          <input type="number" class="mins" id="minutes" name="minutes" value="2"
-                 inputmode="decimal" autocomplete="off" min="0.5" max="4" step="0.5">
+        <!-- aria-hidden: the stage above already announces every change, and
+             reading nine rows again on each poll would drown it -->
+        <ol class="steps" id="steps" aria-hidden="true"></ol>
+      </section>
+
+      <section class="card hidden" id="files-card" aria-labelledby="files-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--brand-b)" aria-hidden="true"><svg><use href="#i-box"/></svg></span>
+          <h2 id="files-h">Files</h2>
+          <div class="end"><span class="badge num" id="files-count"></span></div>
         </div>
-      </div>
-      <button type="button" class="go ghost" id="draft">Draft a Script</button>
-      <p class="hint" id="draft-hint" aria-live="polite">Gemini writes it, then you
-        edit it before rendering.</p>
+        <table><tbody class="num" id="files" translate="no"></tbody></table>
+      </section>
+
+      <section class="card hidden" id="copybar" aria-labelledby="desc-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--s7)" aria-hidden="true"><svg><use href="#i-doc"/></svg></span>
+          <h2 id="desc-h">Description, Ready to Paste</h2>
+          <div class="end"><button class="btn sm" type="button" id="copy">
+            <svg aria-hidden="true"><use href="#i-copy"/></svg><span id="copy-label">Copy Description</span></button></div>
+        </div>
+        <div class="card-b">
+          <p class="desc" id="desc"></p>
+          <p class="hint" id="copied" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <details class="log" id="logbox">
+          <summary><svg aria-hidden="true"><use href="#i-chev"/></svg>Build Log
+            <span class="end num" id="log-lines"></span></summary>
+          <pre class="logs" id="log" translate="no"></pre>
+        </details>
+      </section>
     </div>
 
-    <div id="pane-script" role="tabpanel" aria-labelledby="tab-script">
-      <label for="script">Script</label>
-      <textarea id="script" name="script" spellcheck="false" autocomplete="off"
-                aria-describedby="script-hint meter script-error"></textarea>
-      <p class="error" id="script-error" aria-live="polite"></p>
-      <p class="hint" id="script-hint">
-        Paragraphs are scenes. <code translate="no">[visual: hands counting cash]</code>
-        searches stock footage; <code translate="no">[diagram: three boxes in a row]</code>
-        draws one instead, for ideas no camera can point at.
-        <span id="undo-slot"></span>
-      </p>
-      <div class="meter" id="meter" role="status" aria-live="polite"></div>
-      <ul class="warn" id="warn"></ul>
-    </div>
+    <aside class="summary">
+      <section class="card" id="side-running" aria-labelledby="side-running-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--warn)" aria-hidden="true"><svg><use href="#i-clock"/></svg></span>
+          <h2 id="side-running-h">This Render</h2>
+        </div>
+        <div class="card-b">
+          <dl class="kv num">
+            <div><dt>Progress</dt><dd id="side-pct">0%</dd></div>
+            <div><dt>Queue</dt><dd id="side-queue">—</dd></div>
+          </dl>
+          <div id="spent-box" class="hidden">
+            <hr class="sep">
+            <p class="eyebrow num"><span>Where the time went</span><span id="spent-total"></span></p>
+            <div class="stack" id="stack" aria-hidden="true"></div>
+            <ol class="legend num" id="stack-legend"></ol>
+          </div>
+          <hr class="sep">
+          <button class="btn danger block hidden" type="button" id="stop">Stop This Render</button>
+          <p class="fine" id="stop-hint">Stopping waits for the current stage to finish. It cannot be undone.</p>
+        </div>
+      </section>
 
-    <div class="row">
-      <div><label for="provider">Footage</label>
-           <select id="provider" name="provider"></select></div>
-      <div><label for="aspect">Shape</label>
-           <select id="aspect" name="aspect"></select></div>
-      <div><label for="theme">Theme</label>
-           <select id="theme" name="theme"></select></div>
-      <div><label for="mood">Music</label>
-           <select id="mood" name="mood"></select></div>
-      <div><label for="watermark">Watermark</label>
-           <input type="text" id="watermark" name="watermark" autocomplete="off"
-                  spellcheck="false" autocapitalize="off" placeholder="@yourchannel…"></div>
-      <label class="switch"><input type="checkbox" id="music" name="music" checked>
-           Music bed</label>
-    </div>
-
-    <div class="actions">
-      <button class="go" id="go" type="submit">Render</button>
-      <button class="go ghost" id="sample" type="button">Load the Sample</button>
-    </div>
-    <p class="error" id="go-error" aria-live="polite"></p>
-    <p class="hint" id="hint"></p>
-  </form>
-
-  <section class="panel hidden" id="progress" aria-label="Render progress">
-    <div class="status">
-      <span class="stage" id="stage" role="status" aria-live="polite">starting…</span>
-      <!-- beside the stage rather than over it, so the last stage heard from
-           stays on screen while the page cannot ask for a newer one -->
-      <span class="contact" id="contact" role="status" aria-live="polite"></span>
-      <!-- the clock ticks every poll; announcing it would talk over everything -->
-      <span class="clock" id="clock" aria-hidden="true"></span>
-      <button type="button" class="stop hidden" id="stop">Stop This Render</button>
-    </div>
-    <div class="bar" id="bar" role="progressbar" aria-labelledby="stage"
-         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
-    <!-- aria-hidden: the stage element above already announces every change,
-         and reading nine chips again on each poll would drown it -->
-    <div class="steps" id="steps" aria-hidden="true"></div>
-
-    <!-- captions are burned into the picture, so the video carries its own -->
-    <video id="player" controls class="hidden" playsinline preload="metadata"></video>
-    <div class="files" id="files" translate="no"></div>
-
-    <div class="copy hidden" id="copybar">
-      <h2>Description, Ready to Paste</h2>
-      <button type="button" id="copy">Copy Description</button>
-    </div>
-    <span class="hidden" id="copied" role="status" aria-live="polite"></span>
-    <div class="desc hidden" id="desc"></div>
-
-    <details id="logbox">
-      <summary>Build Log</summary>
-      <pre id="log" translate="no"></pre>
-    </details>
+      <section class="card hidden" id="side-done" aria-labelledby="side-done-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--ok)" aria-hidden="true"><svg><use href="#i-down"/></svg></span>
+          <h2 id="side-done-h">Delivery</h2>
+        </div>
+        <div class="card-b">
+          <!-- First and styled as the main action. Taking the mp4 alone leaves the
+               captions behind and, worse, the credits: attribution is a licence
+               condition and jobs are swept an hour after they finish. -->
+          <a class="btn primary block" id="download-all" href="#"><svg aria-hidden="true"><use href="#i-down"/></svg>Download Everything</a>
+          <p class="fine num" id="download-note"></p>
+          <hr class="sep">
+          <dl class="kv num">
+            <div><dt>Check</dt><dd id="check-badge">—</dd></div>
+            <div><dt>Kept until</dt><dd id="kept">—</dd></div>
+          </dl>
+          <hr class="sep">
+          <button class="btn block" type="button" id="again">New Video</button>
+        </div>
+      </section>
+    </aside>
   </section>
+
+  <!-- ======================================================= THE SCRIPT -->
+  <div class="grid" id="compose">
+    <div class="col">
+      <!-- A render is minutes long and everything about it arrives by mutation,
+           so without live regions none of it reaches a screen reader. polite,
+           not assertive: this should be read at a pause, never cut across typing. -->
+      <div class="card callout hidden" id="busybanner" role="status" aria-live="polite">
+        <span class="dot warn" aria-hidden="true"></span>
+        <span id="busytext">a render is already running</span>
+      </div>
+
+      <!-- outside the form, so Enter in the token field cannot start a render -->
+      <section class="card hidden" id="authpanel" aria-labelledby="auth-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--s5)" aria-hidden="true"><svg><use href="#i-key"/></svg></span>
+          <h2 id="auth-h">Access Token</h2>
+        </div>
+        <div class="card-b">
+          <label class="l" for="tokenfield">Token</label>
+          <input type="password" id="tokenfield" name="token" autocomplete="off"
+                 spellcheck="false" autocapitalize="off"
+                 placeholder="Paste the token this instance was set up with…"
+                 aria-describedby="token-hint token-error">
+          <p class="error" id="token-error" aria-live="polite"></p>
+          <p class="hint" id="token-hint">Kept in this browser only. It stops a public URL
+            from being a renderer that spends someone else’s API quota.</p>
+        </div>
+      </section>
+
+      <!-- novalidate: the page checks the script itself and says what is wrong
+           next to it, rather than the browser's bubble on whichever field it picks -->
+      <form class="col" id="form" novalidate>
+        <section class="card" aria-labelledby="script-h">
+          <div class="card-h">
+            <span class="chip" style="--c:var(--brand-a)" aria-hidden="true"><svg><use href="#i-doc"/></svg></span>
+            <h2 id="script-h">Script</h2>
+            <div class="end">
+              <!-- Arrow keys, Home and End move between these (see tabKeys), and
+                   only the selected one is in the tab order, per WAI-ARIA tabs. -->
+              <div class="seg" role="tablist" aria-label="Where the script comes from">
+                <button type="button" role="tab" id="tab-script" aria-selected="true"
+                        aria-controls="pane-script" tabindex="0">Write a Script</button>
+                <button type="button" role="tab" id="tab-topic" aria-selected="false"
+                        aria-controls="pane-topic" tabindex="-1">From a Topic</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-b">
+            <div id="pane-topic" class="hidden" role="tabpanel" aria-labelledby="tab-topic">
+              <div class="inline">
+                <div>
+                  <label class="l" for="topic">Topic</label>
+                  <input type="text" id="topic" name="topic" autocomplete="off" enterkeyhint="go"
+                         aria-describedby="draft-hint" placeholder="why database indexes can make queries slower…">
+                </div>
+                <div>
+                  <label class="l" for="minutes">Minutes</label>
+                  <input type="number" class="mins" id="minutes" name="minutes" value="2"
+                         inputmode="decimal" autocomplete="off" min="0.5" max="4" step="0.5">
+                </div>
+              </div>
+              <button type="button" class="btn" id="draft">Draft a Script</button>
+              <p class="hint" id="draft-hint" aria-live="polite">Gemini writes it, then you edit it before rendering.</p>
+              <hr class="sep">
+            </div>
+
+            <div id="pane-script" role="tabpanel" aria-labelledby="tab-script">
+              <div class="editor">
+                <pre id="hl" aria-hidden="true"></pre>
+                <textarea id="script" name="script" spellcheck="false" autocomplete="off"
+                          aria-label="Script" aria-describedby="script-hint meter script-error"></textarea>
+              </div>
+              <p class="error" id="script-error" aria-live="polite"></p>
+              <ul class="warn-list" id="warn"></ul>
+            </div>
+          </div>
+          <div class="card-f">
+            <span id="script-hint">Paragraphs are scenes. <code translate="no">[visual: hands counting cash]</code>
+              searches stock footage; <code translate="no">[diagram: three boxes]</code> draws one.
+              <span id="undo-slot"></span></span>
+            <button class="btn sm end" id="sample" type="button">Load the Sample</button>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="settings-h">
+          <div class="card-h">
+            <span class="chip" style="--c:var(--brand-c)" aria-hidden="true"><svg><use href="#i-sliders"/></svg></span>
+            <h2 id="settings-h">Settings</h2>
+            <div class="end"><span class="badge">Remembered in This Browser</span></div>
+          </div>
+          <div class="card-b settings">
+            <div><label class="l" for="provider">Footage</label>
+                 <select id="provider" name="provider"></select></div>
+            <div><label class="l" for="aspect">Shape <span class="aspect" id="aspect-ico" aria-hidden="true"></span></label>
+                 <select id="aspect" name="aspect"></select></div>
+            <div><label class="l" for="theme">Theme <span class="swatches" id="swatches" aria-hidden="true"></span></label>
+                 <select id="theme" name="theme"></select></div>
+            <div><label class="l" for="mood">Music <span class="mood-dot" id="mood-dot" aria-hidden="true"></span></label>
+                 <select id="mood" name="mood"></select></div>
+            <div><label class="l" for="watermark">Watermark</label>
+                 <input type="text" id="watermark" name="watermark" autocomplete="off"
+                        spellcheck="false" autocapitalize="off" placeholder="@yourchannel…"></div>
+            <label class="check"><input type="checkbox" id="music" name="music" checked> Music Bed</label>
+          </div>
+        </section>
+      </form>
+    </div>
+
+    <aside class="summary">
+      <section class="card" aria-labelledby="est-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--ok)" aria-hidden="true"><svg><use href="#i-clock"/></svg></span>
+          <h2 id="est-h">Estimate</h2>
+          <div class="end"><span class="badge brand num hidden" id="scene-badge"></span></div>
+        </div>
+        <div class="card-b">
+          <p class="meter-text num" id="meter" role="status" aria-live="polite"></p>
+          <div id="scene-box" class="hidden">
+            <hr class="sep">
+            <p class="eyebrow num"><span>Scenes, to scale</span><span id="scene-total"></span></p>
+            <div class="timeline" id="timeline" aria-hidden="true"></div>
+            <ol class="legend num" id="legend"></ol>
+          </div>
+          <hr class="sep">
+          <p class="eyebrow num"><span>Words</span><span id="words-text">—</span></p>
+          <div class="meter" id="words-bar" aria-hidden="true"><i id="words-fill"></i></div>
+          <hr class="sep">
+          <button class="btn primary block" id="go" type="submit" form="form">Render</button>
+          <p class="error" id="go-error" aria-live="polite"></p>
+          <p class="fine"><span class="kbd">Ctrl</span> <span class="kbd">Enter</span> from the script also renders.
+            <span id="hint"></span></p>
+        </div>
+      </section>
+    </aside>
+  </div>
 </main>
 
 <script>
@@ -424,10 +684,11 @@ Reconcile against receipts, not memory. If the two disagree, the receipt is almo
 
 let timer = null, needsAuth = false, portrait = false;
 let busyTimer = null, busyElsewhere = false, running = null;
-let maxQueue = 0, waiting = 0, lineIsFull = false;
+let maxQueue = 0, waiting = 0, lineIsFull = false, keepSeconds = 3600;
+let themeColours = {};
 /* The stage list comes from the server rather than being written out here: it
    is derived from the same table the worker reports through, so adding a stage
-   cannot leave the page drawing a stepper that is quietly missing one. */
+   cannot leave the page drawing a list that is quietly missing one. */
 let stages = [];
 
 /* Anything that reaches innerHTML from a script, a server message or a model
@@ -435,15 +696,23 @@ let stages = [];
    drafted one is written by Gemini; neither should be able to add markup. */
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
+const hue = (i) => `var(--s${((i % 8) + 8) % 8})`;
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
+  drop(k) { try { localStorage.removeItem(k); } catch { /* private mode */ } },
+};
 
-function drawSteps(current, status) {
-  if (!stages.length) return;
-  const at = stages.findIndex((s) => s.label === current);
-  $("steps").innerHTML = stages.map((s, i) => {
-    const done = status === "done" || (at >= 0 && i < at);
-    const now = at === i && status !== "done";
-    return `<span class="${done ? "done" : now ? "now" : ""}">${esc(s.label)}</span>`;
-  }).join("");
+/* ------------------------------------------------------------ the header */
+function setHead(word, sub, crumb) {
+  $("page-title").innerHTML = word === "New Video"
+    ? `New <span class="grad">Video</span>` : `<span class="grad">${esc(word)}</span>`;
+  $("page-sub").textContent = sub;
+  $("crumb").textContent = crumb || word;
+}
+function setStatus(kind, label, live = false) {
+  $("nav-status").innerHTML =
+    `<span class="dot ${kind}${live ? " live" : ""}"></span><span>${esc(label)}</span>`;
 }
 
 /* The token is only ever held in this browser. It exists so a tunnelled or
@@ -452,6 +721,13 @@ function drawSteps(current, status) {
    refused outright by embedded browsers and some mobile views. */
 const token = () => $("tokenfield").value.trim();
 const authHeaders = () => needsAuth && token() ? {"X-Vidsmith-Token": token()} : {};
+function tokenPill() {
+  if (!needsAuth) return;
+  const has = !!token();
+  $("token-pill").classList.remove("hidden");
+  $("token-dot").className = `dot ${has ? "ok" : "warn"}`;
+  $("token-state").textContent = has ? "Token Saved" : "Token Needed";
+}
 
 /* The app always answers in JSON. Whatever sits in front of it may not: a
    tunnel or a proxy substitutes its own HTML page for a 5xx, and calling
@@ -474,10 +750,12 @@ async function readBody(r) {
    cursor there. The message used to appear in the render log or the draft hint,
    far from the thing that needed changing. */
 function forgetToken() {
-  localStorage.removeItem("vidsmith_token");
+  store.drop("vidsmith_token");
   $("tokenfield").value = "";
   $("token-error").textContent =
     "That token was not accepted. Paste the one this instance was set up with.";
+  $("authpanel").classList.remove("hidden");
+  tokenPill();
   $("tokenfield").focus();
 }
 const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
@@ -489,10 +767,15 @@ const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
 const NBSP = " ";                      // a size never wraps away from its unit
 const oneDecimal = new Intl.NumberFormat(undefined, {maximumFractionDigits: 1});
 const whole = new Intl.NumberFormat(undefined, {maximumFractionDigits: 0});
+const clockTime = new Intl.DateTimeFormat(undefined, {hour: "numeric", minute: "2-digit"});
 const humanSize = (bytes) =>
   bytes >= 1e6 ? `${oneDecimal.format(bytes / 1e6)}${NBSP}MB`
   : bytes >= 1e3 ? `${whole.format(bytes / 1e3)}${NBSP}KB`
   : `${whole.format(bytes)}${NBSP}B`;
+function fmt(s) {
+  s = Math.round(s);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
 
 /* A token carried in the link, so the owner can send one URL rather than a URL
    and a string to paste. Only ever a convenience: the field and localStorage
@@ -561,12 +844,24 @@ function saveSettings() {
   const s = {};
   for (const k of REMEMBERED) s[k] = $(k).value;
   s.music = $("music").checked;
-  localStorage.setItem("vidsmith_settings", JSON.stringify(s));
+  store.set("vidsmith_settings", s);
 }
-function loadSettings() {
-  try { return JSON.parse(localStorage.getItem("vidsmith_settings")) || {}; }
-  catch { return {}; }
+const loadSettings = () => store.get("vidsmith_settings") || {};
+
+/* The previews beside three of the settings. Theme colours come from the
+   server's presets; a mood's colour is only this page's way of telling three
+   words apart, so it lives here. A shape draws itself from its own name. */
+const MOOD_COLOURS = {calm: "var(--s1)", warm: "var(--s5)", tense: "var(--s7)"};
+function previews() {
+  $("swatches").innerHTML = (themeColours[$("theme").value] || [])
+    .map((c) => `<i style="background:${esc(c)}"></i>`).join("");
+  $("mood-dot").style.background = MOOD_COLOURS[$("mood").value] || "var(--fg-3)";
+  const [w, h] = ($("aspect").value || "16:9").split(":").map(Number);
+  const scale = 18 / Math.max(w || 16, h || 9);
+  Object.assign($("aspect-ico").style,
+                {width: `${Math.round((w || 16) * scale)}px`, height: `${Math.round((h || 9) * scale)}px`});
 }
+["theme", "mood", "aspect"].forEach((id) => $(id).addEventListener("change", previews));
 
 /* The tab is kept in the address as `#topic`, so a link can open straight onto
    drafting and Back does not lose which one you were on. A hash rather than a
@@ -613,11 +908,14 @@ async function loadOptions() {
       `Check the server is running, then <button type="button" class="link" ` +
       `id="retry">Try Again</button>`;
     $("retry").onclick = () => { $("page-error").textContent = ""; loadOptions(); };
+    setStatus("bad", "Offline");
     return;
   }
   $("page-error").textContent = "";
   needsAuth = !!o.auth;
   stages = o.stages || [];
+  themeColours = o.theme_colours || {};
+  keepSeconds = o.keep_seconds || keepSeconds;
   adoptScriptRules(o.script);
   // read unconditionally, so `?t=` never survives in the address bar of an
   // instance that happens to have no gate configured
@@ -632,16 +930,18 @@ async function loadOptions() {
     $("tokenfield").addEventListener("input", () => {
       localStorage.setItem("vidsmith_token", $("tokenfield").value.trim());
       $("token-error").textContent = "";
+      tokenPill();
     });
+    tokenPill();
   }
   const saved = loadSettings();
-  fillProviders(o.providers || [{name: "cards", ready: true}],
-                saved.provider || "pexels");
+  fillProviders(o.providers || [{name: "cards", ready: true}], saved.provider || "pexels");
   fillSelect($("aspect"), o.aspects, saved.aspect || "16:9");
   fillSelect($("theme"), o.themes, saved.theme || "midnight");
   fillSelect($("mood"), o.moods, saved.mood || "calm");
   $("watermark").value = saved.watermark || "";
   if (saved.music === false) $("music").checked = false;
+  previews();
   $("script").value = localStorage.getItem("vidsmith_script") || SAMPLE;
   // the server's own limit, so the meter turns red at exactly the word count
   // that would come back as a 400. Served rather than computed here: this line
@@ -650,10 +950,11 @@ async function loadOptions() {
   maxQueue = o.max_queue || 0;
   $("minutes").max = o.max_minutes;
   $("minutes").value = Math.min(2, o.max_minutes);
-  $("hint").textContent =
-    `Scripts up to about ${o.max_minutes} minutes. One render at a time` +
-    (maxQueue ? `, and up to ${maxQueue} waiting behind it. ` : ". ") +
-    `Expect roughly five minutes of building per minute of video.`;
+  $("limit-text").textContent = `Limit ${o.max_minutes}${NBSP}min`;
+  $("queue-text").textContent = maxQueue ? `1 render at a time, ${maxQueue} waiting` : "1 render at a time";
+  $("limit-pill").classList.remove("hidden");
+  $("queue-pill").classList.remove("hidden");
+  $("hint").textContent = "Expect roughly five minutes of building per minute of video.";
   showTab(window.location.hash === "#topic" ? "topic" : "script");
   updateMeter();
   await reattach();
@@ -673,14 +974,15 @@ async function reattach() {
     const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
     if (!r.ok) {
       // swept after its hour, or the server restarted and lost it
-      if (r.status === 404) localStorage.removeItem("vidsmith_job");
+      if (r.status === 404) forgetJob();
       return;
     }
     job = await r.json();
   } catch { return; }             // offline; the next load can try again
 
   $("busybanner").classList.add("hidden");
-  portrait = ["9:16", "4:5"].includes($("aspect").value);
+  const meta = jobMeta(id);
+  portrait = ["9:16", "4:5"].includes(meta.aspect || $("aspect").value);
   if (job.status === "queued" || job.status === "running") {
     running = id;
     $("go").disabled = true;
@@ -689,6 +991,15 @@ async function reattach() {
   } else {
     render(job);
   }
+}
+
+/* What the page knew about a job when it submitted it, so a reload can still
+   say which shape it is and how long it was estimated to run. */
+const jobMeta = (id) => { const m = store.get("vidsmith_job_meta"); return m && m.id === id ? m : {}; };
+function forgetJob() {
+  store.drop("vidsmith_job");
+  store.drop("vidsmith_job_meta");
+  store.drop("vidsmith_stage_clock");
 }
 
 /* While this page is idle, someone else's render still owns the box. Polling a
@@ -724,11 +1035,14 @@ async function busyTick() {
     if (s.busy) {
       const place = waiting + 1;
       $("busytext").innerHTML =
-        `the box is busy: <b>${esc(s.stage || "starting…")}</b>, ` +
+        `Someone else’s render is running: <b>${esc(s.stage || "starting…")}</b>, ` +
         `${fmt(s.elapsed || 0)} in. ` +
         (lineIsFull
           ? "The queue is full. Press Render once one of the waiting renders starts."
           : `Render anyway and you are <b>#${place}</b> in line.`);
+      setStatus("warn", lineIsFull ? "Queue Full" : "Busy");
+    } else {
+      setStatus("ok", "Idle");
     }
     updateMeter();
     // stay live while a render is running or has just changed state
@@ -748,11 +1062,6 @@ $("form").addEventListener("focusin", () => {
   if (!running && busyDelay > BUSY_MIN) watchBusy();
 });
 
-function fmt(s) {
-  s = Math.round(s);
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
-}
-
 /* A read-only echo of script_parser.py, so the page can tell you what it is
    about to build before you spend five minutes finding out. Nothing here is
    authoritative; the server still decides.
@@ -760,8 +1069,11 @@ function fmt(s) {
    The vocabulary is served rather than copied: `/api/options` carries the
    directive set, the note prefixes and WPS straight out of the parser, and the
    pauses around each scene out of the voice config, so adding a directive
-   there adds it here. Only the scene-splitting rule itself
-   is reimplemented, and the fallbacks below are for a failed options fetch. */
+   there adds it here. Only the scene-splitting rule itself is reimplemented,
+   and the fallbacks below are for a failed options fetch.
+
+   It also says which scene every line belongs to, so the editor can colour a
+   heading with the same hue its scene has on the timeline. */
 let DIRECTIVE = /^\s*\[(visual|b-?roll|footage|shot|hold|image|diagram)\s*:\s*(.+?)\]\s*$/i;
 let NOTE = /^\s*(>|<!--|\/\/)/;
 let WPS = 3.35;
@@ -786,27 +1098,35 @@ function adoptScriptRules(rules) {
 
 function analyse(text) {
   const scenes = [];
+  const lines = [];                         // {kind, scene} per line of the text
   let cur = null;
   const flush = () => {
-    if (cur && cur.words.length) scenes.push(cur);
+    if (cur && cur.words.length) { cur.index = scenes.length; scenes.push(cur); }
     cur = null;
   };
-  const start = (heading) => { cur = {heading: heading || "", words: [], kinds: []}; };
+  const start = (heading) => { cur = {heading: heading || "", words: [], kinds: [], index: -1}; };
 
-  for (const raw of (text || "").split(/\r?\n/)) {
+  for (const raw of (text || "").split("\n")) {
     const line = raw.trim();
-    if (!line) { flush(); continue; }
-    if (NOTE.test(line)) continue;
+    if (!line) { flush(); lines.push({kind: "blank", scene: null}); continue; }
+    if (NOTE.test(line)) { lines.push({kind: "note", scene: null}); continue; }
     const h = line.match(HEADING);
-    if (h) { flush(); if (h[1].length > 1) start(h[2]); continue; }
+    if (h) {
+      flush();
+      if (h[1].length > 1) { start(h[2]); lines.push({kind: "head", scene: cur}); }
+      else lines.push({kind: "title", scene: null});
+      continue;
+    }
     const d = line.match(DIRECTIVE);
     if (d) {
       if (!cur) start("");
       cur.kinds.push(d[1].toLowerCase());
+      lines.push({kind: "dir", scene: cur});
       continue;
     }
     if (!cur) start("");
     cur.words.push(...line.split(/\s+/).filter(Boolean));
+    lines.push({kind: "text", scene: cur});
   }
   flush();
 
@@ -814,38 +1134,75 @@ function analyse(text) {
   const warnings = [];
   scenes.forEach((s, i) => {
     const spoken = s.words.length / WPS;
-    seconds += LEAD_IN + spoken + GAP;
+    s.seconds = LEAD_IN + spoken + GAP;
+    seconds += s.seconds;
     words += s.words.length;
     const shown = s.heading ? `“${s.heading}”` : `scene ${i + 1}`;
     const pictured = s.kinds.some((k) => k !== "hold");
     if (!pictured) warnings.push(`${shown} has no [visual:] line, so it is searched on its own words`);
     else if (spoken > 40) warnings.push(`${shown} runs about ${fmt(spoken)}, long enough to repeat its footage`);
   });
-  return {scenes: scenes.length, words, seconds, warnings};
+  return {scenes: scenes.length, list: scenes, lines, words, seconds, warnings};
+}
+
+/* The editor's colour layer, drawn from the same pass the meter reads. */
+function paint(a) {
+  const src = $("script").value.split("\n");
+  $("hl").innerHTML = src.map((raw, i) => {
+    const info = a.lines[i] || {kind: "text", scene: null};
+    const e = esc(raw);
+    const idx = info.scene ? info.scene.index : -1;
+    switch (info.kind) {
+      case "title": return `<span class="t-title">${e}</span>`;
+      case "head": return idx < 0 ? e
+        : `<span class="t-head" style="color:${hue(idx)};background:color-mix(in srgb, ${hue(idx)} 14%, transparent)">${e}</span>`;
+      case "dir": {
+        const m = raw.match(/^(\s*\[)([^:\]]+)(.*)$/);
+        return m ? `<span class="t-dir">${esc(m[1])}<span class="t-kw">${esc(m[2])}</span>${esc(m[3])}</span>`
+                 : `<span class="t-dir">${e}</span>`;
+      }
+      case "note": return `<span class="t-note">${e}</span>`;
+      default: return e;
+    }
+  }).join("\n") + "\n";
+  $("hl").scrollTop = $("script").scrollTop;
 }
 
 let wordCap = 0;
 
 function updateMeter() {
   const a = analyse($("script").value);
+  paint(a);
   const over = wordCap && a.words > wordCap;
   const n = (x) => whole.format(x);
   $("meter").innerHTML = a.scenes
-    ? `<span><b>${n(a.scenes)}</b> scene${a.scenes === 1 ? "" : "s"}</span>` +
-      `<span>about <b>${fmt(a.seconds)}</b> of video</span>` +
+    ? `<b>${n(a.scenes)}</b> scene${a.scenes === 1 ? "" : "s"}, about <b>${fmt(a.seconds)}</b> of video, ` +
       `<span class="${over ? "over" : ""}"><b>${n(a.words)}</b>` +
-      (wordCap ? ` / ${n(wordCap)}` : "") + ` words` +
+      (wordCap ? ` of ${n(wordCap)}` : "") + ` words` +
       // said in words as well as in red
       (over ? ", over the limit" : "") + `</span>`
-    : "";
+    : `<span class="empty">Write, draft or load a script to see its scenes.</span>`;
+  $("scene-badge").classList.toggle("hidden", !a.scenes);
+  $("scene-badge").textContent = `${n(a.scenes)} scene${a.scenes === 1 ? "" : "s"}`;
+  $("scene-box").classList.toggle("hidden", !a.scenes);
+  $("scene-total").textContent = `about ${fmt(a.seconds)}`;
+  $("timeline").innerHTML = a.list.map((s, i) =>
+    `<span style="flex:${s.seconds.toFixed(2)};background:${hue(i)}"></span>`).join("");
+  $("legend").innerHTML = a.list.map((s, i) =>
+    `<li><span class="n">${i + 1}</span><i style="background:${hue(i)}"></i>` +
+    `<span class="h">${esc(s.heading || `Scene ${i + 1}`)}</span><span class="s">${fmt(s.seconds)}</span></li>`).join("");
+  $("words-text").textContent = wordCap ? `${n(a.words)} / ${n(wordCap)}` : n(a.words);
+  $("words-bar").classList.toggle("over", !!over);
+  $("words-fill").style.transform = `scaleX(${wordCap ? Math.min(1, a.words / wordCap) : 0})`;
+
   const shown = a.warnings.slice(0, 3);
   $("warn").innerHTML = shown.map((w) => `<li>${esc(w)}</li>`).join("") +
     (a.warnings.length > shown.length
       ? `<li>and ${n(a.warnings.length - shown.length)} more like it</li>` : "");
   // an error about the script clears as soon as the script stops earning it
   if ($("script-error").textContent && a.scenes && !over) $("script-error").textContent = "";
-  // Render is no longer disabled from here. A greyed-out button with no reason
-  // beside it is a dead end; pressing it now says what is wrong and where.
+  // Render is not disabled from here. A greyed-out button with no reason beside
+  // it is a dead end; pressing it says what is wrong and where.
   return a;
 }
 
@@ -879,8 +1236,7 @@ function offerUndo(previous, what) {
   if (!previous.trim() || previous === $("script").value) return;
   undoScript = previous;
   $("undo-slot").innerHTML =
-    `${esc(what)} replaced your script. <button type="button" class="link" ` +
-    `id="undo">Undo</button>`;
+    `${esc(what)} replaced your script. <button type="button" class="link" id="undo">Undo</button>`;
   $("undo").onclick = () => {
     $("script").value = undoScript;
     localStorage.setItem("vidsmith_script", undoScript);
@@ -897,21 +1253,81 @@ async function showDescription(id) {
     const d = (await r.json()).description || "";
     if (!d.trim()) return;
     $("desc").textContent = d;
-    $("desc").classList.remove("hidden");
     $("copybar").classList.remove("hidden");
     $("copy").onclick = async () => {
       try {
         await navigator.clipboard.writeText(d);
-        $("copy").textContent = "Copied";
+        $("copy-label").textContent = "Copied";
         $("copied").textContent = "Description copied to the clipboard.";
       } catch {
         // a page without clipboard permission still has the text on screen
-        $("copied").textContent = "Could not copy. Select the description below and copy it.";
-        $("copied").classList.remove("hidden");
+        $("copied").textContent = "Could not copy. Select the description above and copy it.";
       }
-      setTimeout(() => ($("copy").textContent = "Copy Description"), 1600);
+      setTimeout(() => ($("copy-label").textContent = "Copy Description"), 1600);
     };
   } catch { /* the description is a convenience, not the deliverable */ }
+}
+
+/* ----------------------------------------------------- stages, and time */
+/* The server reports which stage a job is in, not when each began. So the page
+   notes the elapsed time the first moment it sees a stage, and keeps that per
+   job so a reload does not lose it. A stage is only timed from a start the page
+   actually saw: the first one seen after a reload began some time before, and
+   says "—" rather than a number that would be wrong. */
+function noteStage(job) {
+  let clock = store.get("vidsmith_stage_clock");
+  if (!clock || clock.id !== job.id) clock = {id: job.id, seen: {}, exact: {}};
+  const at = stages.findIndex((s) => s.label === job.stage);
+  if (job.status === "running" && at >= 0 && clock.seen[job.stage] === undefined) {
+    const before = stages.slice(0, at).some((s) => clock.seen[s.label] !== undefined);
+    clock.seen[job.stage] = job.elapsed || 0;
+    clock.exact[job.stage] = at === 0 || before || (job.elapsed || 0) < 3;
+    store.set("vidsmith_stage_clock", clock);
+  }
+  return clock;
+}
+
+function stageTimes(job, clock) {
+  const known = clock.id === job.id ? clock : {seen: {}, exact: {}};
+  return stages.map((s, i) => {
+    const start = known.seen[s.label];
+    if (start === undefined || !known.exact[s.label]) return null;
+    const next = stages.slice(i + 1).map((t) => known.seen[t.label]).find((v) => v !== undefined);
+    const end = next !== undefined ? next : job.elapsed;
+    return Math.max(0, end - start);
+  });
+}
+
+function drawSteps(job) {
+  if (!stages.length) return;
+  const clock = noteStage(job);
+  const times = stageTimes(job, clock);
+  const at = stages.findIndex((s) => s.label === job.stage);
+  const status = job.status;
+  $("steps").innerHTML = stages.map((s, i) => {
+    let state = "todo";
+    if (status === "done" || (at >= 0 && i < at)) state = "done";
+    else if (at === i) state = (status === "failed" || status === "cancelled") ? "halted" : "now";
+    const ico = state === "done" ? `<svg><use href="#i-check"/></svg>`
+      : state === "now" ? `<span class="spinner"></span>`
+      : state === "halted" ? `<svg><use href="#i-x"/></svg>` : `<span class="pending"></span>`;
+    const t = state === "todo" ? "Pending"
+      : times[i] === null ? "—" : fmt(times[i]);
+    const name = s.label.charAt(0).toUpperCase() + s.label.slice(1);
+    return `<li class="${state}"><span class="ico">${ico}</span>` +
+      `<span class="tag" style="background:${hue(i)}"></span>` +
+      `<span class="name">${esc(name)}${state === "now" ? "…" : ""}</span><span class="t num">${t}</span></li>`;
+  }).join("");
+
+  const spent = stages.map((s, i) => [s.label, times[i], i]).filter(([, t]) => t);
+  $("spent-box").classList.toggle("hidden", spent.length < 2);
+  if (spent.length >= 2) {
+    $("spent-total").textContent = fmt(spent.reduce((sum, [, t]) => sum + t, 0));
+    $("stack").innerHTML = spent.map(([, t, i]) =>
+      `<span style="flex:${t.toFixed(1)};background:${hue(i)}"></span>`).join("");
+    $("stack-legend").innerHTML = spent.slice().sort((a, b) => b[1] - a[1]).slice(0, 4).map(([label, t, i]) =>
+      `<li><i style="background:${hue(i)}"></i><span class="h">${esc(label)}</span><span class="s">${fmt(t)}</span></li>`).join("");
+  }
 }
 
 /* The tab title is what someone sees from another tab during a half-hour wait. */
@@ -924,36 +1340,66 @@ function titleFor(job, pct) {
   return `${state} · vidsmith`;
 }
 
+const BADGES = {
+  queued: ["", "Waiting"], running: ["warn", "Building"], done: ["ok", "Ready"],
+  failed: ["bad", "Failed"], cancelled: ["", "Stopped"],
+};
+const KIND_COLOURS = {mp4: "var(--s0)", jpg: "var(--s7)", png: "var(--s7)", srt: "var(--s1)",
+                      txt: "var(--s3)", json: "var(--s5)", zip: "var(--s2)"};
+
 function render(job) {
   $("progress").classList.remove("hidden");
   const pct = Math.round(job.progress * 100);
   $("fill").style.transform = `scaleX(${pct / 100})`;
   $("bar").setAttribute("aria-valuenow", String(pct));
   $("clock").textContent = fmt(job.elapsed || 0);
+  $("side-pct").textContent = `${pct}%`;
   document.title = titleFor(job, pct);
+  const meta = jobMeta(job.id);
+  $("job-title").textContent = job.title || "Your Video";
+  $("fact-shape").textContent = meta.aspect || "—";
+  if (job.status !== "done") {
+    $("fact-length-label").textContent = "Estimated Length";
+    $("fact-length").textContent = meta.estimate ? `about ${fmt(meta.estimate)}` : "—";
+  }
+  const [kind, label] = BADGES[job.status] || ["", job.status];
+  const inFlight = job.status === "queued" || job.status === "running";
+  $("job-badge").className = `badge ${kind}`;
+  $("job-badge").innerHTML = `<span class="dot ${kind}${job.status === "running" ? " live" : ""}"></span>${label}`;
   // Follow the log only when you are already at its end: pulling it back down
   // every poll made it unreadable while scrolled up to look at something.
   const log = $("log");
   const following = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
   log.textContent = job.log.join("\n");
   if (following) log.scrollTop = log.scrollHeight;
+  $("log-lines").textContent = job.log.length ? `${whole.format(job.log.length)} lines` : "";
   $("bar").className = "bar" + (job.status === "done" ? " done"
                        : job.status === "failed" ? " failed"
                        : job.status === "cancelled" ? " cancelled" : "");
 
-  const inFlight = job.status === "queued" || job.status === "running";
   $("stop").classList.toggle("hidden", !inFlight);
+  $("stop-hint").classList.toggle("hidden", !inFlight);
   $("stop").disabled = !!job.cancelling;
-  drawSteps(job.stage, job.status);
+  $("side-queue").textContent = job.status === "queued" && job.position > 0
+    ? `#${job.position} in line` : job.status === "running" ? "Running now" : "—";
+  $("side-running").classList.toggle("hidden", job.status === "done");
+  $("side-done").classList.toggle("hidden", job.status !== "done");
+  drawSteps(job);
 
   if (job.status === "failed" || job.status === "cancelled") {
     $("stage").textContent = job.status === "cancelled" ? "stopped" : "failed";
+    setHead(job.status === "cancelled" ? "Stopped" : "Failed",
+            job.status === "cancelled" ? "The render was stopped. Your script is still below."
+                                       : "The render failed. The build log says where.");
+    setStatus(job.status === "failed" ? "bad" : "", job.status === "failed" ? "Failed" : "Stopped");
     if (job.status === "failed") $("log").classList.add("err");
     $("logbox").open = job.status === "failed";
     finished();
     return true;
   }
   if (job.status !== "done") {
+    // nothing from a previous render stays on screen beside this one
+    for (const id of ["files-card", "copybar", "player-wrap"]) $(id).classList.add("hidden");
     // A queued job has no stage and no progress, so the running job's label
     // would read "starting" beside a bar stuck at zero and look like a hang.
     // Say where in the line it is instead; `position` comes from the queue
@@ -961,48 +1407,66 @@ function render(job) {
     $("stage").textContent = job.cancelling
       ? "stopping after this stage…"
       : job.status === "queued"
-        ? (job.position > 0
-            ? `waiting: #${job.position} in line`
-            : "waiting for the box…")
+        ? (job.position > 0 ? `waiting: #${job.position} in line` : "waiting for the box…")
         : (job.stage || "starting…");
+    setHead(job.status === "queued" ? "Waiting" : "Rendering",
+            job.status === "queued" ? "Queued behind another render." : `${job.stage || "Starting"} · ${pct}%`,
+            job.title || "Rendering");
+    setStatus(job.status === "queued" ? "" : "warn", job.status === "queued" ? "Waiting" : "Building",
+              job.status === "running");
     return false;
   }
 
   $("stage").textContent = "done";
-  const files = $("files");
-  files.innerHTML = "";
-  if (job.outputs.length) {
-    // First and styled as the main action. Taking the mp4 alone leaves the
-    // captions behind and, worse, the credits: attribution is a licence
-    // condition and jobs are swept an hour after they finish.
-    const all = document.createElement("a");
-    const bytes = job.outputs.reduce((sum, f) => sum + f.size, 0);
-    all.href = `/api/jobs/${job.id}/archive${authQuery()}`;
-    all.textContent =
-      `Download everything · ${whole.format(job.outputs.length)} files · ${humanSize(bytes)}`;
-    all.className = "main";
-    files.appendChild(all);
-  }
-  for (const f of job.outputs) {
-    const a = document.createElement("a");
-    a.href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${authQuery()}`;
-    a.textContent = `${f.name} · ${humanSize(f.size)}`;
-    files.appendChild(a);
-  }
+  setHead("Ready", `${job.title || "Your video"} finished in ${fmt(job.elapsed || 0)}.`, job.title || "Ready");
+  setStatus("ok", "Ready");
+  const bytes = job.outputs.reduce((sum, f) => sum + f.size, 0);
+  $("download-all").href = `/api/jobs/${job.id}/archive${authQuery()}`;
+  $("download-all").classList.toggle("hidden", !job.outputs.length);
+  $("download-note").textContent = job.outputs.length
+    ? `All ${whole.format(job.outputs.length)} files as one zip, ${humanSize(bytes)}. ` +
+      "The credits are a licence condition, so keep them with the video."
+    : "This render delivered no files.";
+  $("files-count").textContent = `${whole.format(job.outputs.length)} file${job.outputs.length === 1 ? "" : "s"}`;
+  $("files-card").classList.toggle("hidden", !job.outputs.length);
+  $("files").innerHTML = job.outputs.map((f) => {
+    const href = `/api/jobs/${job.id}/files/${encodeURIComponent(f.name)}${authQuery()}`;
+    const colour = KIND_COLOURS[f.kind] || "var(--fg-3)";
+    return `<tr><td class="file"><span class="ext" style="--c:${colour}">${esc(f.kind || "file")}</span>` +
+      `<a href="${esc(href)}">${esc(f.name)}</a></td><td class="size">${humanSize(f.size)}</td>` +
+      `<td class="act"><a class="btn sm" href="${esc(href)}" aria-label="Download ${esc(f.name)}">` +
+      `<svg aria-hidden="true"><use href="#i-down"/></svg></a></td></tr>`;
+  }).join("");
+
+  // what `check` said at the end of the build, counted off its own log lines
+  const checks = job.log.filter((l) => /^check\s/.test(l));
+  const problems = checks.filter((l) => !/delivery is consistent|skipped/.test(l)).length;
+  $("check-badge").innerHTML = !checks.length ? "—"
+    : problems ? `<span class="badge warn">${whole.format(problems)} Warning${problems === 1 ? "" : "s"}</span>`
+    : `<span class="badge ok">Consistent</span>`;
+  const created = Date.parse(job.created);
+  $("kept").textContent = Number.isFinite(created)
+    ? clockTime.format(new Date(created + ((job.elapsed || 0) + keepSeconds) * 1000)) : "—";
+
   const video = job.outputs.find((f) => f.kind === "mp4");
   if (video) {
     const p = $("player");
     p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}${authQuery()}`;
     p.className = portrait ? "tall" : "";
-    p.classList.remove("hidden");
+    p.setAttribute("aria-label", job.title || "The finished video");
+    p.onloadedmetadata = () => {
+      $("fact-length-label").textContent = "Length";
+      $("fact-length").textContent = fmt(p.duration);
+    };
+    $("player-wrap").classList.remove("hidden");
   }
   showDescription(job.id);
   finished();
   return true;
 }
 
-/* One place to hand the box back: the Render button is re-enabled through the
-   meter, so an over-long or empty script stays refused after a run ends. */
+/* One place to hand the box back: the Render button is re-enabled here, and
+   the meter keeps an over-long or empty script explained rather than sent. */
 function finished() {
   running = null;
   $("stop").classList.add("hidden");
@@ -1077,7 +1541,15 @@ function regainedContact() {
 
 function fail(message) {
   $("progress").classList.remove("hidden");
+  $("side-running").classList.remove("hidden");
+  $("side-done").classList.add("hidden");
+  $("stop").classList.add("hidden");
+  $("stop-hint").classList.add("hidden");
   $("stage").textContent = "could not start";
+  $("job-badge").className = "badge bad";
+  $("job-badge").innerHTML = `<span class="dot bad"></span>Could Not Start`;
+  setHead("Could Not Start", message);
+  setStatus("bad", "Could Not Start");
   document.title = "Could Not Start · vidsmith";
   $("bar").className = "bar failed";
   $("fill").style.transform = "scaleX(1)";
@@ -1109,6 +1581,20 @@ $("sample").onclick = () => {
   $("script").focus();
 };
 
+/* Back to a blank slate once a render has been collected. The job is forgotten
+   here, so a reload does not bring the finished one back over a new script. */
+$("again").onclick = () => {
+  forgetJob();
+  $("progress").classList.add("hidden");
+  $("player").removeAttribute("src");
+  $("player-wrap").classList.add("hidden");
+  setHead("New Video", "A script in, a narrated and captioned video out.");
+  document.title = "vidsmith";
+  watchBusy();
+  $("script").focus();
+  window.scrollTo({top: 0});
+};
+
 /* Stopping throws away every minute the render has spent, and there is no
    undoing it, so it takes a second press. Not a modal confirm(): embedded
    browsers and some mobile views refuse those outright, the same reason the
@@ -1133,8 +1619,7 @@ $("stop").onclick = async () => {
   $("stop").disabled = true;
   $("stage").textContent = "stopping after this stage…";
   try {
-    const r = await fetch(`/api/jobs/${running}/cancel`,
-                          {method: "POST", headers: authHeaders()});
+    const r = await fetch(`/api/jobs/${running}/cancel`, {method: "POST", headers: authHeaders()});
     if (!r.ok && r.status === 401) forgetToken();
   } catch { $("stop").disabled = false; }
 };
@@ -1147,6 +1632,7 @@ $("script").addEventListener("keydown", (e) => {
     $("form").requestSubmit();
   }
 });
+$("script").addEventListener("scroll", () => { $("hl").scrollTop = $("script").scrollTop; });
 
 /* The topic field sits inside the render form, so Enter in it used to submit
    the form: it started a render of whatever script was loaded, spending quota
@@ -1232,9 +1718,10 @@ $("form").addEventListener("submit", async (e) => {
   portrait = ["9:16", "4:5"].includes($("aspect").value);
   $("log").classList.remove("err");
   $("files").innerHTML = "";
-  $("player").classList.add("hidden");
-  $("desc").classList.add("hidden");
+  $("files-card").classList.add("hidden");
+  $("player-wrap").classList.add("hidden");
   $("copybar").classList.add("hidden");
+  $("copied").textContent = "";
   $("logbox").open = false;
 
   const body = {
@@ -1246,6 +1733,7 @@ $("form").addEventListener("submit", async (e) => {
     watermark: $("watermark").value,
     music: $("music").checked,
   };
+  const estimate = analyse(body.script).seconds;
   let r, job;
   try {
     r = await fetch("/api/jobs", {
@@ -1265,18 +1753,20 @@ $("form").addEventListener("submit", async (e) => {
       forgetToken();
       return;
     }
-    return fail(`${detailText(job, "Could not start the render")}. ` +
-                "Fix that, then press Render again.");
+    return fail(`${detailText(job, "Could not start the render")}. Fix that, then press Render again.`);
   }
   running = job.id;
   // so a reload during the next few minutes finds its way back to this render
   localStorage.setItem("vidsmith_job", job.id);
+  store.set("vidsmith_job_meta", {id: job.id, aspect: body.aspect, estimate});
+  store.drop("vidsmith_stage_clock");
   // the request has been accepted, so the spinner stops; the progress panel
   // takes over, and Render stays unavailable while this one is ours
   working($("go"), false);
   $("go").disabled = true;
   render(job);
   follow(job.id);
+  $("progress").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
 });
 
 loadOptions();
