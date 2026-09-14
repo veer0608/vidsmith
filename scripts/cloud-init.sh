@@ -70,7 +70,8 @@ After=network.target
 [Service]
 User=${USER_NAME}
 WorkingDirectory=${APP_DIR}
-Environment=VIDSMITH_MAX_MINUTES=3
+Environment=VIDSMITH_MAX_MINUTES=9.5
+Environment=VIDSMITH_FFMPEG_TIMEOUT=3600
 Environment=VIDSMITH_JOBS=${APP_DIR}/jobs
 ExecStart=${APP_DIR}/.venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8077 --timeout-keep-alive 120
 Restart=always
