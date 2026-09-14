@@ -126,6 +126,208 @@ def test_the_shape_covers_hook_through_takeaway():
 
 
 # --------------------------------------------------------------------------- #
+# lengthening a draft that came back short
+# --------------------------------------------------------------------------- #
+import re                                              # noqa: E402
+
+from vidsmith.script_parser import narration_words      # noqa: E402
+
+ASK = re.compile(r"^- ## (.+?): about (\d+) words \(it has (\d+)\)$", re.MULTILINE)
+
+
+def _draft(sizes, title="# A Title"):
+    """A drafted script whose scenes hold these many words of narration."""
+    body = [title, ""]
+    for i, n in enumerate(sizes):
+        body += [f"## Scene {i}", f"[visual: hands on a keyboard {i}]",
+                 " ".join(["word"] * n), ""]
+    return "\n".join(body)
+
+
+class _Model:
+    """Stands in for `generate`: the draft first, then whatever `rewrite` says."""
+
+    def __init__(self, draft, rewrite=None):
+        self.draft, self.rewrite, self.prompts = draft, rewrite, []
+
+    def __call__(self, prompt, *a, **k):
+        self.prompts.append(prompt)
+        if len(self.prompts) == 1:
+            return self.draft
+        if self.rewrite is None:
+            return ""
+        return self.rewrite(prompt)
+
+    @property
+    def asks(self):
+        return [ASK.findall(p) for p in self.prompts[1:]]
+
+
+def _as_asked(prompt):
+    """A model that writes exactly the length each scene was asked for."""
+    return "\n\n".join(f"## {h}\n" + " ".join(["more"] * int(n))
+                       for h, n, _ in ASK.findall(prompt))
+
+
+def test_a_short_draft_is_lengthened_to_its_budget(monkeypatch):
+    """Measured at nine minutes on three topics, the one-shot draft came back at
+    69%, 44% and 57% of its budget. The page drafted a 684 word script for a
+    nine minute video and nothing downstream said so."""
+    model = _Model(_draft([20] * 5), _as_asked)
+    monkeypatch.setattr(llm, "generate", model)
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    target = int(1.0 * llm.WORDS_PER_MINUTE)
+    assert narration_words(out) >= target * llm.LONG_ENOUGH, out
+    assert len(model.prompts) == 2, "one draft and one lengthening request"
+
+
+def test_lengthening_keeps_the_title_headings_and_directives(monkeypatch):
+    draft = _draft([20] * 5)
+    monkeypatch.setattr(llm, "generate", _Model(draft, _as_asked))
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    kept = lambda text: [l for l in text.splitlines()
+                         if l.startswith("#") or l.startswith("[visual:")]
+    assert kept(out) == kept(draft)
+
+
+def test_a_draft_long_enough_already_costs_one_request(monkeypatch):
+    draft = _draft([40] * 4)
+    model = _Model(draft, _as_asked)
+    monkeypatch.setattr(llm, "generate", model)
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    assert len(model.prompts) == 1
+    assert out == draft.strip() + "\n", "a draft that needed nothing was rewritten"
+
+
+def test_each_scene_is_asked_for_its_share_of_what_is_missing(monkeypatch):
+    """Asked for a flat per-scene size, three real drafts overshot to 107%, and
+    past the instance's word limit that is a script its own page refuses."""
+    model = _Model(_draft([60, 20, 20, 20]), _as_asked)
+    monkeypatch.setattr(llm, "generate", model)
+
+    llm.draft_script("a topic", 1.0, "key")
+
+    target = int(1.0 * llm.WORDS_PER_MINUTE)
+    asks = model.asks[0]
+    untouched = 60
+    assert "Scene 0" not in [h for h, _, _ in asks], "a long scene was sent back"
+    assert abs(untouched + sum(int(n) for _, n, _ in asks) - target) <= len(asks)
+
+
+def test_one_line_scenes_are_left_as_one_line(monkeypatch):
+    """The drafting prompt asks for scenes that are a single short sentence,
+    and inflating them would undo the rhythm it asked for."""
+    model = _Model(_draft([5, 20, 20, 20]), _as_asked)
+    monkeypatch.setattr(llm, "generate", model)
+
+    llm.draft_script("a topic", 1.0, "key")
+
+    assert "Scene 0" not in [h for h, _, _ in model.asks[0]]
+
+
+@pytest.mark.parametrize("reply", [
+    lambda prompt: "## Some Other Heading\n" + " ".join(["more"] * 90),
+    lambda prompt: "\n\n".join(f"## {h}\nshort" for h, _, _ in ASK.findall(prompt)),
+    lambda prompt: "I cannot help with that.",
+])
+def test_a_reply_that_loses_a_heading_or_shrinks_changes_nothing(monkeypatch, reply):
+    draft = _draft([20] * 5)
+    model = _Model(draft, reply)
+    monkeypatch.setattr(llm, "generate", model)
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    assert narration_words(out) == narration_words(draft)
+    assert len(model.prompts) == 1 + llm.LENGTHEN_ROUNDS, \
+        "a model that never lengthens anything must not be asked forever"
+
+
+def test_long_drafts_are_lengthened_in_chunks_that_fit_the_reply(monkeypatch):
+    """Eighteen scenes rewritten in one reply would not fit `maxOutputTokens`."""
+    model = _Model(_draft([30] * 18), _as_asked)
+    monkeypatch.setattr(llm, "generate", model)
+
+    out = llm.draft_script("a topic", 9.0, "key")
+
+    assert all(0 < len(a) <= llm.LENGTHEN_CHUNK for a in model.asks)
+    assert sum(len(a) for a in model.asks) == 18
+    assert narration_words(out) >= int(9.0 * llm.WORDS_PER_MINUTE) * llm.LONG_ENOUGH
+
+
+def test_a_long_rewrite_arrives_as_scenes_with_their_own_footage(monkeypatch):
+    """Seven scenes where eighteen were asked for, lengthened, made seven
+    scenes of about 215 words: over eighty seconds each on one stock search."""
+    from vidsmith.script_parser import parse_text
+
+    def in_paragraphs(prompt):
+        out = []
+        for h, n, _ in ASK.findall(prompt):
+            paras, left = [], int(n)
+            while left > 0:
+                take = min(llm.PARAGRAPH_WORDS, left)
+                paras.append(" ".join(["more"] * take))
+                left -= take
+            body = paras[0] + "".join(f"\n\n[visual: hands turning a key {j}]\n{p}"
+                                      for j, p in enumerate(paras[1:]))
+            out.append(f"## {h}\n{body}")
+        return "\n\n".join(out)
+
+    draft = _draft([30] * 4)
+    monkeypatch.setattr(llm, "generate", _Model(draft, in_paragraphs))
+
+    out = llm.draft_script("a topic", 3.0, "key")
+
+    _, scenes = parse_text(out)
+    assert len(scenes) > 4, "the long rewrites stayed single scenes"
+    assert all(s.directive for s in scenes), "a paragraph arrived with no footage"
+    assert max(len(s.text.split()) for s in scenes) <= llm.PARAGRAPH_WORDS
+    assert [s.directive for s in scenes if "hands on a keyboard" in s.directive] == \
+        [f"hands on a keyboard {i}" for i in range(4)], "the draft's own visuals moved"
+
+
+def test_the_lengthening_prompt_asks_for_paragraphs_with_footage():
+    rendered = " ".join(llm.LENGTHEN_PROMPT.format(
+        target=1, total=1, wanted="", script="", paragraph=llm.PARAGRAPH_WORDS,
+        short=llm.PARAGRAPH_WORDS * 2 // 3).lower().split())
+    assert f"over {llm.PARAGRAPH_WORDS} words is written as paragraphs" in rendered
+    assert "its own [visual:" in rendered
+    assert "camera can point" in rendered and "never a diagram" in rendered
+
+
+def test_running_out_of_quota_while_lengthening_keeps_the_draft(monkeypatch):
+    """The draft was the request that mattered. Refusing it over a top-up would
+    throw away a usable script and tell the page drafting failed."""
+    draft = _draft([20] * 5)
+
+    def model(prompt, *a, **k):
+        if "lengthening scenes" in prompt:
+            raise llm.QuotaExhausted("500 requests a day")
+        return draft
+
+    monkeypatch.setattr(llm, "generate", model)
+
+    out = llm.draft_script("a topic", 1.0, "key")
+
+    assert narration_words(out) == narration_words(draft)
+
+
+def test_the_lengthening_prompt_keeps_the_drafting_rules():
+    low = llm.LENGTHEN_PROMPT.lower()
+    assert "no em dashes or en dashes" in low
+    assert "do not invent specifics" in low
+    for trap in ("version numbers", "percentages", "named studies"):
+        assert trap in low, f"{trap} not called out"
+    assert "copy each heading exactly" in low, "replies are matched by heading"
+    assert "not padding" in low
+
+
+# --------------------------------------------------------------------------- #
 # dashes
 # --------------------------------------------------------------------------- #
 EM, EN = "—", "–"

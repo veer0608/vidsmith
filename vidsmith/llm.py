@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 import requests
 
 from . import manifest
-from .script_parser import Scene
+from .script_parser import DIRECTIVE, HEADING, NOTE, Scene
 
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 # Pinned, not an alias. `gemini-flash-lite-latest` worked, which is the problem:
@@ -871,7 +871,8 @@ def draft_script(topic: str, minutes: float, api_key: str,
 
     The budget is spelled out per scene as well as in total, because a lone
     total is consistently undershot - measured at about two thirds of the
-    requested length.
+    requested length. Stating it per scene was not enough on its own either, so
+    the draft is then measured and its short scenes lengthened; see `lengthen`.
     """
     words = int(minutes * WORDS_PER_MINUTE)
     scenes = max(5, min(18, round(words / WORDS_PER_SCENE)))
@@ -883,7 +884,194 @@ def draft_script(topic: str, minutes: float, api_key: str,
     )
     text = re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
                   flags=re.MULTILINE).strip() + "\n"
-    return strip_diagrams(text)
+    return lengthen(strip_diagrams(text), words, api_key, model, log=log)
+
+
+# A draft counts as long enough at this share of its budget. The rewrite lands
+# within a few percent either side of what it is asked for, so chasing the last
+# tenth would spend requests on noise.
+LONG_ENOUGH = 0.9
+# The longest a lengthened draft has come back, as a share of its budget: 109%,
+# across six real drafts at nine minutes that landed between 90% and 109%.
+# Anything sizing a draft to fit under a hard limit has to leave this much room.
+LENGTHEN_OVERSHOOT = 1.10
+# A scene longer than this is one stock search held on screen for over half a
+# minute, which the page already warns will repeat its footage. Drafts often
+# come back with half the scenes asked for, so lengthening them without a limit
+# made eighty second scenes; a rewrite this long is split into paragraphs, each
+# with its own [visual:] line, and the parser makes each paragraph a scene.
+PARAGRAPH_WORDS = 90
+# Rounds, not requests: a round is one request per chunk of scenes.
+LENGTHEN_ROUNDS = 2
+# Scenes asked for in one request, bounded so the reply fits `maxOutputTokens`:
+# eight scenes at the longest budget a 9.5 minute draft asks for is about two
+# thousand tokens of the 4096.
+LENGTHEN_CHUNK = 8
+# The prompt asks for at least two scenes that are one short sentence. Those
+# are left alone rather than inflated, up to that many.
+ONE_LINER_WORDS = 12
+
+LENGTHEN_PROMPT = """You are lengthening scenes in the narration script below. The video
+was commissioned at {target} words of narration and the script has only {total}.
+
+Rewrite ONLY these scenes, each to the length given:
+{wanted}
+
+Hit each length. A rewrite that comes in short makes the video shorter than it
+was commissioned to be, so count as you go. Add substance, not padding: a
+concrete example, what the step costs or saves, what happens at the edges, the
+question a viewer would ask next and its answer. Keep what the scene already
+says, in the same voice, and keep it leading into the scene after it without
+repeating what that scene says.
+
+Keep every rule the script was written under: second person, sentences a voice
+can speak, numbers as words, no em dashes or en dashes, no lists or markdown
+inside narration. DO NOT INVENT SPECIFICS: no version numbers, release dates,
+benchmark figures, percentages or named studies.
+
+A SCENE OVER {paragraph} WORDS IS WRITTEN AS PARAGRAPHS of {short} to {paragraph}
+words, separated by a blank line. Every paragraph after the first opens with its
+own [visual: 2-5 words] line on the line above it: something a camera can point
+at, such as hands, objects, places, machinery or people working, and never a
+diagram, chart or anything that would have to be drawn. Each paragraph is shown
+over its own footage, so the visual should fit that paragraph.
+
+THE SCRIPT:
+
+{script}
+
+OUTPUT exactly this for each scene listed above, in the same order, and nothing
+else. Copy each heading exactly. No title, and no [visual:] line above the first
+paragraph, which keeps the one it has:
+
+## <heading, copied exactly>
+<first paragraph>
+
+[visual: ...]
+<next paragraph, only if the scene is over {paragraph} words>
+"""
+
+
+def _directive(line: str) -> bool:
+    return bool(DIRECTIVE.match(line) or NOTE.match(line))
+
+
+def _sections(text: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """A drafted script as (lines before the first scene, one dict per `##`).
+
+    `lead` is the directives above a scene's first words, which a rewrite never
+    touches. `body` is everything after, blank lines and any later directives
+    included, because a blank line is a scene break to the parser and moving one
+    re-cuts the video.
+    """
+    head: List[str] = []
+    sections: List[Dict[str, Any]] = []
+    for line in text.splitlines():
+        h = HEADING.match(line)
+        if h and len(h.group(1)) == 2:
+            sections.append({"heading": h.group(2).strip(), "lead": [], "body": []})
+        elif not sections:
+            head.append(line)
+        elif not _spoken(sections[-1]) and (_directive(line) or not line.strip()):
+            if line.strip():
+                sections[-1]["lead"].append(line.strip())
+        else:
+            sections[-1]["body"].append(line.strip())
+    return head, sections
+
+
+def _spoken(section: Dict[str, Any]) -> int:
+    return sum(len(line.split()) for line in section["body"]
+               if line and not _directive(line))
+
+
+def _same_heading(heading: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", heading.lower()).strip()
+
+
+def _assemble(head: List[str], sections: List[Dict[str, Any]]) -> str:
+    out = "\n".join(head).rstrip() + "\n"
+    for s in sections:
+        body = re.sub(r"\n{3,}", "\n\n", "\n".join(s["body"])).strip()
+        out += f"\n## {s['heading']}\n" + "".join(d + "\n" for d in s["lead"])
+        out += body + "\n"
+    return out
+
+
+def lengthen(script: str, target: int, api_key: str,
+             model: str = DEFAULT_MODEL, log=None) -> str:
+    """Rewrite a draft's short scenes until the narration reaches `target` words.
+
+    Asking for a length was never enough. Measured on three topics at nine
+    minutes, the one-shot draft came back at 69%, 44% and 57%, and it failed in
+    two different ways: one draft wrote eight scenes where eighteen were asked
+    for, another wrote sixteen scenes of about fifty words against a budget of
+    seventy seven. A better prompt could fix one of those and not the other.
+    Measuring the result fixes both, so the draft is counted and each short
+    scene is sent back to be rewritten at a stated length. The same three
+    drafts came out at 106%, 96% and 101%, and three fresh ones drafted end to
+    end from 26%, 33% and 64% came out at 109%, 90% and 103%.
+
+    Each scene is asked for its share of the words actually missing, not for a
+    flat per-scene size. Asked for the flat size, the same drafts overshot to
+    107%, which past the instance's word limit is a script its own page refuses.
+
+    A rewrite over `PARAGRAPH_WORDS` comes back as paragraphs, each after the
+    first under its own [visual:] line, so a draft that wrote half its scenes
+    is lengthened into more scenes rather than into minute-long ones.
+
+    The narration is what gets replaced. Headings, the directives above each
+    scene's first words and scene order are the draft's, and a reply that loses
+    a heading or comes back shorter changes nothing, so the worst this can do is
+    return the draft. A model failure part way returns what has been lengthened
+    so far: the draft is still a usable script, and refusing it over a top-up
+    would throw away the one request that mattered.
+    """
+    for _ in range(LENGTHEN_ROUNDS):
+        head, sections = _sections(script)
+        total = sum(_spoken(s) for s in sections)
+        if not sections or total >= target * LONG_ENOUGH:
+            break
+        one_liners = [s for s in sections if _spoken(s) <= ONE_LINER_WORDS][:2]
+        rest = [s for s in sections if not any(s is o for o in one_liners)]
+        if not rest:
+            break
+        per = (target - sum(_spoken(s) for s in one_liners)) / len(rest)
+        short = [s for s in rest if _spoken(s) < per * 0.8]
+        if not short:
+            break
+        deficit = [per - _spoken(s) for s in short]
+        asks = [round(_spoken(s) + (target - total) * d / sum(deficit))
+                for s, d in zip(short, deficit)]
+        if log:
+            log(f"    draft is {total} of {target} words; lengthening "
+                f"{len(short)} scene{'s' if len(short) != 1 else ''}")
+        for i in range(0, len(short), LENGTHEN_CHUNK):
+            chunk = list(zip(short, asks))[i:i + LENGTHEN_CHUNK]
+            wanted = "\n".join(f"- ## {s['heading']}: about {ask} words "
+                               f"(it has {_spoken(s)})" for s, ask in chunk)
+            try:
+                reply = generate(
+                    LENGTHEN_PROMPT.format(target=target, total=total,
+                                           wanted=wanted, script=script,
+                                           paragraph=PARAGRAPH_WORDS,
+                                           short=PARAGRAPH_WORDS * 2 // 3),
+                    api_key, model, temperature=0.7, log=log)
+            except LLMUnavailable as exc:
+                if log:
+                    log(f"    lengthening stopped, keeping the draft: {exc}")
+                return strip_diagrams(_assemble(head, sections))
+            rewritten = {_same_heading(r["heading"]): r
+                         for r in _sections(reply)[1]}
+            for s, _ask in chunk:
+                r = rewritten.get(_same_heading(s["heading"]))
+                # the reply's body only: a [visual:] it put above the first
+                # paragraph anyway would replace the draft's, which was chosen
+                # alongside every other scene's
+                if r and _spoken(r) > _spoken(s):
+                    s["body"] = r["body"]
+        script = strip_diagrams(_assemble(head, sections))
+    return script
 
 
 # A drafted script never explains itself in boxes. The prompt forbids it, and as

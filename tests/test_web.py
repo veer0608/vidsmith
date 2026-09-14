@@ -455,6 +455,65 @@ def test_drafting_is_clamped_to_the_instance_limit(client, monkeypatch):
     assert seen["m"] <= web_app.MAX_MINUTES
 
 
+def test_a_draft_at_the_limit_is_a_script_the_limit_accepts(client, monkeypatch):
+    """The whole point of drafting to length on this instance.
+
+    `llm.lengthen` has come back at up to 109% of what it is asked for. Without
+    headroom, a draft asked for exactly the limit is over it about half the
+    time, and the page that had just written the script refuses to render it.
+    """
+    monkeypatch.setattr(web_app, "find_keys", lambda *a, **k: {"gemini": "k"})
+
+    def long_end(topic, minutes, key, **kw):
+        words = int(minutes * web_app.llm.WORDS_PER_MINUTE
+                    * web_app.llm.LENGTHEN_OVERSHOOT)
+        scenes = 18
+        return "# Title\n\n" + "\n\n".join(
+            f"## Heading number {i}\n[visual: a person typing at a desk]\n"
+            + " ".join(["word"] * (words // scenes)) for i in range(scenes))
+
+    monkeypatch.setattr(web_app.llm, "draft_script", long_end)
+
+    script = client.post("/api/draft", json={
+        "topic": "a topic", "minutes": web_app.MAX_MINUTES}).json()["script"]
+    r = client.post("/api/jobs", json={"script": script})
+
+    assert r.status_code == 202, r.json()
+
+
+def test_headings_and_directives_do_not_spend_the_word_limit(client, monkeypatch):
+    """The page's meter counts narration. The check counted every word in the
+    file, so a script the meter called under the limit came back a 400."""
+    monkeypatch.setattr(web_app, "WORD_CAP", 20)
+    padding = "".join(f"## A long descriptive heading {i}\n"
+                      f"[visual: somebody walking through a busy station {i}]\n"
+                      "word word word word\n\n" for i in range(5))
+
+    assert client.post("/api/jobs", json={"script": "# T\n\n" + padding}).status_code == 202
+
+
+def test_narration_over_the_word_limit_is_refused(client, monkeypatch):
+    monkeypatch.setattr(web_app, "WORD_CAP", 20)
+    script = "# T\n\n## One\n" + " ".join(["word"] * 21) + "\n"
+
+    r = client.post("/api/jobs", json={"script": script})
+
+    assert r.status_code == 400
+    assert "minute limit" in r.json()["detail"]
+
+
+def test_the_page_meter_is_served_the_limit_the_check_uses(client):
+    """The meter said 150 words a minute and drafting said 155."""
+    assert client.get("/api/options").json()["word_cap"] == web_app.WORD_CAP
+    page = (Path(web_app.__file__).parent / "static" / "index.html").read_text(
+        encoding="utf-8")
+    assert "* 150" not in page, "the page is computing its own word limit again"
+
+
+def test_the_limit_and_drafting_share_one_speaking_rate():
+    assert web_app.WORD_CAP == int(web_app.MAX_MINUTES * web_app.llm.WORDS_PER_MINUTE)
+
+
 def test_a_short_topic_is_refused(client):
     assert client.post("/api/draft", json={"topic": "x"}).status_code == 422
 

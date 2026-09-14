@@ -497,8 +497,9 @@ async function loadOptions() {
   if (saved.music === false) $("music").checked = false;
   $("script").value = localStorage.getItem("vidsmith_script") || SAMPLE;
   // the server's own limit, so the meter turns red at exactly the word count
-  // that would come back as a 400
-  wordCap = Math.round(o.max_minutes * 150);
+  // that would come back as a 400. Served rather than computed here: this line
+  // used to say 150 a minute while drafting said 155
+  wordCap = o.word_cap || 0;
   maxQueue = o.max_queue || 0;
   $("minutes").max = o.max_minutes;
   $("minutes").value = Math.min(2, o.max_minutes);
