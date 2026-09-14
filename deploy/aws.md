@@ -230,7 +230,8 @@ After=network.target
 [Service]
 User=ubuntu
 WorkingDirectory=/home/ubuntu/vidsmith
-Environment=VIDSMITH_MAX_MINUTES=3
+Environment=VIDSMITH_MAX_MINUTES=9.5
+Environment=VIDSMITH_FFMPEG_TIMEOUT=3600
 Environment=VIDSMITH_JOBS=/home/ubuntu/vidsmith/jobs
 ExecStart=/home/ubuntu/vidsmith/.venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8077 --timeout-keep-alive 120
 Restart=always
@@ -249,9 +250,26 @@ media and download links.
 sudo systemctl daemon-reload && sudo systemctl enable --now vidsmith && sudo systemctl status vidsmith --no-pager
 ```
 
-`VIDSMITH_MAX_MINUTES=3` because two vCPUs encode at roughly half realtime: a
-three minute script is something like six minutes of work. Raise it only after
-watching one finish.
+`VIDSMITH_MAX_MINUTES=9.5`, raised from 3 on 2026-09-14 so the live instance
+can take a long explainer. Two vCPUs encode at roughly half realtime, so a
+three minute script is something like six minutes of work and a 9.5 minute one
+is twenty to thirty, holding the render slot and the line behind it for all of
+that.
+
+9.5 rather than a round 12 because a second limit sits underneath this one:
+`web/jobs.py` refuses a script over 12,000 characters, and the real scripts in
+`projects/` average 7.9 characters per spoken word once headings and
+`[visual:]` lines are counted. That cap arrives at about 9.8 minutes, so a
+minutes limit above it is a promise the queue then refuses. Raising past 9.5
+means raising `MAX_SCRIPT_CHARS` with it.
+
+`VIDSMITH_FFMPEG_TIMEOUT=3600` goes with it and is not optional. The default
+bound on one ffmpeg call is 900 seconds, and the render stage ran at about
+twice the video's length on this box (78s for a 41s video). Nearly all of that
+is the one master call, so a 9.5 minute video puts something like eighteen
+minutes into a single ffmpeg process, and at the default a long render would be
+killed near the end of its most expensive step. It is a bound on forever, not a
+budget.
 
 ## TLS, and a free hostname to hang it on
 
