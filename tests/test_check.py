@@ -244,6 +244,79 @@ def test_a_portrait_thumbnail_on_the_four_five_cut_is_caught(delivery):
     assert any("a-title-4x5.jpg" in p and "vertical cut" in p for p in found), found
 
 
+# --------------------------------------------------------------------------- #
+# a delivery with no widescreen cut at all
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def vertical(delivery):
+    """The same clean delivery, built only as a 9:16 Short.
+
+    projects/promo-short is exactly this, and the checker answered it with
+    "nothing has been delivered" and examined none of its files.
+    """
+    for name in ("a-title.mp4", "a-title.jpg", "captions.srt"):
+        (delivery / name).unlink()
+    (delivery / "credits.txt").rename(delivery / "credits-9x16.txt")
+    return delivery
+
+
+@pytest.mark.slow
+def test_a_vertical_only_delivery_reports_nothing(vertical):
+    assert check(vertical) == []
+
+
+@pytest.mark.slow
+def test_a_missing_thumbnail_on_a_vertical_only_delivery_is_caught(vertical):
+    (vertical / "a-title-9x16.jpg").unlink()
+    found = check(vertical)
+    assert any("a-title-9x16.jpg" in p and "no thumbnail" in p for p in found), found
+
+
+@pytest.mark.slow
+def test_captions_past_a_vertical_only_cut_are_caught(vertical):
+    (vertical / "captions-9x16.srt").write_text(
+        "1\n00:00:00,000 --> 00:09:59,000\nhello\n\n", encoding="utf-8")
+    found = check(vertical)
+    assert any("captions-9x16.srt" in p and "past the" in p for p in found), found
+
+
+@pytest.mark.slow
+def test_chapters_are_measured_against_the_vertical_cut(vertical):
+    """Runtime used to come only from the widescreen cut, so with none there
+    was nothing to measure a chapter against."""
+    (vertical / "youtube.json").write_text(json.dumps(
+        {"chapters": [{"time": "0:00", "label": "Start"},
+                      {"time": "9:00", "label": "Late"}]}), encoding="utf-8")
+    found = check(vertical)
+    assert any("'Late'" in p and "past the" in p for p in found), found
+
+
+def test_the_reference_cut_is_widescreen_only_when_one_exists(tmp_path, monkeypatch):
+    """No encode needed: which cut sets the runtime is decided by names alone.
+
+    The other cuts are shorter here, so if one were taken as the reference
+    beside a real 16:9, the chapter at 0:05 would be reported past its end.
+    With the 16:9 gone, one of them has to be the reference, and is.
+    """
+    from vidsmith import check as check_mod
+
+    lengths = {"a.mp4": 8.0, "a-1x1.mp4": 4.0, "a-9x16.mp4": 4.0}
+    monkeypatch.setattr(check_mod.ff, "duration", lambda p: lengths[Path(p).name])
+    for name in lengths:
+        (tmp_path / name).touch()
+    (tmp_path / "youtube.json").write_text(json.dumps(
+        {"chapters": [{"time": "0:00", "label": "Start"},
+                      {"time": "0:05", "label": "Mid"}]}), encoding="utf-8")
+
+    found = check(tmp_path)
+    assert not any("'Mid'" in p for p in found), found
+
+    (tmp_path / "a.mp4").unlink()
+    found = check(tmp_path)
+    assert "no widescreen mp4 in out/; nothing has been delivered" not in found, found
+    assert any("'Mid'" in p and "past the" in p for p in found), found
+
+
 @pytest.mark.parametrize("stamp,want", [
     ("0:00", 0.0), ("1:23", 83.0), ("00:01:23,400", 83.4), ("1:00:00", 3600.0),
 ])
