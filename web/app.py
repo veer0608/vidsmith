@@ -17,7 +17,7 @@ from vidsmith.config import ASPECTS, VoiceConfig, env
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
-from web.jobs import MAX_QUEUE, Busy, Jobs, stage_sequence
+from web.jobs import KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
 
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
@@ -161,6 +161,12 @@ def healthz(x_vidsmith_token: str = Header(default=""),
 @app.get("/api/options")
 def options() -> Dict[str, Any]:
     return {"aspects": sorted(ASPECTS), "themes": sorted(PRESETS),
+            # the swatch beside the theme picker, taken from the presets the
+            # render draws with, so a changed preset changes its preview
+            "theme_colours": {name: [t.bg, t.accent, t.text]
+                              for name, t in PRESETS.items()},
+            # how long a finished job stays downloadable, for "kept until"
+            "keep_seconds": KEEP_SECONDS,
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
             # counted the way the check counts, so the meter turns red at
             # exactly the script that would come back as a 400
