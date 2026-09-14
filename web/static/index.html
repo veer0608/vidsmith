@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080C18">
 <title>vidsmith</title>
 <!-- Inline so there is no second request and no route to serve it from: the
      app has exactly one static file and this keeps it that way. The `#` in the
@@ -11,6 +12,8 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230B1020'/><path d='M13 10l9 6-9 6z' fill='%23FFC24B'/></svg>">
 <style>
   :root {
+    /* native scrollbars, form controls and autofill are drawn dark to match */
+    color-scheme: dark;
     --bg: #080C18; --panel: #131A31; --panel-hi: #171F3B; --sunk: #0B1024;
     --edge: #24304F; --hair: rgba(255,255,255,.055);
     --text: #F3F6FB; --muted: #8792AC; --accent: #FFC24B; --bad: #E5533D;
@@ -21,6 +24,14 @@
     --ring: 0 0 0 3px rgba(255,194,75,.16);
   }
   * { box-sizing: border-box; }
+  /* no 300ms double-tap wait on anything you press, and no grey flash on tap */
+  button, a, summary, label, input, select, textarea {
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .skip { position: absolute; left: 12px; top: -60px; z-index: 10;
+          background: var(--accent); color: #171203; padding: 10px 16px;
+          border-radius: 8px; font-weight: 600; text-decoration: none; }
+  .skip:focus { top: 12px; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.6 var(--font);
@@ -36,9 +47,11 @@
 
   header { margin-bottom: 30px; }
   h1 { font-size: 34px; line-height: 1.1; margin: 0 0 6px; letter-spacing: -.025em;
-       font-weight: 700; }
+       font-weight: 700; text-wrap: balance; }
   h1 span { color: var(--accent); }
-  .lede { color: var(--muted); margin: 0; font-size: 16px; max-width: 46ch; }
+  h1, h2 { scroll-margin-top: 24px; }
+  .lede { color: var(--muted); margin: 0; font-size: 16px; max-width: 46ch;
+          text-wrap: pretty; }
 
   .panel {
     background: linear-gradient(180deg, var(--panel-hi), var(--panel));
@@ -72,16 +85,32 @@
   textarea { min-height: 260px; resize: vertical; font-family: var(--mono);
              font-size: 13px; line-height: 1.7; }
   textarea:hover, select:hover, input:hover { border-color: #2E3C63; }
+  /* the replacement for the outline: an accent border and a ring, on every
+     field, whether it was reached by click or by keyboard */
   textarea:focus, select:focus, input:focus {
     outline: none; border-color: var(--accent); box-shadow: var(--ring);
   }
+  textarea::placeholder, input::placeholder { color: #6C7792; }
+  /* Windows draws the open list of a native select in light colours otherwise */
+  option { background-color: var(--sunk); color: var(--text); }
 
   .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
          gap: 14px; margin-top: 18px; align-items: end; }
-  .switch { display: flex; align-items: center; gap: 9px; height: 43px; }
-  .switch input { width: auto; accent-color: var(--accent); }
-  .switch label { margin: 0; text-transform: none; letter-spacing: 0;
-                  font-size: 14px; color: var(--text); font-weight: 400; }
+  /* the label wraps the checkbox, so the gap between them is part of the target */
+  label.switch { display: flex; align-items: center; gap: 9px; min-height: 43px;
+                 margin: 0; text-transform: none; letter-spacing: 0; cursor: pointer;
+                 font-size: 14px; color: var(--text); font-weight: 400; }
+  label.switch input { width: auto; margin: 0; accent-color: var(--accent);
+                       inline-size: 18px; block-size: 18px; }
+  label.switch:focus-within { color: var(--accent); }
+
+  .error { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
+  .error::before { content: "! "; font-weight: 700; }
+  .error:empty { display: none; }
+  button.link { background: none; border: 0; padding: 2px 4px; margin: 0 0 0 4px;
+                color: var(--accent); font: inherit; text-decoration: underline;
+                text-underline-offset: 3px; cursor: pointer; }
+  button.link:hover { color: #FFD98A; }
 
   button.go {
     background: linear-gradient(180deg, #FFD173, var(--accent));
@@ -98,8 +127,15 @@
   button.go.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent);
                                          filter: none; }
   button:disabled { opacity: .42; cursor: not-allowed; }
-  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent);
-                                          outline-offset: 2px; }
+  button:focus-visible, a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* A button that has started something keeps its label and gains a spinner,
+     so it still says what it is doing rather than going blank. */
+  button.spin::before { content: ""; display: inline-block; width: 12px; height: 12px;
+    margin-right: 8px; vertical-align: -1px; border-radius: 50%;
+    border: 2px solid currentColor; border-right-color: transparent;
+    animation: turn .7s linear infinite; }
+  @keyframes turn { to { transform: rotate(360deg); } }
   .hint { color: var(--muted); font-size: 13px; margin: 12px 0 0; }
   .hint code { font-family: var(--mono); color: var(--text); font-size: 12.5px;
                background: var(--sunk); padding: 1px 5px; border-radius: 5px;
@@ -117,7 +153,8 @@
   .meter .over b { color: var(--bad); }
   .warn { margin: 10px 0 0; padding: 0; list-style: none;
           color: var(--muted); font-size: 12.5px; }
-  .warn li { margin-top: 4px; padding-left: 18px; position: relative; }
+  .warn li { margin-top: 4px; padding-left: 18px; position: relative;
+             overflow-wrap: anywhere; }
   .warn li::before { content: "!"; position: absolute; left: 0; top: 0;
                      color: var(--accent); font-weight: 700; }
 
@@ -127,25 +164,31 @@
             margin-bottom: 16px; font-size: 13.5px; color: var(--muted);
             box-shadow: inset 0 1px 0 var(--hair); }
   .banner b { color: var(--text); font-weight: 600; }
+  .banner > span:last-child { min-width: 0; }
+  /* Three pulses to draw the eye, then still: a light that blinks for the whole
+     half hour of someone else's render is motion nobody can switch off. */
   .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
          flex: 0 0 auto; box-shadow: 0 0 0 4px rgba(255,194,75,.14);
-         animation: pulse 1.6s ease-in-out infinite; }
+         animation: pulse 1.6s ease-in-out 3; }
   @keyframes pulse { 50% { opacity: .25; } }
   @media (prefers-reduced-motion: reduce) {
-    .dot { animation: none; }
+    .dot, button.spin::before { animation: none; }
     * { transition-duration: .01ms !important; }
   }
 
   .status { display: flex; align-items: center; justify-content: space-between;
-            gap: 12px; margin-bottom: 12px; }
-  .stage { font-weight: 600; font-size: 16px; }
+            flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+  .stage { font-weight: 600; font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
   .clock { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 13px;
            margin-left: auto; }
   .bar { height: 7px; background: var(--sunk); border-radius: 999px; overflow: hidden;
          border: 1px solid var(--edge); }
-  .bar i { display: block; height: 100%; width: 0; border-radius: 999px;
+  /* scaled rather than resized: width is a layout property, and this changes
+     every poll for half an hour */
+  .bar i { display: block; height: 100%; width: 100%; transform: scaleX(0);
+           transform-origin: left center;
            background: linear-gradient(90deg, #FFD173, var(--accent));
-           transition: width .5s ease; }
+           transition: transform .5s ease; }
   .bar.failed i { background: var(--bad); }
   .bar.done i { background: linear-gradient(90deg, #7CF0BC, var(--ok)); }
   .bar.cancelled i { background: var(--muted); }
@@ -153,11 +196,15 @@
   /* The stages are known in advance, so show the shape of the wait rather than
      one moving number: which are behind you, which one you are in, what is left. */
   .steps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  /* .85 is the dimmest these can be and still read: at .55 they measured 2.7:1
+     against their own background, under the 4.5:1 that small text needs */
   .steps span { font-size: 11.5px; letter-spacing: .02em; color: var(--muted);
                 background: var(--sunk); border: 1px solid var(--edge);
-                border-radius: 999px; padding: 4px 10px; opacity: .55;
-                transition: opacity .2s ease, color .2s ease, border-color .2s ease; }
+                border-radius: 999px; padding: 4px 10px; opacity: .85;
+                transition: opacity .2s ease; }
   .steps span.done { opacity: 1; color: var(--ok); border-color: rgba(94,230,168,.35); }
+  /* done is said with a mark as well as a colour */
+  .steps span.done::before { content: "✓ "; }
   .steps span.now { opacity: 1; color: #171203; font-weight: 600;
                     background: var(--accent); border-color: var(--accent); }
 
@@ -178,7 +225,8 @@
   .files { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
   .files a { color: var(--muted); text-decoration: none; font-size: 13px;
              border: 1px solid var(--edge); border-radius: 999px; padding: 7px 15px;
-             background: var(--sunk);
+             background: var(--sunk); font-variant-numeric: tabular-nums;
+             max-width: 100%; overflow-wrap: anywhere;
              transition: color .15s ease, border-color .15s ease; }
   .files a:hover { border-color: var(--accent); color: var(--text); }
   .files a.main { border-color: rgba(255,194,75,.5); color: var(--accent);
@@ -186,7 +234,7 @@
 
   .copy { display: flex; align-items: center; justify-content: space-between;
           gap: 10px; margin-top: 20px; }
-  .copy h3 { margin: 0; font-size: 11px; letter-spacing: .1em;
+  .copy h2 { margin: 0; font-size: 11px; letter-spacing: .1em;
              text-transform: uppercase; color: var(--muted); font-weight: 600; }
   .copy button, button.stop {
     margin: 0; background: transparent; color: var(--text);
@@ -201,26 +249,45 @@
           border-radius: 9px; padding: 14px; max-height: 190px; overflow: auto;
           font-size: 13px; white-space: pre-wrap; color: var(--muted); }
   .inline { display: flex; gap: 10px; align-items: flex-end; }
-  .inline > :first-child { flex: 1; }
+  .inline > :first-child { flex: 1; min-width: 0; }
   .inline input.mins { width: 94px; }
   .actions { display: flex; gap: 10px; align-items: center; margin-top: 20px;
              flex-wrap: wrap; }
   .hidden { display: none; }
+
+  /* iOS zooms the whole page into any field under 16px when it is tapped */
+  @media (max-width: 640px) {
+    input, select, textarea { font-size: 16px; }
+    main { padding-top: 32px; }
+  }
+  /* a finger needs 44px; a mouse is fine at the desktop sizes above */
+  @media (pointer: coarse) {
+    button, summary, .files a, label.switch { min-height: 44px; }
+    .files a { display: inline-flex; align-items: center; }
+  }
 </style>
 </head>
 <body>
+<a class="skip" href="#form">Skip to Content</a>
 <main>
   <header>
-    <h1>vid<span>smith</span></h1>
+    <h1 translate="no">vid<span>smith</span></h1>
     <p class="lede">A script in, a narrated and captioned video out.</p>
   </header>
 
+  <!-- Page-level failures that no single field owns, such as the options that
+       fill every select not loading. Without it that page was a dead end. -->
+  <p class="error panel" id="page-error" role="alert"></p>
+
   <div class="panel hidden" id="authpanel">
     <label for="tokenfield">Access token</label>
-    <input type="password" id="tokenfield" placeholder="this instance is protected"
-           autocomplete="off">
-    <p class="hint">Kept in this browser only. It stops a public URL from being a
-       renderer that spends someone else's API quota.</p>
+    <input type="password" id="tokenfield" name="token" autocomplete="off"
+           spellcheck="false" autocapitalize="off"
+           placeholder="Paste the token this instance was set up with…"
+           aria-describedby="token-hint token-error">
+    <p class="error" id="token-error" aria-live="polite"></p>
+    <p class="hint" id="token-hint">Kept in this browser only. It stops a public URL
+       from being a renderer that spends someone else’s API quota.</p>
   </div>
 
   <!-- A render is minutes long and everything about it arrives by mutation, so
@@ -231,65 +298,82 @@
     <span id="busytext">a render is already running</span>
   </div>
 
-  <form class="panel" id="form">
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" id="tab-script" aria-selected="true">Write a script</button>
-      <button type="button" role="tab" id="tab-topic" aria-selected="false">From a topic</button>
+  <!-- novalidate: the page checks the script itself and says what is wrong next
+       to it, rather than the browser's bubble on whichever field it picks -->
+  <form class="panel" id="form" novalidate>
+    <!-- Arrow keys, Home and End move between these (see tabKeys), and only the
+         selected one is in the tab order, per the WAI-ARIA tabs pattern. -->
+    <div class="tabs" role="tablist" aria-label="Where the script comes from">
+      <button type="button" role="tab" id="tab-script" aria-selected="true"
+              aria-controls="pane-script" tabindex="0">Write a Script</button>
+      <button type="button" role="tab" id="tab-topic" aria-selected="false"
+              aria-controls="pane-topic" tabindex="-1">From a Topic</button>
     </div>
 
-    <div id="pane-topic" class="hidden">
+    <div id="pane-topic" class="hidden" role="tabpanel" aria-labelledby="tab-topic">
       <div class="inline">
         <div>
           <label for="topic">Topic</label>
-          <input type="text" id="topic"
-                 placeholder="why database indexes can make queries slower">
+          <input type="text" id="topic" name="topic" autocomplete="off"
+                 enterkeyhint="go" aria-describedby="draft-hint"
+                 placeholder="why database indexes can make queries slower…">
         </div>
         <div>
           <label for="minutes">Minutes</label>
-          <input type="number" class="mins" id="minutes" value="2"
-                 min="0.5" max="4" step="0.5">
+          <input type="number" class="mins" id="minutes" name="minutes" value="2"
+                 inputmode="decimal" autocomplete="off" min="0.5" max="4" step="0.5">
         </div>
       </div>
-      <button type="button" class="go ghost" id="draft">Draft a script</button>
-      <p class="hint" id="draft-hint">Gemini writes it, then you edit it before rendering.</p>
+      <button type="button" class="go ghost" id="draft">Draft a Script</button>
+      <p class="hint" id="draft-hint" aria-live="polite">Gemini writes it, then you
+        edit it before rendering.</p>
     </div>
 
-    <div id="pane-script">
+    <div id="pane-script" role="tabpanel" aria-labelledby="tab-script">
       <label for="script">Script</label>
-      <textarea id="script" spellcheck="false"></textarea>
-      <p class="hint">
-        Paragraphs are scenes. <code>[visual: hands counting cash]</code> searches
-        stock footage; <code>[diagram: three boxes in a row]</code> draws one
-        instead, for ideas no camera can point at.
+      <textarea id="script" name="script" spellcheck="false" autocomplete="off"
+                aria-describedby="script-hint meter script-error"></textarea>
+      <p class="error" id="script-error" aria-live="polite"></p>
+      <p class="hint" id="script-hint">
+        Paragraphs are scenes. <code translate="no">[visual: hands counting cash]</code>
+        searches stock footage; <code translate="no">[diagram: three boxes in a row]</code>
+        draws one instead, for ideas no camera can point at.
+        <span id="undo-slot"></span>
       </p>
       <div class="meter" id="meter" role="status" aria-live="polite"></div>
-      <ul class="warn" id="warn" aria-live="polite"></ul>
+      <ul class="warn" id="warn"></ul>
     </div>
 
     <div class="row">
-      <div><label for="provider">Footage</label><select id="provider"></select></div>
-      <div><label for="aspect">Shape</label><select id="aspect"></select></div>
-      <div><label for="theme">Theme</label><select id="theme"></select></div>
-      <div><label for="mood">Music</label><select id="mood"></select></div>
+      <div><label for="provider">Footage</label>
+           <select id="provider" name="provider"></select></div>
+      <div><label for="aspect">Shape</label>
+           <select id="aspect" name="aspect"></select></div>
+      <div><label for="theme">Theme</label>
+           <select id="theme" name="theme"></select></div>
+      <div><label for="mood">Music</label>
+           <select id="mood" name="mood"></select></div>
       <div><label for="watermark">Watermark</label>
-           <input type="text" id="watermark" placeholder="@handle"></div>
-      <div class="switch"><input type="checkbox" id="music" checked>
-           <label for="music">Music bed</label></div>
+           <input type="text" id="watermark" name="watermark" autocomplete="off"
+                  spellcheck="false" autocapitalize="off" placeholder="@yourchannel…"></div>
+      <label class="switch"><input type="checkbox" id="music" name="music" checked>
+           Music bed</label>
     </div>
 
     <div class="actions">
       <button class="go" id="go" type="submit">Render</button>
-      <button class="go ghost" id="sample" type="button">Load the sample</button>
+      <button class="go ghost" id="sample" type="button">Load the Sample</button>
     </div>
+    <p class="error" id="go-error" aria-live="polite"></p>
     <p class="hint" id="hint"></p>
   </form>
 
-  <section class="panel hidden" id="progress">
+  <section class="panel hidden" id="progress" aria-label="Render progress">
     <div class="status">
-      <span class="stage" id="stage" role="status" aria-live="polite">starting</span>
+      <span class="stage" id="stage" role="status" aria-live="polite">starting…</span>
       <!-- the clock ticks every poll; announcing it would talk over everything -->
       <span class="clock" id="clock" aria-hidden="true"></span>
-      <button type="button" class="stop hidden" id="stop">Stop this render</button>
+      <button type="button" class="stop hidden" id="stop">Stop This Render</button>
     </div>
     <div class="bar" id="bar" role="progressbar" aria-labelledby="stage"
          aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
@@ -297,18 +381,20 @@
          and reading nine chips again on each poll would drown it -->
     <div class="steps" id="steps" aria-hidden="true"></div>
 
-    <video id="player" controls class="hidden" playsinline></video>
-    <div class="files" id="files"></div>
+    <!-- captions are burned into the picture, so the video carries its own -->
+    <video id="player" controls class="hidden" playsinline preload="metadata"></video>
+    <div class="files" id="files" translate="no"></div>
 
     <div class="copy hidden" id="copybar">
-      <h3>Description, ready to paste</h3>
-      <button type="button" id="copy">Copy</button>
+      <h2>Description, Ready to Paste</h2>
+      <button type="button" id="copy">Copy Description</button>
     </div>
+    <span class="hidden" id="copied" role="status" aria-live="polite"></span>
     <div class="desc hidden" id="desc"></div>
 
     <details id="logbox">
-      <summary>Build log</summary>
-      <pre id="log"></pre>
+      <summary>Build Log</summary>
+      <pre id="log" translate="no"></pre>
     </details>
   </section>
 </main>
@@ -337,13 +423,19 @@ let maxQueue = 0, waiting = 0, lineIsFull = false;
    cannot leave the page drawing a stepper that is quietly missing one. */
 let stages = [];
 
+/* Anything that reaches innerHTML from a script, a server message or a model
+   goes through this. A heading is typed by whoever is at the page, and a
+   drafted one is written by Gemini; neither should be able to add markup. */
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[c]);
+
 function drawSteps(current, status) {
   if (!stages.length) return;
   const at = stages.findIndex((s) => s.label === current);
   $("steps").innerHTML = stages.map((s, i) => {
     const done = status === "done" || (at >= 0 && i < at);
     const now = at === i && status !== "done";
-    return `<span class="${done ? "done" : now ? "now" : ""}">${s.label}</span>`;
+    return `<span class="${done ? "done" : now ? "now" : ""}">${esc(s.label)}</span>`;
   }).join("");
 }
 
@@ -371,9 +463,14 @@ async function readBody(r) {
             || `unexpected ${r.status} response from whatever is in front of the app`};
   }
 }
+/* The token was refused, so say so next to the field it came from and put the
+   cursor there. The message used to appear in the render log or the draft hint,
+   far from the thing that needed changing. */
 function forgetToken() {
   localStorage.removeItem("vidsmith_token");
   $("tokenfield").value = "";
+  $("token-error").textContent =
+    "That token was not accepted. Paste the one this instance was set up with.";
   $("tokenfield").focus();
 }
 const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
@@ -382,10 +479,13 @@ const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
    `credits.txt · 0.0 MB`. The licence-bearing files were the ones that read as
    empty, which is exactly the wrong impression to give of the file people
    already skip. */
+const NBSP = " ";                      // a size never wraps away from its unit
+const oneDecimal = new Intl.NumberFormat(undefined, {maximumFractionDigits: 1});
+const whole = new Intl.NumberFormat(undefined, {maximumFractionDigits: 0});
 const humanSize = (bytes) =>
-  bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB`
-  : bytes >= 1e3 ? `${Math.round(bytes / 1e3)} KB`
-  : `${bytes} B`;
+  bytes >= 1e6 ? `${oneDecimal.format(bytes / 1e6)}${NBSP}MB`
+  : bytes >= 1e3 ? `${whole.format(bytes / 1e3)}${NBSP}KB`
+  : `${whole.format(bytes)}${NBSP}B`;
 
 /* A token carried in the link, so the owner can send one URL rather than a URL
    and a string to paste. Only ever a convenience: the field and localStorage
@@ -461,16 +561,54 @@ function loadSettings() {
   catch { return {}; }
 }
 
-function showTab(which) {
+/* The tab is kept in the address as `#topic`, so a link can open straight onto
+   drafting and Back does not lose which one you were on. A hash rather than a
+   query parameter: the token arrives as `?t=` and is scrubbed with replaceState,
+   which keeps the hash and drops the query. */
+function showTab(which, {focus = false} = {}) {
   const isTopic = which === "topic";
-  $("tab-topic").setAttribute("aria-selected", String(isTopic));
-  $("tab-script").setAttribute("aria-selected", String(!isTopic));
+  for (const [id, on] of [["tab-topic", isTopic], ["tab-script", !isTopic]]) {
+    $(id).setAttribute("aria-selected", String(on));
+    $(id).tabIndex = on ? 0 : -1;
+  }
   $("pane-topic").classList.toggle("hidden", !isTopic);
   $("pane-script").classList.toggle("hidden", isTopic && !$("script").value.trim());
+  const hash = isTopic ? "#topic" : "";
+  if (window.location.hash !== hash) {
+    try {
+      history.replaceState(null, "", window.location.pathname + window.location.search + hash);
+    } catch { /* a page that cannot rewrite its address still switches tabs */ }
+  }
+  if (focus) $(isTopic ? "tab-topic" : "tab-script").focus();
 }
 
+/* WAI-ARIA tabs: arrows move and select, Home and End jump to the ends. */
+function tabKeys(e) {
+  const order = ["script", "topic"];
+  const at = e.currentTarget.id === "tab-topic" ? 1 : 0;
+  const to = {ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: order.length - 1}[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  showTab(order[(to + order.length) % order.length], {focus: true});
+}
+
+/* Every select on the page is filled from this, so a failure used to leave a
+   form that looked usable, with nothing in it and nothing said. */
 async function loadOptions() {
-  const o = await (await fetch("/api/options")).json();
+  let o;
+  try {
+    const r = await fetch("/api/options");
+    if (!r.ok) throw new Error(`the server answered ${r.status}`);
+    o = await r.json();
+  } catch (e) {
+    $("page-error").innerHTML =
+      `Could not load this instance’s settings (${esc(e.message)}). ` +
+      `Check the server is running, then <button type="button" class="link" ` +
+      `id="retry">Try Again</button>`;
+    $("retry").onclick = () => { $("page-error").textContent = ""; loadOptions(); };
+    return;
+  }
+  $("page-error").textContent = "";
   needsAuth = !!o.auth;
   stages = o.stages || [];
   adoptScriptRules(o.script);
@@ -484,8 +622,10 @@ async function loadOptions() {
     const supplied = linked || localStorage.getItem("vidsmith_token") || "";
     $("tokenfield").value = supplied;
     if (supplied) localStorage.setItem("vidsmith_token", supplied);
-    $("tokenfield").addEventListener("input", () =>
-      localStorage.setItem("vidsmith_token", $("tokenfield").value.trim()));
+    $("tokenfield").addEventListener("input", () => {
+      localStorage.setItem("vidsmith_token", $("tokenfield").value.trim());
+      $("token-error").textContent = "";
+    });
   }
   const saved = loadSettings();
   fillProviders(o.providers || [{name: "cards", ready: true}],
@@ -507,6 +647,7 @@ async function loadOptions() {
     `Scripts up to about ${o.max_minutes} minutes. One render at a time` +
     (maxQueue ? `, and up to ${maxQueue} waiting behind it. ` : ". ") +
     `Expect roughly five minutes of building per minute of video.`;
+  showTab(window.location.hash === "#topic" ? "topic" : "script");
   updateMeter();
   await reattach();
   watchBusy();
@@ -576,10 +717,10 @@ async function busyTick() {
     if (s.busy) {
       const place = waiting + 1;
       $("busytext").innerHTML =
-        `the box is busy: <b>${s.stage || "starting"}</b>, ` +
+        `the box is busy: <b>${esc(s.stage || "starting…")}</b>, ` +
         `${fmt(s.elapsed || 0)} in. ` +
         (lineIsFull
-          ? "The queue is full, so Render is disabled until one finishes."
+          ? "The queue is full. Press Render once one of the waiting renders starts."
           : `Render anyway and you are <b>#${place}</b> in line.`);
     }
     updateMeter();
@@ -665,7 +806,7 @@ function analyse(text) {
     const spoken = s.words.length / WPS;
     seconds += LEAD_IN + spoken + GAP;
     words += s.words.length;
-    const shown = s.heading ? `"${s.heading}"` : `scene ${i + 1}`;
+    const shown = s.heading ? `“${s.heading}”` : `scene ${i + 1}`;
     const pictured = s.kinds.some((k) => k !== "hold");
     if (!pictured) warnings.push(`${shown} has no [visual:] line, so it is searched on its own words`);
     else if (spoken > 40) warnings.push(`${shown} runs about ${fmt(spoken)}, long enough to repeat its footage`);
@@ -678,22 +819,67 @@ let wordCap = 0;
 function updateMeter() {
   const a = analyse($("script").value);
   const over = wordCap && a.words > wordCap;
+  const n = (x) => whole.format(x);
   $("meter").innerHTML = a.scenes
-    ? `<span><b>${a.scenes}</b> scene${a.scenes === 1 ? "" : "s"}</span>` +
+    ? `<span><b>${n(a.scenes)}</b> scene${a.scenes === 1 ? "" : "s"}</span>` +
       `<span>about <b>${fmt(a.seconds)}</b> of video</span>` +
-      `<span class="${over ? "over" : ""}"><b>${a.words}</b>` +
-      (wordCap ? ` / ${wordCap}` : "") + ` words</span>`
+      `<span class="${over ? "over" : ""}"><b>${n(a.words)}</b>` +
+      (wordCap ? ` / ${n(wordCap)}` : "") + ` words` +
+      // said in words as well as in red
+      (over ? ", over the limit" : "") + `</span>`
     : "";
   const shown = a.warnings.slice(0, 3);
-  $("warn").innerHTML = shown.map((w) => `<li>${w}</li>`).join("") +
+  $("warn").innerHTML = shown.map((w) => `<li>${esc(w)}</li>`).join("") +
     (a.warnings.length > shown.length
-      ? `<li>and ${a.warnings.length - shown.length} more like it</li>` : "");
-  // Busy is not the same as full. The box runs one render and holds a line
-  // behind it, so a second visitor can submit and wait; disabling Render on
-  // `busy` made the queue unreachable from the page for anyone but curl.
-  $("go").disabled = lineIsFull || over || !a.scenes;
+      ? `<li>and ${n(a.warnings.length - shown.length)} more like it</li>` : "");
+  // an error about the script clears as soon as the script stops earning it
+  if ($("script-error").textContent && a.scenes && !over) $("script-error").textContent = "";
+  // Render is no longer disabled from here. A greyed-out button with no reason
+  // beside it is a dead end; pressing it now says what is wrong and where.
   return a;
 }
+
+/* What stops a render before it is sent, as a sentence and the field to fix.
+   Busy is not the same as full: the box holds a line behind the running render,
+   so only a full line refuses. */
+function blocker() {
+  const a = analyse($("script").value);
+  if (!a.scenes) return {field: "script", text:
+    "The script is empty. Write one, draft one from a topic, or load the sample."};
+  if (wordCap && a.words > wordCap) return {field: "script", text:
+    `The script is ${whole.format(a.words)} words, over this instance’s limit of ` +
+    `${whole.format(wordCap)}. Shorten it, or run it locally.`};
+  if (lineIsFull) return {field: "go", text:
+    "The queue is full. Press Render again once one of the waiting renders starts."};
+  return null;
+}
+
+/* A button that has started a request: disabled, spinning, label kept. */
+function working(button, on) {
+  button.disabled = on;
+  button.classList.toggle("spin", on);
+  button.setAttribute("aria-busy", String(on));
+}
+
+/* Replacing the script by loading the sample or drafting cannot be confirmed
+   usefully up front, because both are what was asked for. So it is undoable
+   instead, until the script is edited again. */
+let undoScript = null;
+function offerUndo(previous, what) {
+  if (!previous.trim() || previous === $("script").value) return;
+  undoScript = previous;
+  $("undo-slot").innerHTML =
+    `${esc(what)} replaced your script. <button type="button" class="link" ` +
+    `id="undo">Undo</button>`;
+  $("undo").onclick = () => {
+    $("script").value = undoScript;
+    localStorage.setItem("vidsmith_script", undoScript);
+    clearUndo();
+    updateMeter();
+    $("script").focus();
+  };
+}
+function clearUndo() { undoScript = null; $("undo-slot").textContent = ""; }
 
 async function showDescription(id) {
   try {
@@ -704,21 +890,43 @@ async function showDescription(id) {
     $("desc").classList.remove("hidden");
     $("copybar").classList.remove("hidden");
     $("copy").onclick = async () => {
-      await navigator.clipboard.writeText(d);
-      $("copy").textContent = "Copied";
-      setTimeout(() => ($("copy").textContent = "Copy"), 1600);
+      try {
+        await navigator.clipboard.writeText(d);
+        $("copy").textContent = "Copied";
+        $("copied").textContent = "Description copied to the clipboard.";
+      } catch {
+        // a page without clipboard permission still has the text on screen
+        $("copied").textContent = "Could not copy. Select the description below and copy it.";
+        $("copied").classList.remove("hidden");
+      }
+      setTimeout(() => ($("copy").textContent = "Copy Description"), 1600);
     };
   } catch { /* the description is a convenience, not the deliverable */ }
+}
+
+/* The tab title is what someone sees from another tab during a half-hour wait. */
+function titleFor(job, pct) {
+  const state = job.status === "done" ? "Done"
+    : job.status === "failed" ? "Failed"
+    : job.status === "cancelled" ? "Stopped"
+    : job.status === "queued" ? "Waiting"
+    : `${pct}%`;
+  return `${state} · vidsmith`;
 }
 
 function render(job) {
   $("progress").classList.remove("hidden");
   const pct = Math.round(job.progress * 100);
-  $("fill").style.width = pct + "%";
+  $("fill").style.transform = `scaleX(${pct / 100})`;
   $("bar").setAttribute("aria-valuenow", String(pct));
   $("clock").textContent = fmt(job.elapsed || 0);
-  $("log").textContent = job.log.join("\n");
-  $("log").scrollTop = $("log").scrollHeight;
+  document.title = titleFor(job, pct);
+  // Follow the log only when you are already at its end: pulling it back down
+  // every poll made it unreadable while scrolled up to look at something.
+  const log = $("log");
+  const following = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+  log.textContent = job.log.join("\n");
+  if (following) log.scrollTop = log.scrollHeight;
   $("bar").className = "bar" + (job.status === "done" ? " done"
                        : job.status === "failed" ? " failed"
                        : job.status === "cancelled" ? " cancelled" : "");
@@ -741,12 +949,12 @@ function render(job) {
     // Say where in the line it is instead; `position` comes from the queue
     // rather than the job, so it stays right as the line moves.
     $("stage").textContent = job.cancelling
-      ? "stopping after this stage"
+      ? "stopping after this stage…"
       : job.status === "queued"
         ? (job.position > 0
             ? `waiting: #${job.position} in line`
-            : "waiting for the box")
-        : (job.stage || "starting");
+            : "waiting for the box…")
+        : (job.stage || "starting…");
     return false;
   }
 
@@ -760,7 +968,8 @@ function render(job) {
     const all = document.createElement("a");
     const bytes = job.outputs.reduce((sum, f) => sum + f.size, 0);
     all.href = `/api/jobs/${job.id}/archive${authQuery()}`;
-    all.textContent = `everything · ${job.outputs.length} files · ${humanSize(bytes)}`;
+    all.textContent =
+      `Download everything · ${whole.format(job.outputs.length)} files · ${humanSize(bytes)}`;
     all.className = "main";
     files.appendChild(all);
   }
@@ -787,6 +996,7 @@ function render(job) {
 function finished() {
   running = null;
   $("stop").classList.add("hidden");
+  working($("go"), false);
   updateMeter();
   watchBusy();
 }
@@ -803,32 +1013,60 @@ async function poll(id) {
 function fail(message) {
   $("progress").classList.remove("hidden");
   $("stage").textContent = "could not start";
+  document.title = "Could Not Start · vidsmith";
   $("bar").className = "bar failed";
-  $("fill").style.width = "100%";
+  $("fill").style.transform = "scaleX(1)";
   $("log").classList.add("err");
   $("log").textContent = message;
   $("logbox").open = true;
   finished();
 }
 
+/* FastAPI's 422 carries a list of objects, which used to arrive in the page as
+   "[object Object]". */
+const detailText = (d, fallback) =>
+  typeof d?.detail === "string" ? d.detail
+  : Array.isArray(d?.detail) ? d.detail.map((x) => x.msg).filter(Boolean).join("; ") || fallback
+  : fallback;
+
 $("tab-script").onclick = () => showTab("script");
 $("tab-topic").onclick = () => showTab("topic");
+$("tab-script").onkeydown = tabKeys;
+$("tab-topic").onkeydown = tabKeys;
 
 $("sample").onclick = () => {
+  const previous = $("script").value;
   $("script").value = SAMPLE;
   localStorage.setItem("vidsmith_script", SAMPLE);
   showTab("script");
   updateMeter();
+  offerUndo(previous, "The sample");
   $("script").focus();
 };
 
-/* Stopping is cooperative: the flag is read at the next stage boundary, so an
-   encode already in flight finishes first. Say that, rather than letting the
-   button look broken for the minute it takes. */
+/* Stopping throws away every minute the render has spent, and there is no
+   undoing it, so it takes a second press. Not a modal confirm(): embedded
+   browsers and some mobile views refuse those outright, the same reason the
+   token is a field and not a prompt(). */
+let stopArmed = null;
 $("stop").onclick = async () => {
   if (!running) return;
+  if (!stopArmed) {
+    $("stop").textContent = "Press Again to Stop";
+    stopArmed = setTimeout(() => {
+      stopArmed = null;
+      $("stop").textContent = "Stop This Render";
+    }, 4000);
+    return;
+  }
+  clearTimeout(stopArmed);
+  stopArmed = null;
+  $("stop").textContent = "Stop This Render";
+  // Stopping is cooperative: the flag is read at the next stage boundary, so an
+  // encode already in flight finishes first. Say that, rather than letting the
+  // button look broken for the minute it takes.
   $("stop").disabled = true;
-  $("stage").textContent = "stopping after this stage";
+  $("stage").textContent = "stopping after this stage…";
   try {
     const r = await fetch(`/api/jobs/${running}/cancel`,
                           {method: "POST", headers: authHeaders()});
@@ -845,11 +1083,29 @@ $("script").addEventListener("keydown", (e) => {
   }
 });
 
+/* The topic field sits inside the render form, so Enter in it used to submit
+   the form: it started a render of whatever script was loaded, spending quota
+   on the sample, instead of drafting the topic that had just been typed. */
+$("topic").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (!$("draft").disabled) $("draft").click();
+  }
+});
+$("topic").addEventListener("input", () => $("topic").removeAttribute("aria-invalid"));
+
 $("draft").onclick = async () => {
   const topic = $("topic").value.trim();
-  if (!topic) return;
-  $("draft").disabled = true;
-  $("draft-hint").textContent = "writing…";
+  if (topic.length < 3) {
+    $("topic").setAttribute("aria-invalid", "true");
+    $("draft-hint").textContent = topic
+      ? "That topic is too short. Describe it in a few words."
+      : "Type a topic first, such as “how b-trees work”.";
+    $("topic").focus();
+    return;
+  }
+  working($("draft"), true);
+  $("draft-hint").textContent = "Writing… a long script takes up to half a minute.";
   try {
     const r = await fetch("/api/draft", {
       method: "POST",
@@ -861,29 +1117,48 @@ $("draft").onclick = async () => {
     // person reads it as the model being down. Send them to the field instead.
     if (r.status === 401) {
       forgetToken();
-      throw new Error("this instance needs its access token, at the top of the page");
+      throw new Error("Drafting needs the access token. Paste it at the top of the page.");
     }
-    if (!r.ok) throw new Error(d.detail || "drafting failed");
+    if (!r.ok) throw new Error(
+      `${detailText(d, "Drafting failed")}. Try again, or write the script yourself.`);
+    const previous = $("script").value;
     $("script").value = d.script;
     localStorage.setItem("vidsmith_script", d.script);
     $("pane-script").classList.remove("hidden");
     updateMeter();
+    offerUndo(previous, "The draft");
     $("draft-hint").textContent = "Drafted. Read it through, then render.";
   } catch (e) {
     $("draft-hint").textContent = e.message;
   } finally {
-    $("draft").disabled = false;
+    working($("draft"), false);
   }
 };
 
 $("script").addEventListener("input", () => {
   localStorage.setItem("vidsmith_script", $("script").value);
+  if (undoScript !== null) clearUndo();
   updateMeter();
 });
 
 $("form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  $("go").disabled = true;
+  // Checked here rather than by disabling the button, so pressing Render always
+  // answers: the reason goes next to what needs changing, and focus goes there.
+  $("go-error").textContent = "";
+  const blocked = blocker();
+  if (blocked) {
+    if (blocked.field === "script") {
+      if ($("pane-script").classList.contains("hidden")) showTab("script");
+      $("script-error").textContent = blocked.text;
+      $("script").focus();
+    } else {
+      $("go-error").textContent = blocked.text;
+      $("go").focus();
+    }
+    return;
+  }
+  working($("go"), true);
   // our own render reports itself in far more detail than the idle poller can
   clearTimeout(busyTimer);
   busyElsewhere = false;
@@ -915,18 +1190,26 @@ $("form").addEventListener("submit", async (e) => {
     });
     job = await readBody(r);
   } catch (err) {
-    return fail("could not reach the server");
+    return fail("Could not reach the server. Check your connection, then press Render again.");
   }
   if (!r.ok) {
     if (r.status === 401) {
+      // the fix is the token field, so the message goes there and not in a log
+      working($("go"), false);
+      $("progress").classList.add("hidden");
       forgetToken();
-      return fail("this instance needs its access token, at the top of the page");
+      return;
     }
-    return fail(job.detail || "could not start the render");
+    return fail(`${detailText(job, "Could not start the render")}. ` +
+                "Fix that, then press Render again.");
   }
   running = job.id;
   // so a reload during the next few minutes finds its way back to this render
   localStorage.setItem("vidsmith_job", job.id);
+  // the request has been accepted, so the spinner stops; the progress panel
+  // takes over, and Render stays unavailable while this one is ours
+  working($("go"), false);
+  $("go").disabled = true;
   render(job);
   timer = setInterval(() => poll(job.id), 1500);
 });
