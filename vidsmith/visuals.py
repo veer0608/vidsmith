@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import time
@@ -49,6 +50,12 @@ TIMEOUT = 45
 SENTENCE_END = (".", "!", "?")
 CLAUSE_END = (",", ";", ":", "—")
 MULTI_SHOT_PROVIDERS = ("pexels", "pixabay", "local")
+# Results asked of a stock search, and how many rerank calls a scene may spend
+# judging them. A thirty-second scene plans six or seven shots and the reranker
+# keeps two to four of every eight candidates, so one call starved it; three
+# calls over thirty results is room for a scene that long.
+SEARCH_RESULTS = 30
+RERANK_ROUNDS = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -178,6 +185,66 @@ def collapse(durations: Sequence[float], n: int) -> List[float]:
     return out
 
 
+def fit_shots(plan: Sequence[float], lengths: Sequence[float],
+              min_s: float = 0.0) -> List[Tuple[float, int]]:
+    """Cut a scene across the clips it has, never asking one for more than it holds.
+
+    Returns `(duration, clip index)` per shot in play order, summing to exactly
+    `sum(plan)`. A clip of unknown length is passed as `math.inf`.
+
+    `collapse()` alone matched shots to clips by count, so a scene the reranker
+    left with three clips became three ten-second shots whatever those clips
+    held, and `normalise_video` looped every one shorter than its shot: a
+    nine-minute build replayed the same footage a few seconds apart at least
+    ten times. Here the longest clip plays the longest shot, and a cut the
+    plan put on a sentence end moves only as far as a clip's length forces it.
+    Clips beyond the plan's count are used only when the rest cannot cover the
+    scene, and when even all of them cannot, each plays in full and is slowed
+    by the same factor - the one case left where a shot outlasts its clip.
+    """
+    if not lengths:
+        raise ValueError("fit_shots needs at least one clip")
+    total = float(sum(plan))
+    longest_first = sorted(range(len(lengths)), key=lambda i: -lengths[i])
+    k = min(len(plan), len(lengths))
+    while k < len(lengths) and sum(lengths[i] for i in longest_first[:k]) < total:
+        k += 1
+    chosen = longest_first[:k]
+
+    shots = collapse(plan, k) if k < len(plan) else list(plan)
+    while len(shots) < k:
+        i = max(range(len(shots)), key=lambda j: shots[j])
+        shots[i:i + 1] = [shots[i] / 2, shots[i] / 2]
+    by_shot = sorted(range(k), key=lambda j: -shots[j])
+    clip = {j: i for j, i in zip(by_shot, chosen)}
+    caps = [lengths[clip[j]] for j in range(k)]
+
+    if sum(caps) < total:
+        durations = [c * total / sum(caps) for c in caps]
+    else:
+        durations = []
+        prev, target = 0.0, 0.0
+        for j in range(k):
+            target += shots[j]
+            if j == k - 1:
+                cut = total
+            else:
+                # hard: this clip's length, and enough left for the clips after it
+                hard_lo, hard_hi = total - sum(caps[j + 1:]), prev + caps[j]
+                # soft: no shot under min_s, when the lengths allow it
+                lo = max(hard_lo, min(prev + min_s, hard_hi))
+                hi = min(hard_hi, max(total - min_s * (k - 1 - j), hard_lo))
+                cut = lo if lo > hi else min(max(target, lo), hi)
+            durations.append(cut - prev)
+            prev = cut
+
+    fitted = [(d, clip[j]) for j, d in enumerate(durations) if d > 1e-6]
+    # rounding must never cost or add a frame; the picture would drift
+    last, i = fitted[-1]
+    fitted[-1] = (last + total - sum(d for d, _ in fitted), i)
+    return fitted
+
+
 # --------------------------------------------------------------------------- #
 # clip normalisation
 # --------------------------------------------------------------------------- #
@@ -188,16 +255,27 @@ def _fit(size: Tuple[int, int]) -> str:
 
 def normalise_video(src: Path, out: Path, duration: float, size: Tuple[int, int],
                     fps: int, start: float = 0.0) -> Path:
-    """Trim (or loop) a source video to exactly `duration`, filled to `size`."""
+    """Trim a source video to exactly `duration`, filled to `size`.
+
+    A clip shorter than its shot is slowed until it fills it, never looped. A
+    loop is the same footage twice a few seconds apart, which reads as a
+    glitch; `fit_shots` keeps slowing to the scenes whose usable footage, all
+    of it together, is shorter than the narration.
+    """
     src_len = ff.duration(src)
+    vf = f"{_fit(size)},fps={fps},format=yuv420p"
     args: List[str] = []
     if src_len and src_len < duration - 0.05:
-        args += ["-stream_loop", "-1"]
+        # Stretch the timestamps and let fps repeat frames. The stretched clip
+        # ends a frame short of the shot, so tpad holds its last frame and -t
+        # cuts the output to the exact slot.
+        vf = (f"setpts=(PTS-STARTPTS)*{duration / src_len:.6f},{vf},"
+              f"tpad=stop_mode=clone:stop_duration=1")
     elif start > 0:
         args += ["-ss", f"{min(start, max(0.0, src_len - duration)):.3f}"]
     args += ["-i", str(src), "-t", f"{duration:.3f}"]
     args += [
-        "-an", "-vf", f"{_fit(size)},fps={fps},format=yuv420p",
+        "-an", "-vf", vf,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-video_track_timescale", "90000", str(out),
     ]
@@ -334,7 +412,7 @@ def _pexels_video_fetch(query: str, key: str, orientation: str,
                         want_h: int) -> List[Dict]:
     r = requests.get(
         "https://api.pexels.com/videos/search",
-        params={"query": query, "per_page": 15, "orientation": orientation,
+        params={"query": query, "per_page": SEARCH_RESULTS, "orientation": orientation,
                 "size": "medium"},
         headers={"Authorization": key},
         timeout=TIMEOUT,
@@ -415,7 +493,7 @@ def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
 def _pixabay_fetch(query: str, key: str) -> List[Dict]:
     r = requests.get(
         "https://pixabay.com/api/videos/",
-        params={"key": key, "q": query, "per_page": 20, "safesearch": "true"},
+        params={"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"},
         timeout=TIMEOUT,
     )
     r.raise_for_status()
@@ -587,12 +665,21 @@ class VisualBuilder:
     def _preview(self, url: str) -> Optional[bytes]:
         return preview_still(url)
 
-    def _rerank(self, hits: List[Dict], scene: Scene, query: str) -> List[Dict]:
+    def _rerank(self, hits: List[Dict], scene: Scene, query: str,
+                want: int = 1) -> List[Dict]:
         """Reorder search results by what the stills actually show.
 
         Stock search ranks by popularity, not by whether the clip depicts the
         line - "calendar pages turning" returns a book. Judging the preview
-        stills costs one Gemini call per scene and no video downloads.
+        stills costs one Gemini call per `rerank_pool` candidates and no video
+        downloads.
+
+        Only judged candidates are eligible, so a scene the model mostly
+        rejects is short of clips, and a short scene used to be held on three
+        clips for thirty seconds. So while fewer than `want` unused clips
+        survive, the next candidates in search order are judged as well, up to
+        `RERANK_ROUNDS` calls. The rounds are counted in the cache, so a rebuild
+        never spends more than a first build did.
         """
         key = self.keys.get("gemini", "")
         if not (self.cfg.rerank and key) or len(hits) < 2:
@@ -600,61 +687,75 @@ class VisualBuilder:
 
         self._reject_ratio = 0.0
         self._filmable = True
+        by_id = {h["id"]: h for h in hits}
         cache = self._rank_cache()
         cached = cache.get(str(scene.index))
+        order: List[str] = []
+        reject: set = set()
+        filmable, rounds = True, 0
         if isinstance(cached, dict) and cached.get("order"):
-            by_id = {h["id"]: h for h in hits}
-            ordered = [by_id[i] for i in cached["order"] if i in by_id]
-            rejected = set(cached.get("reject") or [])
-            keepers = [h for h in ordered if h["id"] not in rejected]
-            if ordered:
-                self._reject_ratio = len(rejected) / max(1, len(ordered))
-                self._filmable = cached.get("filmable", True)
-                return keepers or ordered[:1]
+            order = [i for i in cached["order"] if i in by_id]
+            reject = set(cached.get("reject") or [])
+            filmable = cached.get("filmable", True)
+            rounds = int(cached.get("rounds") or 1)
 
-        pool = hits[:max(2, self.cfg.rerank_pool)]
-        images: List[bytes] = []
-        keep: List[Dict] = []
-        for hit in pool:
-            blob = self._preview(hit.get("preview", "")) if hit.get("preview") else None
-            if blob:
-                images.append(blob)
-                keep.append(hit)
-        if len(images) < 2:
+        while rounds < RERANK_ROUNDS:
+            fresh = [i for i in order if i not in reject and i not in self.used]
+            if order and len(fresh) >= want:
+                break
+            images: List[bytes] = []
+            keep: List[Dict] = []
+            for hit in [h for h in hits if h["id"] not in order]:
+                if len(keep) >= max(2, self.cfg.rerank_pool):
+                    break
+                blob = self._preview(hit.get("preview", "")) if hit.get("preview") else None
+                if blob:
+                    images.append(blob)
+                    keep.append(hit)
+            if len(images) < 2:
+                break
+            if order:
+                self.log(f"    rerank: {len(fresh)} usable of {want} shots; "
+                         f"judging {len(keep)} more")
+
+            try:
+                verdict = llm.rank_clips(scene.text, query, images, key, log=self.log)
+                ranked, rejected, judged_filmable = verdict
+            except Exception as exc:
+                self.log(f"    rerank skipped ({exc})")
+                break
+
+            # Only the judged candidates are eligible. Letting the unjudged tail
+            # of the result list backfill would quietly reinstate exactly the
+            # wrong subjects the reject pass just removed.
+            batch = [keep[i]["id"] for i in ranked]
+            if not order:
+                filmable = judged_filmable
+                if not filmable:
+                    self.log("    rerank: no camera can point at this idea")
+                if batch[0] != hits[0]["id"]:
+                    self.log(f"    rerank: picked #{hits.index(by_id[batch[0]])} "
+                             f"over the top result")
+            dropped = {keep[i]["id"] for i in rejected}
+            if dropped:
+                self.log(f"    rerank: rejected {len(dropped)} of {len(keep)} "
+                         f"as the wrong subject")
+            order += batch
+            reject |= dropped
+            rounds += 1
+            cache[str(scene.index)] = {"order": order, "reject": sorted(reject),
+                                       "filmable": filmable, "rounds": rounds}
+            self._rank_cache_path().write_text(json.dumps(cache, indent=2),
+                                               encoding="utf-8")
+
+        if not order:
             return hits
-
-        try:
-            order, rejected, filmable = llm.rank_clips(scene.text, query, images, key, log=self.log)
-        except Exception as exc:
-            self.log(f"    rerank skipped ({exc})")
-            return hits
-
-        # Only the judged candidates are eligible. Letting the unjudged tail of
-        # the result list backfill would quietly reinstate exactly the wrong
-        # subjects the reject pass just removed.
-        ranked = [keep[i] for i in order]
-        reject_ids = {keep[i]["id"] for i in rejected}
-        keepers = [h for h in ranked if h["id"] not in reject_ids]
-        self._reject_ratio = len(reject_ids) / max(1, len(keep))
+        self._reject_ratio = len(reject) / len(order)
         self._filmable = filmable
-        if not filmable:
-            self.log("    rerank: no camera can point at this idea")
-
-        if ranked[0]["id"] != hits[0]["id"]:
-            self.log(f"    rerank: picked #{hits.index(ranked[0])} over the top result")
-        if reject_ids:
-            # dropping candidates can leave fewer clips than shots; the shot plan
-            # collapses to match, which is better than cutting to a wrong subject
-            self.log(f"    rerank: rejected {len(reject_ids)} of {len(keep)} "
-                     f"as the wrong subject")
+        keepers = [by_id[i] for i in order if i not in reject]
         if not keepers:
             self.log("    rerank: everything was rejected; keeping the best of a bad set")
-            keepers = ranked[:1]
-
-        cache[str(scene.index)] = {"order": [h["id"] for h in ranked],
-                                   "reject": sorted(reject_ids),
-                                   "filmable": filmable}
-        self._rank_cache_path().write_text(json.dumps(cache, indent=2), encoding="utf-8")
+            keepers = [by_id[order[0]]]
         return keepers
 
     def _rank_cache_path(self) -> Path:
@@ -688,10 +789,13 @@ class VisualBuilder:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []
 
-        hits = self._rerank(hits, scene, query)
+        hits = self._rerank(hits, scene, query, want=count)
         picked: List[Dict] = []
         for hit in hits:
-            if len(picked) >= count:
+            # one clip per shot, and past that only while the clips taken are
+            # too short between them to cover the scene without slowing down
+            if (len(picked) >= count
+                    and sum(p["length"] for p in picked) >= scene.duration):
                 break
             if hit["id"] in self.used:
                 continue
@@ -699,14 +803,14 @@ class VisualBuilder:
             try:
                 if not dest.exists():
                     _download(hit["url"], dest)
-                ff.duration(dest)  # reject truncated downloads
+                length = ff.duration(dest)  # also rejects truncated downloads
             except Exception as exc:
                 self.log(f"    download failed ({exc}); trying next result")
                 dest.unlink(missing_ok=True)
                 continue
             self.used.add(hit["id"])
-            picked.append({"path": dest, "author": hit.get("author", ""),
-                           "page": hit.get("page", "")})
+            picked.append({"id": hit["id"], "path": dest, "length": length or math.inf,
+                           "author": hit.get("author", ""), "page": hit.get("page", "")})
         return picked
 
     def _local_batch(self, scene: Scene, query: str, count: int) -> List[Dict]:
@@ -749,6 +853,19 @@ class VisualBuilder:
         self.used.update(p.stem for p in picked)
         return [{"path": p, "author": "", "page": ""} for p in picked]
 
+    @staticmethod
+    def _length(source: Dict) -> float:
+        """Seconds of footage a source holds; a still holds whatever it is asked for."""
+        if source.get("length"):
+            return source["length"]
+        path = Path(source["path"])
+        if path.suffix.lower() not in VIDEO_EXT:
+            return math.inf
+        try:
+            return ff.duration(path) or math.inf
+        except Exception:
+            return math.inf
+
     # -- public -------------------------------------------------------------- #
     def _shot_paths(self, scene: Scene, n: int) -> List[Path]:
         return [self.workdir / f"scene_{scene.index:03d}_{j:02d}.mp4"
@@ -768,15 +885,12 @@ class VisualBuilder:
             # Deterministic order, and the clips on disk must actually add up to
             # the narration slot. Trusting the filenames alone let a stale set
             # from a different plan through, and the picture ran short of the
-            # speech - every cut after it drifted.
-            for n in dict.fromkeys([len(plan), 1]):
-                paths = self._shot_paths(scene, n)
-                if not all(p.exists() for p in paths):
-                    continue
-                on_disk = sum(ff.duration(p) for p in paths)
-                if abs(on_disk - scene.duration) > 0.15:
-                    continue
-                got = collapse(plan, n) if n != len(plan) else plan
+            # speech - every cut after it drifted. Any count is accepted, because
+            # a scene is cut to the clips it got rather than to its plan.
+            on_disk = sorted(self.workdir.glob(f"scene_{scene.index:03d}_*.mp4"))
+            paths = self._shot_paths(scene, len(on_disk))
+            got = [ff.duration(p) for p in paths] if on_disk == paths else []
+            if got and abs(sum(got) - scene.duration) <= 0.15:
                 scene.shots = [
                     {"path": str(p), "duration": d,
                      "credit": ledger.get(f"{scene.index}:{j}", {}).get("credit", ""),
@@ -840,9 +954,21 @@ class VisualBuilder:
         else:
             sources = []
 
-        if sources and len(sources) < len(plan):
-            plan = collapse(plan, len(sources))
-        elif not sources and spec is None:
+        if sources:
+            lengths = [self._length(s) for s in sources]
+            fitted = fit_shots(plan, lengths, self.cfg.min_shot_seconds)
+            plan = [d for d, _ in fitted]
+            placed = [sources[i] for _, i in fitted]
+            # a clip taken for coverage and then not needed goes back for a later scene
+            for s in sources:
+                if s not in placed and s.get("id"):
+                    self.used.discard(s["id"])
+            if any(d > lengths[i] + 0.05 for d, i in fitted):
+                self.log(f"    only {sum(lengths[i] for _, i in fitted):.1f}s of usable "
+                         f"footage for a {scene.duration:.1f}s scene; slowing it to "
+                         f"fit rather than looping")
+            sources = placed
+        elif spec is None:
             plan = [scene.duration]
 
         outs = self._shot_paths(scene, len(plan))
@@ -867,7 +993,7 @@ class VisualBuilder:
                 normalise_still(frame, out, duration, self.size, self.fps,
                                 ken_burns=False)
             elif path and path.suffix.lower() in VIDEO_EXT:
-                head = 1.0 if ff.duration(path) > duration + 2 else 0.0
+                head = 1.0 if self._length(src) > duration + 2 else 0.0
                 normalise_video(path, out, duration, self.size, self.fps, start=head)
             elif path:
                 normalise_still(path, out, duration, self.size, self.fps,

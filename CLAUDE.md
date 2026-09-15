@@ -12,7 +12,7 @@ before writing anything. The traps are the reason this file exists.
 | Edit a script | The script | A blank line starts a new scene |
 | Write a test | Tests | Build scenes with `make_scene()`, never by hand |
 | Add or change a model call | Architecture, `LLMUnavailable` | Raise `LLMUnavailable` or the fallbacks stop working |
-| Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly |
+| Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly, and no shot may outlast its clip |
 | Move captions or diagrams | Architecture, karaoke; Things that have actually broken here, layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Hand a path to ffmpeg | Things that have actually broken here, escaping | Two escapes, two parsers; never share one helper between them |
@@ -307,6 +307,14 @@ scene's clips must sum to exactly it, or the picture drifts against the voice fo
 the rest of the video. Any floor on clip length is applied to the slot upstream,
 never to the clip. `collapse()` merges a shot plan when fewer clips are available
 than shots, preserving the total.
+
+**And no shot may ask a clip for more than it holds.** `fit_shots()` pairs the
+longest clip with the longest shot and moves a planned cut only as far as a clip's
+real length forces it, so a slot is covered by distinct footage. When every clip
+a scene has cannot cover it between them, each plays in full, slowed by the same
+factor, and the build says so. `normalise_video` used to `-stream_loop` a short
+clip instead, which put identical frames on screen a few seconds apart - see the
+entry on looped footage below.
 
 **Per-aspect vs shared artifacts.** Narration, scene timings, diagram specs and
 the drawn-scene decision are shape-independent and live in `build/`. Picture,
@@ -648,6 +656,26 @@ competing with the voice.
   wide cut was correct, the vertical cut was correct, and only the pair was
   wrong. Changing anything under `theme` or `render` means rebuilding every
   aspect that exists, not the default one.
+- **A clip shorter than its shot was looped, and a viewer saw it straight
+  away.** A downloaded nine-minute build showed identical frames coming back
+  under different captions: a bookshelf every 3.2s, a leather press every 7.5s.
+  `normalise_video` passed `-stream_loop -1` whenever a clip was shorter than
+  its shot, and shots were long because the reranker keeps two to four of every
+  eight candidates and `collapse()` merged a thirty-second scene's plan down to
+  that many clips. Rebuilding that script's footage with a wrapper recording
+  each clip's length against its shot measured it: 13 of 36 footage shots
+  looped, 47s of replayed picture, and three scenes were one clip held for 30s.
+  Nothing warned about the loop; `check` and the long-shot warning both see a
+  long hold, and a long hold of a long clip is fine. Two changes, measured on
+  the same script: `fit_shots()` never gives a clip more than it holds, and a
+  scene short of clips has the next candidates judged too (`RERANK_ROUNDS`,
+  over `SEARCH_RESULTS` per search). 82 footage shots, none looped, no clip
+  used twice. A scene whose subject Pexels barely has ("hard drive platter
+  spinning close up" rejected 21 of 24) still holds long shots and still warns,
+  which is the honest outcome. The search cache key was deliberately left
+  without the result count, because `bench/rank_clips` rebuilds that key to
+  find past searches; an older 15-result page is simply served until it
+  expires.
 - **`vidsmith check <name>` exists because reading the output beat reading the
   source three times in one day.** It compares delivered files against each
   other rather than against the code that wrote them: every credit in
@@ -865,7 +893,7 @@ competing with the voice.
   all four met another 429. It is trusted only once the `quotaId` says waiting
   can help, and clamped so a bad value cannot hang a build. A wait longer than
   the ordinary backoff is announced through the build log, because reranking
-  runs once per scene and several silent minute-long pauses inside one build are
+  runs up to three times per scene and several silent minute-long pauses inside one build are
   indistinguishable from the hang described under Tests. `rank_clips()` takes
   `log` for exactly that reason; calling it without one makes the pause silent
   again. The rule is enforced, not remembered: every helper in `llm.py` that

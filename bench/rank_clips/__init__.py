@@ -153,6 +153,10 @@ def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> L
                 continue            # rank_clips does not judge fewer than two
 
             ids = [c["id"] for c in candidates]
+            # A starved scene is judged again over the next candidates, and each
+            # round is appended to `order` in search order, so its first round
+            # is exactly these stills and the rest are other calls entirely.
+            first = judged[:len(ids)] if int(verdict.get("rounds") or 1) > 1 else judged
             seen.add(key)
             cases.append({
                 "id": f"{project.name}/{aspect}/{idx}",
@@ -164,7 +168,7 @@ def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> L
                     "order": [i for i in judged if i in ids],
                     "reject": [str(i) for i in verdict.get("reject") or [] if str(i) in ids],
                     "filmable": verdict.get("filmable", True) is not False,
-                    "same_pool": sorted(judged) == sorted(ids),
+                    "same_pool": sorted(first) == sorted(ids),
                 },
             })
             log(f"  {cases[-1]['id']:<32} {len(candidates)} stills  {scene['query'][:50]}")
