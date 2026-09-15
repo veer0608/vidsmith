@@ -1063,6 +1063,23 @@ again on the next run. The token lands in `.youtube-token.json`, gitignored.
 a wait until Pacific midnight. Same shape as the Gemini ceiling: it is not in a
 header, and the failure arrives after the render is already paid for.
 
+**The page uploads too, and consent is the only part that differs.** A render
+made on the live instance was downloaded and its description typed into YouTube
+Studio by hand, which is the pasting step this module exists to remove, because
+the CLI's consent needs a browser on the machine holding the login. `web/youtube.py`
+sends Google's redirect to `/api/youtube/callback` on the app instead, so the
+server's `YOUTUBE_CLIENT_ID` must be a **Web application** OAuth client listing
+that exact URL (`GET /api/youtube` reports it); a Desktop client's loopback
+redirect cannot reach a server. Three rules hold it together. The callback is
+outside the token gate, since it is Google's redirect arriving, so a **single-use
+state issued by the gated `/connect` route, valid fifteen minutes**, is what
+authorises it. `access_token(interactive=False)` raises `NotConnected` instead of
+waiting on a consent screen nobody can see. And the video id is captured from the
+log the moment `publish()` places the video, so a thumbnail or caption failure
+after it records the render as uploaded with a warning rather than failed: a
+retry would have made a second video. The upload status lives on the job and in
+its `job.json`, so a restart mid-upload reports it as failed rather than stuck.
+
 ## Web service
 
 `web/` is FastAPI over the same pipeline. Renders run on a worker thread and the
