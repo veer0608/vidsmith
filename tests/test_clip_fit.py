@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
 import subprocess
 
 import pytest
@@ -21,7 +22,8 @@ from vidsmith import ffmpeg_util as ff
 from vidsmith import visuals
 from vidsmith.config import ThemeConfig, VisualConfig
 from vidsmith.theme import resolve
-from vidsmith.visuals import RERANK_ROUNDS, VisualBuilder, fit_shots, plan_shots
+from vidsmith.visuals import (RERANK_ROUNDS, VisualBuilder, fit_shots, plan_shots,
+                              same_footage)
 
 MIN_S = 2.4
 
@@ -303,6 +305,49 @@ def test_a_failed_first_call_keeps_the_search_order(tmp_path, monkeypatch, scene
     monkeypatch.setattr(visuals.llm, "rank_clips", down)
     hits = _hits(30)
     assert builder._rerank(hits, scene, "q", want=6) == hits
+
+
+# --------------------------------------------------------------------------- #
+# one footage under two ids
+# --------------------------------------------------------------------------- #
+FRAME = bytes(range(256)) * 2 + bytes(64)    # a 32x18 grey frame
+
+
+def test_same_footage_is_the_same_length_and_the_same_frame():
+    assert same_footage((10.96, FRAME), (10.96, FRAME))
+    # a re-upload is a re-encode, so the frame is close rather than equal
+    assert same_footage((10.96, FRAME), (11.0, bytes(min(255, b + 2) for b in FRAME)))
+
+
+def test_different_footage_is_not_the_same():
+    assert not same_footage((10.96, FRAME), (12.0, FRAME))
+    assert not same_footage((10.96, FRAME), (10.96, bytes(255 - b for b in FRAME)))
+    assert not same_footage((float("inf"), FRAME), (float("inf"), FRAME))
+
+
+@pytest.mark.slow
+def test_footage_uploaded_twice_is_played_once(tmp_path, monkeypatch, scene):
+    """Pexels 853987 and 4671883: one phone clip, two uploaders, both in a scene."""
+    shoot, reupload, other = (tmp_path / f"{n}.mp4" for n in ("shoot", "reupload", "other"))
+    ff.run(["-f", "lavfi", "-i", "testsrc2=s=160x90:d=4:r=24",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(shoot)])
+    ff.run(["-i", str(shoot), "-c:v", "libx264", "-crf", "35", str(reupload)])
+    ff.run(["-f", "lavfi", "-i", "color=c=teal:s=160x90:d=4:r=24",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(other)])
+    files = {"853987": shoot, "4671883": reupload, "7": other}
+
+    lines = []
+    builder = _builder(tmp_path, lines)
+    monkeypatch.setattr(visuals, "pexels_search", lambda *a, **k: [
+        {"id": i, "url": i, "author": i, "page": ""} for i in files])
+    monkeypatch.setattr(builder, "_rerank", lambda hits, *a, **k: hits)
+    monkeypatch.setattr(visuals, "_download",
+                        lambda url, dest, *a, **k: shutil.copyfile(files[url], dest))
+
+    picked = builder._stock_batch("q", 3, scene)
+
+    assert [p["id"] for p in picked] == ["853987", "7"]
+    assert "the same footage as 853987" in "\n".join(lines)
 
 
 # --------------------------------------------------------------------------- #

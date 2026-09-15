@@ -670,7 +670,13 @@ competing with the voice.
   the same script: `fit_shots()` never gives a clip more than it holds, and a
   scene short of clips has the next candidates judged too (`RERANK_ROUNDS`,
   over `SEARCH_RESULTS` per search). 82 footage shots, none looped, no clip
-  used twice. A scene whose subject Pexels barely has ("hard drive platter
+  used twice. **Then the rendered result still showed one repeat, and it was
+  not a loop:** Pexels 853987 and 4671883 are the same phone clip from two
+  uploaders, identical frame for frame, and `self.used` goes by id. Judging more
+  candidates makes a re-upload likelier to be picked, so `_stock_batch` now
+  compares each download's length and a 32x18 middle frame against the clips
+  already used (`same_footage()`). Run over all 82 clips of that build, it
+  matched that pair and nothing else. A scene whose subject Pexels barely has ("hard drive platter
   spinning close up" rejected 21 of 24) still holds long shots and still warns,
   which is the honest outcome. The search cache key was deliberately left
   without the result count, because `bench/rank_clips` rebuilds that key to

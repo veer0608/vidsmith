@@ -283,6 +283,38 @@ def normalise_video(src: Path, out: Path, duration: float, size: Tuple[int, int]
     return out
 
 
+def footage_print(path: Path, length: float, out: Path) -> Optional[bytes]:
+    """A 32x18 grey frame from the middle of a clip, to know footage by sight.
+
+    Stock sites hold the same footage under more than one id. Pexels 853987
+    (Coverr) and 4671883 are one ten-second phone clip, identical frame for
+    frame, from two uploaders, and a build that only checked ids played both
+    in one scene sixteen seconds apart. The frame is kept beside the download,
+    so a rebuild does not decode it again.
+    """
+    if not out.exists():
+        try:
+            ff.run(["-ss", f"{length / 2 if math.isfinite(length) else 0.0:.3f}",
+                    "-i", str(path), "-frames:v", "1", "-update", "1",
+                    "-vf", "scale=32:18,format=gray", str(out)])
+        except RuntimeError:
+            return None
+    try:
+        return Image.open(out).convert("L").resize((32, 18)).tobytes()
+    except OSError:
+        return None
+
+
+def same_footage(a: Tuple[float, bytes], b: Tuple[float, bytes]) -> bool:
+    """Two clips of one length whose middle frames match to within a re-encode."""
+    (len_a, frame_a), (len_b, frame_b) = a, b
+    if not (math.isfinite(len_a) and math.isfinite(len_b)) or abs(len_a - len_b) > 0.1:
+        return False
+    if not frame_a or len(frame_a) != len(frame_b):
+        return False
+    return sum(abs(x - y) for x, y in zip(frame_a, frame_b)) / len(frame_a) < 4
+
+
 def normalise_still(src: Path, out: Path, duration: float, size: Tuple[int, int],
                     fps: int, ken_burns: bool = True, zoom: float = 1.12,
                     drift: int = 0) -> Path:
@@ -539,6 +571,8 @@ class VisualBuilder:
         self.keys = keys
         self.log = log
         self.used: set = set()
+        # a middle frame per downloaded clip, to catch one footage under two ids
+        self._prints: Dict[str, Tuple[float, bytes]] = {}
         # what fraction of the last scene's candidates showed the wrong
         # subject - a near-total rejection means there is no footage to find
         self._reject_ratio = 0.0
@@ -808,6 +842,11 @@ class VisualBuilder:
                 self.log(f"    download failed ({exc}); trying next result")
                 dest.unlink(missing_ok=True)
                 continue
+            twin = self._twin(provider, hit["id"], dest, length or math.inf)
+            if twin:
+                self.log(f"    skipping {provider} {hit['id']}: the same footage as "
+                         f"{twin}, uploaded twice")
+                continue
             self.used.add(hit["id"])
             picked.append({"id": hit["id"], "path": dest, "length": length or math.inf,
                            "author": hit.get("author", ""), "page": hit.get("page", "")})
@@ -852,6 +891,19 @@ class VisualBuilder:
         picked = tier[:max(1, count)]
         self.used.update(p.stem for p in picked)
         return [{"path": p, "author": "", "page": ""} for p in picked]
+
+    def _twin(self, provider: str, clip_id: str, path: Path,
+              length: float) -> Optional[str]:
+        """The id of a clip this build already uses that is this footage again."""
+        frame = footage_print(path, length, self.cache / f"{provider}_{clip_id}.print.png")
+        if frame is None:
+            return None
+        mine = (length, frame)
+        self._prints[clip_id] = mine
+        for other, theirs in self._prints.items():
+            if other != clip_id and other in self.used and same_footage(mine, theirs):
+                return other
+        return None
 
     @staticmethod
     def _length(source: Dict) -> float:
