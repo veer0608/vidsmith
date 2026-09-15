@@ -14,7 +14,9 @@ across the cores, so concurrency here buys nothing and doubles peak memory.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import threading
 import time
@@ -49,7 +51,18 @@ STAGE_PROGRESS = {
     "captions": 0.55, "music": 0.57, "render": 0.58, "credits": 0.97,
     "meta": 0.99, "done": 1.0,
 }
-KEEP_SECONDS = 60 * 60          # finished jobs are swept after an hour
+# How long a finished render stays downloadable, and how much disk all of them
+# may hold between them. It was an hour and the directories did not survive a
+# restart, so a deploy deleted the video someone had not downloaded yet, and a
+# render finished while nobody was watching was simply gone. A render's working
+# files are deleted the moment it finishes - 364 MB of a 410 MB two-minute job -
+# so what is kept is the delivery, and a budget measured on that goes a long way.
+KEEP_SECONDS = int(float(os.environ.get("VIDSMITH_KEEP_DAYS", "7")) * 86400)
+KEEP_BYTES = int(float(os.environ.get("VIDSMITH_KEEP_GB", "4")) * 1024 ** 3)
+# A failed or stopped render has nothing to download, only a log to read.
+FAILED_KEEP_SECONDS = 60 * 60
+# Written beside a finished render's files, so the next process can list it.
+RECORD = "job.json"
 # A bound on the payload, not on length; the minutes limit in app.py is the
 # length limit. Real scripts run about 7.9 characters per spoken word once
 # headings and [visual:] lines count, so 12,000 refused a 9.5 minute script
@@ -101,6 +114,14 @@ class Job:
     # carried so a job that waits can be started later by the worker that
     # finishes ahead of it, rather than by the request that submitted it
     options: Dict[str, Any] = field(default_factory=dict)
+    runtime: float = 0.0              # seconds of finished video, off the build log
+
+    def expires(self) -> float:
+        """When the sweep will take it; 0 while it is still queued or running."""
+        if not self.finished:
+            return 0.0
+        return self.finished + (KEEP_SECONDS if self.status == "done"
+                                else FAILED_KEEP_SECONDS)
 
     def public(self) -> Dict[str, Any]:
         end = self.finished or time.time()
@@ -110,11 +131,20 @@ class Job:
             "elapsed": round(end - self.created, 1),
             "progress": round(self.progress, 3), "log": self.log[-60:],
             "error": self.error, "outputs": self.outputs, "title": self.title,
-            "created": datetime.fromtimestamp(self.created, timezone.utc).isoformat(),
+            "created": _iso(self.created),
+            # served rather than worked out by the page, which used to add an
+            # hour it kept its own copy of to the start time
+            "expires": _iso(self.expires()) if self.finished else "",
+            "aspect": self.options.get("aspect", ""),
+            "runtime": self.runtime,
             # the stop was asked for but the current stage has not returned yet,
             # so the page can say "stopping" rather than appearing to ignore it
             "cancelling": self.cancel_requested and self.status == "running",
         }
+
+
+def _iso(stamp: float) -> str:
+    return datetime.fromtimestamp(stamp, timezone.utc).isoformat()
 
 
 class Busy(RuntimeError):
@@ -141,25 +171,32 @@ class Jobs:
         self.sweep_orphans()
 
     def sweep_orphans(self) -> int:
-        """Remove job directories this process knows nothing about.
+        """Take back finished renders, and remove every other job directory.
 
         `_sweep` walks `self._jobs`, which is memory, so a restart makes every
         directory left on disk unreachable: nothing holds a reference to it and
-        nothing ever deletes it. The registry is deliberately in memory and
-        that is not the bug; the bug is that the directories outlive it.
+        nothing ever deletes it. Found on the live instance holding 2.5 GB
+        across five orphans on an 18 GB disk, growing by a generation every
+        restart and reported by nothing.
 
-        Found on the live instance holding 2.5 GB across five orphans on an
-        18 GB disk, growing by a generation every restart and reported by
-        nothing. A render needs room to write, so this fails a build eventually
-        and the message will be about disk, not about jobs.
+        Deleting all of them fixed the disk and cost the videos: every deploy
+        removed a render someone had not downloaded yet. A finished render now
+        leaves `job.json` beside its files, and one that does is registered
+        again as done, then held to the same age and disk limits as any other.
+        Everything else - a render the restart interrupted, one that failed, a
+        directory from before records existed - is removed as before.
 
         Runs at construction, when `self._jobs` is empty by definition, so
-        every directory present is by definition from a previous process. Age
-        is not consulted: a directory here cannot belong to this one.
+        every directory present is from a previous process and none of them
+        can be a render in flight.
         """
         removed = 0
         for path in sorted(self.workdir.glob("*")):
             if not path.is_dir():
+                continue
+            job = self._adopt(path)
+            if job is not None:
+                self._jobs[job.id] = job
                 continue
             try:
                 shutil.rmtree(path)
@@ -167,7 +204,61 @@ class Jobs:
             except OSError:
                 # a directory that will not go is not worth failing a boot over
                 continue
+        with self._lock:
+            self._sweep()
         return removed
+
+    def _adopt(self, path: Path) -> Optional[Job]:
+        """A finished render from a previous process, or None."""
+        try:
+            record = json.loads((path / RECORD).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(record, dict) or record.get("status") != "done" \
+                or record.get("id") != path.name:
+            return None
+        job = Job(id=path.name, status="done", stage="done", progress=1.0,
+                  log=[str(line) for line in record.get("log") or []],
+                  title=str(record.get("title") or ""),
+                  created=float(record.get("created") or 0.0),
+                  finished=float(record.get("finished") or 0.0),
+                  root=path, options=dict(record.get("options") or {}),
+                  runtime=float(record.get("runtime") or 0.0))
+        # read off the disk rather than the record, which only says what was there
+        job.outputs = self._collect(job)
+        if not job.finished or not any(f["kind"] == "mp4" for f in job.outputs):
+            return None
+        return job
+
+    def _keep(self, job: Job) -> None:
+        """Make a finished render cheap to hold and able to outlive the process.
+
+        The working files go: downloaded footage, per-shot clips and the picture
+        cut are 364 MB of a two-minute render whose delivery is 46 MB, and
+        nothing reads them once `out/` is written. Then the record, last, so a
+        directory that has one is always a finished render.
+        """
+        shutil.rmtree(job.root / "build", ignore_errors=True)
+        record = {"id": job.id, "status": job.status, "title": job.title,
+                  "created": job.created, "finished": job.finished,
+                  "options": job.options, "runtime": job.runtime,
+                  "log": job.log[-60:]}
+        try:
+            (job.root / RECORD).write_text(json.dumps(record, indent=2),
+                                           encoding="utf-8")
+        except OSError as exc:
+            job.log.append(f"warn     could not record this render to keep it "
+                           f"across a restart: {exc}")
+
+    def renders(self) -> List[Dict[str, Any]]:
+        """Every finished render still held, newest first, for the page's list."""
+        done = [j for j in self._jobs.values() if j.status == "done"]
+        return [{"id": j.id, "title": j.title, "created": _iso(j.created),
+                 "finished": _iso(j.finished), "expires": _iso(j.expires()),
+                 "aspect": j.options.get("aspect", ""), "runtime": j.runtime,
+                 "size": sum(f["size"] for f in j.outputs),
+                 "files": len(j.outputs)}
+                for j in sorted(done, key=lambda j: j.finished, reverse=True)]
 
     # -- queries ------------------------------------------------------------- #
     def get(self, job_id: str) -> Optional[Job]:
@@ -340,6 +431,9 @@ class Jobs:
         with self._lock:
             if self._active == job_id:
                 self._active = None
+            # a render that just finished may have taken the budget over; it is
+            # the newest, so it is never the one that goes
+            self._sweep()
             nxt = self._next_locked()
         if nxt is not None:
             self._spawn(nxt)
@@ -393,8 +487,11 @@ class Jobs:
             pipeline.build(job.root, log=log)
             job.outputs = self._collect(job)
             job.title = self._title(job)
+            job.runtime = _runtime(job.log)
             job.progress = 1.0
             job.status = "done"
+            job.finished = time.time()
+            self._keep(job)
         except Cancelled as stopped:
             job.log.append(f"stopped  cancelled during {stopped}")
             job.status = "cancelled"
@@ -404,7 +501,7 @@ class Jobs:
             job.log.extend(traceback.format_exc().strip().splitlines()[-4:])
             job.status = "failed"
         finally:
-            job.finished = time.time()
+            job.finished = job.finished or time.time()
             self._finish(job.id)
 
     def description(self, job_id: str) -> str:
@@ -486,15 +583,53 @@ class Jobs:
 
     # -- housekeeping -------------------------------------------------------- #
     def _sweep(self) -> None:
-        cutoff = time.time() - KEEP_SECONDS
+        """Drop what has outlived its keep, then the oldest renders over budget.
+
+        Caller holds the lock. The newest finished render is never dropped for
+        the budget, however large: it is the one somebody is most likely still
+        waiting to download, and a single long video over a small budget would
+        otherwise be deleted the moment it finished.
+        """
+        now = time.time()
         for job_id, job in list(self._jobs.items()):
-            if not (job.finished and job.finished < cutoff):
-                continue
-            if job.root and job.root.exists():
-                try:
-                    shutil.rmtree(job.root)
-                except OSError:
-                    # something still holds a handle; keep the entry so the next
-                    # sweep tries again rather than leaking the directory forever
-                    continue
-            del self._jobs[job_id]
+            if job.finished and job.expires() < now:
+                self._forget(job_id)
+
+        done = sorted((j for j in self._jobs.values() if j.status == "done"),
+                      key=lambda j: j.finished)
+        sizes = {j.id: _size(j.root) for j in done}
+        total = sum(sizes.values())
+        for job in done[:-1]:
+            if total <= KEEP_BYTES:
+                break
+            if self._forget(job.id):
+                total -= sizes[job.id]
+
+    def _forget(self, job_id: str) -> bool:
+        job = self._jobs.get(job_id)
+        if job is None:
+            return False
+        if job.root and job.root.exists():
+            try:
+                shutil.rmtree(job.root)
+            except OSError:
+                # something still holds a handle; keep the entry so the next
+                # sweep tries again rather than leaking the directory forever
+                return False
+        del self._jobs[job_id]
+        return True
+
+
+def _size(root: Optional[Path]) -> int:
+    if root is None or not root.exists():
+        return 0
+    return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+
+
+def _runtime(log: List[str]) -> float:
+    """The finished video's length, as the build's last line reported it."""
+    for line in reversed(log):
+        if line.startswith("done "):
+            found = re.search(r"\((\d+(?:\.\d+)?)s, ", line)
+            return float(found.group(1)) if found else 0.0
+    return 0.0

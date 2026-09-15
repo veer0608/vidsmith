@@ -281,6 +281,19 @@
   .legend .s { color: var(--fg-3); }
   .empty { color: var(--fg-3); font-size: 13px; margin: 0; }
 
+  /* renders this instance still holds, newest first */
+  .past { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+  .past li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 0;
+             border-top: 1px solid var(--border); }
+  .past li:first-child { border-top: 0; padding-top: 0; }
+  .past .what { flex: 1; min-width: 0; display: grid; gap: 2px; }
+  .past button.link { margin: 0; padding: 2px 0; text-align: left; font: inherit; font-weight: 500;
+                      color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                      min-height: 32px; }
+  .past button.link:hover { color: var(--brand-a); }
+  .past .when { color: var(--fg-3); font-size: 12.5px; }
+  .past .btn.sm { flex: none; min-width: 44px; justify-content: center; }
+
   /* ---------------------------------------------------------- the render */
   .title-row { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
   .title-row h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em;
@@ -514,7 +527,7 @@
         <div class="card-b">
           <!-- First and styled as the main action. Taking the mp4 alone leaves the
                captions behind and, worse, the credits: attribution is a licence
-               condition and jobs are swept an hour after they finish. -->
+               condition, and a render is only kept for so long. -->
           <a class="btn primary block" id="download-all" href="#"><svg aria-hidden="true"><use href="#i-down"/></svg>Download Everything</a>
           <p class="fine num" id="download-note"></p>
           <hr class="sep">
@@ -662,6 +675,18 @@
             <span id="hint"></span></p>
         </div>
       </section>
+
+      <section class="card hidden" id="past" aria-labelledby="past-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--brand-b)" aria-hidden="true"><svg><use href="#i-box"/></svg></span>
+          <h2 id="past-h">Past Renders</h2>
+          <div class="end"><span class="badge num" id="past-count"></span></div>
+        </div>
+        <div class="card-b">
+          <ul class="past num" id="past-list"></ul>
+          <p class="fine" id="past-note"></p>
+        </div>
+      </section>
     </aside>
   </div>
 </main>
@@ -684,7 +709,7 @@ Reconcile against receipts, not memory. If the two disagree, the receipt is almo
 
 let timer = null, needsAuth = false, portrait = false;
 let busyTimer = null, busyElsewhere = false, running = null;
-let maxQueue = 0, waiting = 0, lineIsFull = false, keepSeconds = 3600;
+let maxQueue = 0, waiting = 0, lineIsFull = false;
 let themeColours = {};
 /* The stage list comes from the server rather than being written out here: it
    is derived from the same table the worker reports through, so adding a stage
@@ -767,7 +792,9 @@ const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
 const NBSP = " ";                      // a size never wraps away from its unit
 const oneDecimal = new Intl.NumberFormat(undefined, {maximumFractionDigits: 1});
 const whole = new Intl.NumberFormat(undefined, {maximumFractionDigits: 0});
-const clockTime = new Intl.DateTimeFormat(undefined, {hour: "numeric", minute: "2-digit"});
+// a render is kept for days, so "kept until 3:04 PM" would not say which day
+const dayTime = new Intl.DateTimeFormat(undefined, {weekday: "short", month: "short",
+                                                    day: "numeric", hour: "numeric", minute: "2-digit"});
 const humanSize = (bytes) =>
   bytes >= 1e6 ? `${oneDecimal.format(bytes / 1e6)}${NBSP}MB`
   : bytes >= 1e3 ? `${whole.format(bytes / 1e3)}${NBSP}KB`
@@ -915,7 +942,6 @@ async function loadOptions() {
   needsAuth = !!o.auth;
   stages = o.stages || [];
   themeColours = o.theme_colours || {};
-  keepSeconds = o.keep_seconds || keepSeconds;
   adoptScriptRules(o.script);
   // read unconditionally, so `?t=` never survives in the address bar of an
   // instance that happens to have no gate configured
@@ -932,6 +958,8 @@ async function loadOptions() {
       $("token-error").textContent = "";
       tokenPill();
     });
+    // the list is behind the token, so a token pasted in is the moment to fetch it
+    $("tokenfield").addEventListener("change", loadPast);
     tokenPill();
   }
   const saved = loadSettings();
@@ -959,7 +987,49 @@ async function loadOptions() {
   updateMeter();
   await reattach();
   watchBusy();
+  loadPast();
 }
+
+/* What this instance still holds. A render used to be kept for an hour and lost
+   on every restart, so the only way back to one was the id in this browser's
+   storage; now it outlives the process, and this is how you find it again. */
+async function loadPast() {
+  if (needsAuth && !token()) { $("past").classList.add("hidden"); return; }
+  let body;
+  try {
+    const r = await fetch("/api/jobs", {headers: authHeaders()});
+    if (!r.ok) { $("past").classList.add("hidden"); return; }
+    body = await r.json();
+  } catch { return; }             // offline; the next finished render tries again
+  const renders = body.renders || [];
+  $("past").classList.toggle("hidden", !renders.length);
+  $("past-count").textContent = renders.length ? whole.format(renders.length) : "";
+  $("past-list").innerHTML = renders.map((r) => {
+    const title = r.title || "Untitled Video";
+    const facts = [dayTime.format(new Date(r.finished)), r.runtime ? fmt(r.runtime) : "",
+                   humanSize(r.size)].filter(Boolean).join(" · ");
+    return `<li><span class="what">` +
+      `<button type="button" class="link" data-open="${esc(r.id)}" data-aspect="${esc(r.aspect)}">${esc(title)}</button>` +
+      `<span class="when">${esc(facts)}</span></span>` +
+      `<a class="btn sm" href="/api/jobs/${encodeURIComponent(r.id)}/archive${authQuery()}" ` +
+      `aria-label="Download everything from ${esc(title)}"><svg aria-hidden="true"><use href="#i-down"/></svg></a></li>`;
+  }).join("");
+  const days = Math.round((body.keep_seconds || 0) / 86400);
+  $("past-note").textContent = days >= 1
+    ? `Each is kept for ${days} day${days === 1 ? "" : "s"}. When space runs short the oldest goes first.`
+    : "";
+}
+
+$("past-list").addEventListener("click", (event) => {
+  const open = event.target.closest("[data-open]");
+  if (!open || running) return;
+  // a bare string, the way submit writes it and reattach reads it
+  try { localStorage.setItem("vidsmith_job", open.dataset.open); } catch { /* private mode */ }
+  store.set("vidsmith_job_meta", {id: open.dataset.open, aspect: open.dataset.aspect});
+  store.drop("vidsmith_stage_clock");
+  // the render panel sits at the top of the page, above the form this list is in
+  reattach().then(() => window.scrollTo({top: 0}));
+});
 
 /* A render takes minutes, so a reload during one is normal rather than
    exceptional. The job outlives the page: without this, refreshing loses the
@@ -973,7 +1043,7 @@ async function reattach() {
   try {
     const r = await fetch(`/api/jobs/${id}`, {headers: authHeaders()});
     if (!r.ok) {
-      // swept after its hour, or the server restarted and lost it
+      // past its keep, or over the disk budget, and swept
       if (r.status === 404) forgetJob();
       return;
     }
@@ -1444,9 +1514,10 @@ function render(job) {
   $("check-badge").innerHTML = !checks.length ? "—"
     : problems ? `<span class="badge warn">${whole.format(problems)} Warning${problems === 1 ? "" : "s"}</span>`
     : `<span class="badge ok">Consistent</span>`;
-  const created = Date.parse(job.created);
-  $("kept").textContent = Number.isFinite(created)
-    ? clockTime.format(new Date(created + ((job.elapsed || 0) + keepSeconds) * 1000)) : "—";
+  // the server says when it will sweep this, rather than the page adding a
+  // keep time it holds its own copy of to the start
+  const expires = Date.parse(job.expires || "");
+  $("kept").textContent = Number.isFinite(expires) ? dayTime.format(new Date(expires)) : "—";
 
   const video = job.outputs.find((f) => f.kind === "mp4");
   if (video) {
@@ -1473,6 +1544,7 @@ function finished() {
   working($("go"), false);
   updateMeter();
   watchBusy();
+  loadPast();
 }
 
 /* A dropped connection is not the render failing. The job carries on on the
