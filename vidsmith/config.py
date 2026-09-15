@@ -68,7 +68,11 @@ class VisualConfig:
     min_shot_seconds: float = 2.4     # never cut faster than this
     max_shot_seconds: float = 5.5     # a longer sentence is broken at a comma
     card_text: str = "auto"           # auto | heading | query | none
-    per_scene_queries: int = 1
+    # A new stock search, written from what is being said, every this many
+    # seconds of narration. One search per scene held a thirty-second scene on
+    # one subject while the narration moved through four ideas, and a viewer
+    # called the footage mostly unrelated. 0 searches once per scene.
+    beat_seconds: float = 8.0
 
 
 @dataclass

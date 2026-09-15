@@ -258,6 +258,30 @@ def test_collect_finds_the_search_production_cached(tmp_path, monkeypatch):
     assert case["candidates"][0]["sha1"] == hashlib.sha1(b"https://x/0.jpg").hexdigest()
 
 
+def test_a_beats_verdict_is_a_case_of_its_own(tmp_path, monkeypatch):
+    """A scene cut into beats keeps a verdict per beat, keyed `0.1`, over a
+    search and a passage that are not the scene's. Read as the scene's, collect
+    would pair the verdict with the wrong search or skip it."""
+    monkeypatch.delenv("VIDSMITH_SEARCH_CACHE", raising=False)
+    monkeypatch.setattr("vidsmith.visuals.preview_still", lambda url: url.encode())
+    hits = [{"id": f"h{i}", "preview": f"https://x/h{i}.jpg"} for i in range(8)]
+    path = search_cache_path("pexels_video", ("hard drive close up", "landscape", 1080),
+                             tmp_path / ".cache" / "searches")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(hits), encoding="utf-8")
+    verdict = {"order": [f"h{i}" for i in range(8)], "reject": ["h2"], "filmable": True,
+               "rounds": 1, "query": "hard drive close up", "line": "Disks are slow."}
+    _project(tmp_path, "p", "visuals", "desk calendar", verdict)
+    rerank = tmp_path / "projects" / "p" / "build" / "visuals" / "rerank.json"
+    rerank.write_text(json.dumps({"0.1": verdict}), encoding="utf-8")
+
+    [case] = rc.collect(tmp_path, tmp_path / "data", log=lambda *a: None)
+
+    assert case["id"] == "p/16x9/0.1"
+    assert case["query"] == "hard drive close up" and case["line"] == "Disks are slow."
+    assert case["production"]["same_pool"] and case["production"]["reject"] == ["h2"]
+
+
 def test_a_scene_judged_over_several_rounds_still_scores_its_first(tmp_path, monkeypatch):
     """A starved scene is reranked again over the next eight candidates. The
     first round is the same pool the benchmark builds, so it must still count."""

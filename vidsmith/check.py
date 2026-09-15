@@ -19,6 +19,7 @@ from typing import List, Optional
 
 from . import ffmpeg_util as ff
 from .config import ASPECTS, LONG_SHOT_FACTOR, aspect_tag
+from .llm import MAX_DESCRIPTION
 
 _END = re.compile(r"--> (\d+:\d+:\d+[,.]\d+)")
 
@@ -171,6 +172,12 @@ def credits_published(out: Path) -> List[str]:
                             "so its credits would not be published")
             continue
         published = desc_file.read_text(encoding="utf-8")
+        if len(published.strip()) > MAX_DESCRIPTION:
+            # YouTube refuses the upload, and pasting stops at the limit, which
+            # is the credits at the end of the box being the part that is lost
+            problems.append(
+                f"{desc_file.name} is {len(published.strip())} characters, over "
+                f"YouTube's {MAX_DESCRIPTION}; the credits at its end would be cut")
         for line in ledger.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line and line not in published:

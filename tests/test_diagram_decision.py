@@ -340,6 +340,21 @@ def test_the_scoped_drop_reads_both_key_shapes(tmp_path):
         "scene 10 is not scene 1, and a prefix match would have taken it"
 
 
+def test_the_scoped_drop_reads_a_beats_verdicts(tmp_path):
+    """A scene cut into beats has a verdict per beat, keyed `1.0`, `1.1`, and
+    `1.1~` for a beat that fell back to the scene's search."""
+    from vidsmith.pipeline import invalidate
+
+    proj, build, vis = _staged(tmp_path)
+    (vis / "rerank.json").write_text(json.dumps(
+        {k: {"order": []} for k in ("0.0", "1.0", "1.1", "1.1~", "10.0")}),
+        encoding="utf-8")
+
+    invalidate(proj, log=lambda *a: None, only={1})
+
+    assert sorted(json.loads((vis / "rerank.json").read_text())) == ["0.0", "10.0"]
+
+
 def test_an_unreadable_cache_is_dropped_rather_than_trusted(tmp_path):
     from vidsmith.pipeline import Project, invalidate
 

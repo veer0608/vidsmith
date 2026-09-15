@@ -230,8 +230,15 @@ def caption_events(scenes: Sequence[Scene], cfg: CaptionConfig, theme: Theme,
             last = len(group) - 1
             for i, word in enumerate(group):
                 w_start = max(base + word["start"], g_start)
-                w_end = base + group[i + 1]["start"] if i < last else g_end
-                w_end = min(max(w_end, w_start + 0.06), g_end)
+                # Each highlight ends where the next word starts, and no later.
+                # It used to be floored at 60ms, which carried a very short word
+                # past the next one's start; libass stacks two events that
+                # overlap by even 20ms, so the line jumped up for the rest of the
+                # word, 30 times in one nine-minute video. A word too short to
+                # get a frame of its own is skipped and its neighbours meet.
+                w_end = min(base + group[i + 1]["start"], g_end) if i < last else g_end
+                if w_end <= w_start:
+                    continue
 
                 if i == 0 and last == 0:
                     prefix = f"{{\\fad({cfg.fade_ms},{cfg.fade_ms})}}" + entrance

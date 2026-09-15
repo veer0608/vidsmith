@@ -13,6 +13,7 @@ before writing anything. The traps are the reason this file exists.
 | Write a test | Tests | Build scenes with `make_scene()`, never by hand |
 | Add or change a model call | Architecture, `LLMUnavailable` | Raise `LLMUnavailable` or the fallbacks stop working |
 | Touch shot lengths or timing | Architecture, narration slot | Clips must sum to `scene.duration` exactly, and no shot may outlast its clip |
+| Change what footage gets searched for | Things that have actually broken here, unrelated footage | One search per scene, or a metaphor, reads as unrelated; a beat's verdict is keyed `index.beat` |
 | Move captions or diagrams | Architecture, karaoke; Things that have actually broken here, layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
 | Change ffmpeg or the encode | Architecture, three passes | Do not collapse the passes into one |
 | Hand a path to ffmpeg | Things that have actually broken here, escaping | Two escapes, two parsers; never share one helper between them |
@@ -214,7 +215,12 @@ Your bank statement is not a record of what you spent.
 
 A scene breaks on a `##` heading **or** a blank line between paragraphs, so an
 innocent-looking reflow silently re-cuts the video. `[visual: ...]` sets that
-scene's stock-footage query and also answers to `b-roll`, `broll`, `footage` and
+scene's own stock-footage query. On a stock build that is now the fallback rather
+than the search: every beat of a scene is searched for in words `beat_queries`
+writes from what is spoken during it, and the directive is used when that call
+is unavailable or a beat's search finds nothing (`visuals.beat_seconds: 0`
+restores the directive as the search). It still feeds the thumbnail search. It
+also answers to `b-roll`, `broll`, `footage` and
 `shot`. It answers to `image` as well, which is an alias too rather than a "use
 a still" switch, whatever the name suggests: a still only enters through the
 `local` provider matching an image file on disk. `[diagram: ...]` forces a drawn
@@ -323,14 +329,16 @@ captions, scrim and the delivery file depend on frame size and are suffixed
 model calls. Anything asked of a model once must be cached where both cuts see
 it, or the two cuts disagree about what the video contains.
 
-**Gemini is used seven times, all optional and all degrading to something.**
-`suggest_queries` writes a b-roll search per scene, `rank_clips` reranks stock
+**Gemini is used eight times, all optional and all degrading to something.**
+`suggest_queries` writes a b-roll search per scene, `beat_queries` writes one per
+beat of a long scene from the words spoken during it, `rank_clips` reranks stock
 candidates by their preview stills, `design_diagram` writes a diagram spec,
 `upload_metadata` writes the YouTube title, description and chapters,
 `thumbnail_query` writes the thumbnail search, `pick_thumbnail` ranks the
 candidates it returns, and `draft_script` writes a whole script from a topic for
 `vidsmith new --topic` and the web page's topic tab. Without `GEMINI_API_KEY`
-each falls back: keyword extraction for both search-writing calls, provider
+each falls back: keyword extraction for both scene-search calls, the scene's
+own search for every beat, provider
 order for reranking, the top search result for the thumbnail pick, no diagram
 and no metadata. Only drafting refuses outright, because there is nothing to
 degrade to: the CLI stops and the web page answers 503. `rank_clips` and
@@ -360,8 +368,9 @@ fully expanded `config.yaml` says, so an old project rebuilt still draws.
 
 Two layers keep a *drafted* script away from them, in the same shape as dashes.
 `SCRIPT_PROMPT` offers only `[visual:]` and teaches the hard case, an idea with no
-obvious subject, with worked examples that film the moment the idea touches a
-person or object; its output template no longer shows `[diagram:]`, because a
+obvious subject, with worked examples that name the real subject or a person
+doing the thing - never a metaphor, see the entry on unrelated footage; its
+output template no longer shows `[diagram:]`, because a
 template is followed more faithfully than any instruction above it. Then
 `llm.strip_diagrams()` removes any `[diagram:]` line the model writes anyway.
 The line is removed, not renamed to `[visual:]`: a model's diagram description
@@ -682,6 +691,50 @@ competing with the voice.
   without the result count, because `bench/rank_clips` rebuilds that key to
   find past searches; an older 15-result page is simply served until it
   expires.
+- **A viewer called the footage mostly unrelated, and the searches were why.**
+  A shot sheet of every cut in two finished videos - a frame per shot beside
+  the words spoken over it - showed three causes, none of them visible in a log.
+  Each scene ran **one search for fifteen to thirty seconds**, so the picture
+  stayed on one subject while the narration moved through four ideas: 27s of
+  forest trails under tree nodes, balancing and disk reads; six keyboards in a
+  row. The searches were **metaphors the narration never states**, because
+  `SCRIPT_PROMPT` taught one ("librarian pulling a book from shelves" for an
+  index): "fork in a wooded trail" for a tree, "man holding a ring of keys" for
+  a node. And the reranker judges clips against the search, so it confidently
+  kept trails for a trail search. A config key, `per_scene_queries`, looked like
+  the fix and was read by nothing.
+  Now `plan_beats()` groups a scene's shots into beats of about `beat_seconds`,
+  `prepare_beats()` has `llm.beat_queries()` write a literal search for every
+  beat of the video in one request, and each beat is searched, reranked against
+  its own passage and cut separately. Three things were learned by running the
+  prompt against the Claude script before building anything, which is the cheap
+  order: offering the scene's `[visual:]` as the writer's intent kept it where
+  it did not fit ("person closing laptop" under a line about chatbots, where the
+  bare passage gave "chatbot interface on screen"), so it is not sent; banning
+  "text on screen" pushed a software topic away from the only literal footage
+  it has, so screens showing an app or code are named as good shots; and
+  without a rule against filler every abstract line became "person typing on
+  computer". `beats.json` is keyed by heading and passage text, not position,
+  so it cannot go stale on a redraft, and a beat's rerank verdict is keyed
+  `index.beat` and records its search, so `invalidate(only=...)` and
+  `bench/rank_clips collect` both had to learn that shape.
+  Two repeats rode along. A studio shooting a series supplies near-identical
+  takes under different ids - the same dancer in the same aisle four times -
+  so a scene takes one clip per creator and does not open on the creator the
+  previous scene ended on. And `credits_block()` skipped a creator it had
+  already listed, links and all, which linked 24 of 33 clips in a two-minute
+  build; it now lists every clip's link under its creator, and because a
+  nine-minute build's credits approach YouTube's 5000-character description
+  limit on their own, `description_box()` trims the prose rather than the
+  credits and `check` reports a description over the limit.
+- **Karaoke highlights overlapped whenever a word was very short.** Each word's
+  event was floored at 60ms, and edge-tts reports words like "a" at 30 to 40ms,
+  so the floor carried it past the next word's start. libass stacks any two
+  events that overlap, so the caption line jumped upward for the rest of the
+  word: 8 times in a two-minute video and 30 in a nine-minute one. The
+  line-level guard against exactly this already existed; it just did not apply
+  inside a line. `test_caption_lines_never_overlap` passed throughout because
+  `make_scene()` spaces words evenly. The new test speaks at 25 words a second.
 - **`vidsmith check <name>` exists because reading the output beat reading the
   source three times in one day.** It compares delivered files against each
   other rather than against the code that wrote them: every credit in
@@ -899,7 +952,7 @@ competing with the voice.
   all four met another 429. It is trusted only once the `quotaId` says waiting
   can help, and clamped so a bad value cannot hang a build. A wait longer than
   the ordinary backoff is announced through the build log, because reranking
-  runs up to three times per scene and several silent minute-long pauses inside one build are
+  runs up to three times per beat and several silent minute-long pauses inside one build are
   indistinguishable from the hang described under Tests. `rank_clips()` takes
   `log` for exactly that reason; calling it without one makes the pause silent
   again. The rule is enforced, not remembered: every helper in `llm.py` that

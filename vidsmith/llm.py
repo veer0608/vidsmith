@@ -303,7 +303,8 @@ Then decide which are unusable. A clip is unusable when it shows the wrong
 subject - not merely a weaker version of the right one. A book is not a
 calendar; a laptop is not a card terminal. Be strict about subject and lenient
 about style: an unremarkable shot of the right thing beats a beautiful shot of
-the wrong thing.
+the wrong thing. A screen that is plain green or blue, left blank for a picture
+to be keyed in later, is unusable too: it looks unfinished behind captions.
 
 Finally, judge whether stock footage can depict this line at all. Some ideas
 have no footage anywhere - a B-tree, a hash collision, an API contract. A
@@ -597,6 +598,79 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
     return filled
 
 
+BEAT_QUERY_PROMPT = """You are a video editor sourcing stock footage for a narrated
+explainer video. The picture changes every few seconds, and each numbered
+passage below is what is being said during one stretch of it.
+
+For each passage, write ONE stock video search for what should be on screen
+while it is spoken. A viewer hears the passage and sees the shot at the same
+moment, and should see why that shot is there without being told.
+
+Rules:
+- 2 to 5 words a stock library understands.
+- Search for the most literal thing the passage names or does. A passage about
+  email replies gets an email inbox on a laptop. Source code gets code on a
+  monitor. A chart gets a chart on a tablet. A slow disk gets a hard drive.
+  Screens showing an app, a chat, code or a spreadsheet are good shots.
+- Only when the passage names nothing filmable, show a person doing what it
+  describes: a developer typing in a terminal, a team reviewing a document.
+- NEVER a metaphor. A forest path is not a tree structure, a ring of keys is not
+  an index, and a laptop lid closing is not a chatbot. The comparison is never
+  said out loud, so the viewer just sees unrelated footage.
+- No generic filler that would fit any passage: "person thinking", "person typing
+  on computer", "stressed worker". If the same search would suit a different
+  passage just as well, it is not specific enough.
+- It must be something stock libraries really hold footage of. "Chat app on a
+  phone" exists; a particular feature of a particular product, like "side panel
+  in a web app", does not.
+- No diagrams or infographics, no proper nouns, no brand or product names, no
+  numbers.
+- Passages from the same scene must not repeat a subject, and no main subject
+  appears more than twice in the whole video.
+
+Return ONLY a JSON array of strings, one per passage, in order.
+
+PASSAGES:
+{lines}
+"""
+
+
+def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
+                 model: str = DEFAULT_MODEL, log=print) -> List[str]:
+    """A stock search per passage of narration, in order.
+
+    Each passage is a dict with `text` and optionally the scene's `heading`. One
+    request for the whole video, so it costs what `suggest_queries` does no
+    matter how many beats a build has. Raises `LLMUnavailable` like every other
+    call here; the builder falls back to the scene's own search.
+
+    The scene's `[visual:]` is deliberately not sent. Offered as the writer's
+    plan, it was kept where it did not fit: "person closing laptop" survived
+    under "you might think Claude is just another chatbot", where the same
+    passage without it came back "chatbot interface on screen".
+    """
+    if not passages:
+        return []
+    lines = []
+    for i, p in enumerate(passages):
+        prefix = f"[scene: {p['heading']}] " if p.get("heading") else ""
+        lines.append(f"{i + 1}. {prefix}{p['text']}")
+    raw = generate(BEAT_QUERY_PROMPT.format(lines="\n".join(lines)), api_key, model,
+                   temperature=0.5, log=log)
+    try:
+        queries = _json_block(raw)
+    except ValueError as exc:
+        raise LLMUnavailable(f"beat searches came back unreadable ({exc})")
+    if not isinstance(queries, list) or len(queries) != len(passages):
+        raise LLMUnavailable(f"asked for {len(passages)} searches and got "
+                             f"{len(queries) if isinstance(queries, list) else 'none'}")
+    out = []
+    for q in queries:
+        words = re.sub(r"[^A-Za-z' \-]", " ", str(q)).split()
+        out.append(" ".join(words[:6]))
+    return out
+
+
 DIAGRAM_PROMPT = """You are designing a simple diagram to illustrate one line of
 narration in an explainer video. Stock footage cannot show this idea, so it is
 being drawn instead.
@@ -833,7 +907,13 @@ NEVER EXPLAIN AN IDEA WITH A GRAPHIC. No diagrams, charts, boxes, arrows, tables
 labels or words on screen, and never write [diagram:]. The narration carries the
 explanation. The picture shows where the idea happens in the real world.
 
-When the idea is abstract, film the moment it touches a person or an object:
+SHOW WHAT THE NARRATION IS LITERALLY ABOUT, NEVER A METAPHOR FOR IT. A viewer
+hears the line and sees the shot at the same moment, and connects them only when
+the shot is the thing being talked about. When the subject exists on film, name
+it: a hard drive, a server rack, a search bar on a phone, a shop terminal. When
+it has no physical form, show a person doing what the line describes. A forest
+path is not a tree structure and a ring of keys is not an index: the narration
+never says so, and the shot reads as unrelated footage.
     idea: a text file is split into scenes
         good  [visual: hands typing in a text editor]
         bad   [visual: flowchart from file to scenes]
@@ -841,13 +921,16 @@ When the idea is abstract, film the moment it touches a person or an object:
         good  [visual: card tapped on a shop terminal]
         bad   [visual: pricing comparison table]
     idea: how a database index finds a row
-        good  [visual: librarian pulling a book from shelves]
+        good  [visual: code scrolling on a laptop screen]
         bad   [visual: tree structure diagram]
-The bad ones describe a graphic. A stock library answers those with generic
-infographics, or with nothing on the subject at all.
+        bad   [visual: fork in a forest trail]
+The first bad ones describe a graphic, which a stock library answers with generic
+infographics or nothing on the subject at all. The last is a metaphor, which it
+answers with exactly the wrong subject.
 
-THE TEST: if you can imagine pointing a camera at it, it belongs. If you would
-have to draw it, name the person, object or place the idea is about instead.
+THE TEST: point a camera at it, and a viewer who hears the line should see why
+this shot is on screen without being told. If you would have to draw it, or
+explain the comparison, name the object or the person doing the thing instead.
 
 OUTPUT exactly this markdown and nothing else:
 

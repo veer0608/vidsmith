@@ -99,6 +99,13 @@ def _find_search(query: str, cache: Path, aspect: str,
     return None
 
 
+def _verdict_position(key: str) -> Tuple[int, int, str]:
+    """`"3"`, `"3.1"`, and `"3.1~"` for a beat that fell back to the scene's search."""
+    head, _, beat = key.partition(".")
+    beat = beat.rstrip("~")
+    return (int(head) if head.isdigit() else 0, int(beat) if beat.isdigit() else 0, key)
+
+
 def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> List[Dict]:
     """Every past rerank whose search is still on disk becomes a case.
 
@@ -121,16 +128,22 @@ def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> L
         scenes = {str(s.get("index")): s for s in
                   _read_json(project / "build" / "scenes.json", [])}
         verdicts = _read_json(verdict_file, {})
-        for idx in sorted(verdicts, key=lambda k: int(k) if k.isdigit() else 0):
-            scene, verdict = scenes.get(idx), verdicts[idx]
-            if not scene or not isinstance(verdict, dict) or not scene.get("query"):
+        for idx in sorted(verdicts, key=_verdict_position):
+            # a scene cut into beats has a verdict per beat, keyed "3.1", and
+            # each records the search and the passage it judged
+            scene, verdict = scenes.get(idx.partition(".")[0]), verdicts[idx]
+            if not scene or not isinstance(verdict, dict):
+                continue
+            query = str(verdict.get("query") or scene.get("query") or "")
+            line = str(verdict.get("line") or scene.get("text") or "")
+            if not query:
                 continue
             judged = [str(i) for i in verdict.get("order") or []]
-            found = _find_search(scene["query"], cache, aspect, judged)
+            found = _find_search(query, cache, aspect, judged)
             if found is None:
                 continue
             hits, orientation = found
-            key = (scene["text"].strip(), scene["query"].strip(), orientation)
+            key = (line.strip(), query.strip(), orientation)
             if key in seen:
                 continue            # the same scene built again at another aspect
 
@@ -160,8 +173,8 @@ def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> L
             seen.add(key)
             cases.append({
                 "id": f"{project.name}/{aspect}/{idx}",
-                "line": scene["text"].strip(),
-                "query": scene["query"].strip(),
+                "line": line.strip(),
+                "query": query.strip(),
                 "orientation": orientation,
                 "candidates": candidates,
                 "production": {
@@ -171,7 +184,7 @@ def collect(root: Path, data_dir: Path = HERE, pool: int = POOL, log=print) -> L
                     "same_pool": sorted(first) == sorted(ids),
                 },
             })
-            log(f"  {cases[-1]['id']:<32} {len(candidates)} stills  {scene['query'][:50]}")
+            log(f"  {cases[-1]['id']:<32} {len(candidates)} stills  {query[:50]}")
 
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "cases.json").write_text(
