@@ -63,7 +63,7 @@ class VisualConfig:
     diagrams: bool = False
     diagram_on_reject: float = 0.7    # fraction rejected that triggers one
     rerank: bool = True               # let Gemini vision pick the matching clip
-    rerank_pool: int = 8              # candidates shown to the model per scene
+    rerank_pool: int = 8              # candidates shown to the model per call
     cut_on_sentences: bool = True     # split a scene into shots at its full stops
     min_shot_seconds: float = 2.4     # never cut faster than this
     max_shot_seconds: float = 5.5     # a longer sentence is broken at a comma

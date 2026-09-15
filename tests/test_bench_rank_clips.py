@@ -258,6 +258,28 @@ def test_collect_finds_the_search_production_cached(tmp_path, monkeypatch):
     assert case["candidates"][0]["sha1"] == hashlib.sha1(b"https://x/0.jpg").hexdigest()
 
 
+def test_a_scene_judged_over_several_rounds_still_scores_its_first(tmp_path, monkeypatch):
+    """A starved scene is reranked again over the next eight candidates. The
+    first round is the same pool the benchmark builds, so it must still count."""
+    monkeypatch.delenv("VIDSMITH_SEARCH_CACHE", raising=False)
+    monkeypatch.setattr("vidsmith.visuals.preview_still", lambda url: url.encode())
+    hits = [{"id": str(i), "preview": f"https://x/{i}.jpg"} for i in range(30)]
+    path = search_cache_path("pexels_video", ("desk calendar", "landscape", 1080),
+                             tmp_path / ".cache" / "searches")
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(hits), encoding="utf-8")
+    first = ["2", "0", "1", "3", "4", "5", "6", "7"]
+    verdict = {"order": first + [str(i) for i in range(8, 16)],
+               "reject": ["3", "9"], "filmable": True, "rounds": 2}
+    _project(tmp_path, "p", "visuals", "desk calendar", verdict)
+
+    [case] = rc.collect(tmp_path, tmp_path / "data", log=lambda *a: None)
+
+    assert case["production"]["same_pool"]
+    assert case["production"]["order"] == first
+    assert case["production"]["reject"] == ["3"]
+
+
 def _ready(tmp_path, n_cases=2):
     stills = rc.stills_dir(tmp_path)
     stills.mkdir(parents=True)
