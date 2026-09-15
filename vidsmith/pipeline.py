@@ -97,7 +97,8 @@ def invalidate(proj: "Project", log=print,
     wanted = {str(i) for i in (only or ())}
 
     def owned(key: str) -> bool:
-        return key.split(":")[0] in wanted
+        # `3`, `3:1` for a shot, and `3.1` or `3.1~` for a beat's verdict
+        return key.split(":")[0].split(".")[0] in wanted
 
     if scoped:
         for name in ("diagram_scenes.json", "diagrams.json"):
@@ -561,19 +562,26 @@ def credits_block(scenes: Sequence[Scene], provider: str) -> str:
     Pexels and Pixabay both ask that API users credit the creator and link back
     to the source, so this is generated from what the search actually returned
     rather than written by hand.
+
+    One line per creator, carrying a link to every clip of theirs in the video.
+    It used to skip a creator it had already listed, links and all, and a studio
+    that shoots a series supplies several clips to one video: a two-minute build
+    named all 24 creators and linked only 24 of its 33 clips.
     """
-    rows = []
-    seen = set()
+    links: Dict[str, List[str]] = {}
     for scene in scenes:
         for shot in (scene.shots or [{"credit": scene.credit,
                                       "credit_url": scene.credit_url}]):
             name = shot.get("credit", "")
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
-            rows.append(f"{name} - {shot.get('credit_url', '')}".strip(" -"))
-    if not rows:
+            urls = links.setdefault(name, [])
+            url = shot.get("credit_url", "")
+            if url and url not in urls:
+                urls.append(url)
+    if not links:
         return ""
+    rows = [f"{name} - {', '.join(urls)}".strip(" -") for name, urls in links.items()]
     site = {"pexels": "Pexels (https://www.pexels.com)",
             "pixabay": "Pixabay (https://pixabay.com)"}.get(provider, provider)
     return f"Footage from {site}\n" + "\n".join(rows) + "\n"
@@ -768,16 +776,24 @@ def description_box(meta: Dict, credits: str = "") -> str:
     wholesale would put the word DESCRIPTION into the description. This is the
     same content with the scaffolding removed, in the order YouTube wants it:
     prose, then chapters starting at 0:00, then attribution.
+
+    YouTube refuses a description over `llm.MAX_DESCRIPTION` characters, and the
+    credits are a licence condition while the prose is not, so when the whole
+    box would run over it is the prose that is cut. A nine-minute build credits
+    ninety-odd clips, which on its own is most of the allowance.
     """
-    parts = [str(meta.get("description", "")).strip()]
+    tail = []
     chapters = meta.get("chapters") or []
     if chapters:
-        parts.append("\n".join(
+        tail.append("\n".join(
             f"{c.get('time', '')} {c.get('label', '')}".strip()
             for c in chapters))
     if credits.strip():
-        parts.append(credits.strip())
-    return "\n\n".join(p for p in parts if p) + "\n"
+        tail.append(credits.strip())
+    prose = str(meta.get("description", "")).strip()
+    room = llm.MAX_DESCRIPTION - len("\n\n".join(tail)) - len("\n\n") - len("\n")
+    prose = llm._clip_words(prose, room) if room > 0 else ""
+    return "\n\n".join(p for p in [prose, *tail] if p) + "\n"
 
 
 def _readable_meta(meta: Dict) -> str:

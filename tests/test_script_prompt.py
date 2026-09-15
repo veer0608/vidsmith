@@ -96,6 +96,24 @@ def test_abstract_ideas_are_filmed_not_drawn():
     assert "describe a graphic" in low, "the bad examples are not explained"
 
 
+def test_a_visual_is_the_subject_not_a_metaphor_for_it():
+    """The prompt used to teach a librarian at the shelves for a database index.
+    Drafts followed it into "fork in a wooded trail" for a tree structure and
+    "man holding a ring of keys" for a B-tree node, and a viewer who watched the
+    result called the footage mostly unrelated."""
+    low = PROMPT.lower()
+    assert "never a metaphor" in low
+    assert "bad   [visual: fork in a forest trail]" in low, "no bad example of a metaphor"
+    assert "librarian" not in low, "the prompt still teaches the metaphor it replaced"
+
+
+def test_the_clip_judge_rejects_a_blank_green_screen():
+    """A laptop with a keying-green screen sat behind a line about honesty."""
+    from vidsmith.llm import RERANK_PROMPT
+
+    assert "green" in RERANK_PROMPT.lower() and "unusable" in RERANK_PROMPT.lower()
+
+
 @pytest.mark.parametrize("draft,expected", [
     ("## A\n[diagram: four boxes]\nText.\n", "## A\nText.\n"),
     ("## A\n  [Diagram: boxes]  \nText.\n", "## A\nText.\n"),

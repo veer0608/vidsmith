@@ -75,6 +75,22 @@ def test_caption_lines_never_overlap(scenes):
         assert a_end <= b_start + 1e-6, f"{a_end} overruns the next line at {b_start}"
 
 
+def test_a_very_short_word_never_overlaps_the_next(scenes):
+    """edge-tts reports words like "a" at 30 or 40ms. Each karaoke highlight was
+    floored at 60ms, which carried it past the next word's start; libass stacks
+    events that overlap at all, so the line jumped up for the rest of the word -
+    8 times in a two-minute build and 30 in a nine-minute one."""
+    from conftest import make_scene
+
+    quick = make_scene("It is a large model made by a small team in a year.", wps=25)
+    quick.start = 0.0
+    events = caption_events([quick], CFG, THEME, 0.25)
+    spans = [_times(e) for e in events]
+    assert len(spans) > 2
+    for (a_start, a_end), (b_start, _) in zip(spans, spans[1:]):
+        assert a_end <= b_start + 1e-6, f"{a_end} overruns the next event at {b_start}"
+
+
 def test_captions_stay_inside_their_scene(scenes):
     events = caption_events(scenes, CFG, THEME, 0.25)
     last = scenes[-1]

@@ -245,6 +245,31 @@ def fit_shots(plan: Sequence[float], lengths: Sequence[float],
     return fitted
 
 
+def plan_beats(plan: Sequence[float], beat_s: float) -> List[Tuple[int, int]]:
+    """Group a scene's shots into beats, as `(first shot, end shot)` ranges.
+
+    A beat is the stretch of narration one stock search illustrates. The shot
+    plan already cuts on the full stops the speaker lands, so beats are whole
+    runs of shots: each closes once it reaches `beat_s`, and a short tail joins
+    the beat before it rather than earning a search of its own.
+    """
+    if beat_s <= 0 or len(plan) <= 1:
+        return [(0, len(plan))]
+    beats: List[List[int]] = []
+    lo, held = 0, 0.0
+    for i, d in enumerate(plan):
+        held += d
+        if held >= beat_s:
+            beats.append([lo, i + 1])
+            lo, held = i + 1, 0.0
+    if lo < len(plan):
+        if beats and held < beat_s / 2:
+            beats[-1][1] = len(plan)
+        else:
+            beats.append([lo, len(plan)])
+    return [(a, b) for a, b in beats]
+
+
 # --------------------------------------------------------------------------- #
 # clip normalisation
 # --------------------------------------------------------------------------- #
@@ -573,6 +598,14 @@ class VisualBuilder:
         self.used: set = set()
         # a middle frame per downloaded clip, to catch one footage under two ids
         self._prints: Dict[str, Tuple[float, bytes]] = {}
+        # each scene's beats and their searches, written once for the whole video
+        self._beats: Dict[int, List[Dict[str, Any]]] = {}
+        # A creator's clips in one scene are usually one shoot: the same dancer
+        # in the same library aisle four times, the same keyboard three times in
+        # ten seconds. One clip per creator a scene, and not the creator the
+        # previous scene ended on.
+        self._scene_creators: set = set()
+        self._last_creator = ""
         # what fraction of the last scene's candidates showed the wrong
         # subject - a near-total rejection means there is no footage to find
         self._reject_ratio = 0.0
@@ -700,7 +733,8 @@ class VisualBuilder:
         return preview_still(url)
 
     def _rerank(self, hits: List[Dict], scene: Scene, query: str,
-                want: int = 1) -> List[Dict]:
+                want: int = 1, text: Optional[str] = None,
+                key: Optional[str] = None) -> List[Dict]:
         """Reorder search results by what the stills actually show.
 
         Stock search ranks by popularity, not by whether the clip depicts the
@@ -714,27 +748,42 @@ class VisualBuilder:
         survive, the next candidates in search order are judged as well, up to
         `RERANK_ROUNDS` calls. The rounds are counted in the cache, so a rebuild
         never spends more than a first build did.
+
+        `text` is the passage the clip sits under and `key` names its verdict,
+        for a scene cut into beats. A verdict records the search it judged, and
+        one made for another search is not reused: its clips are not these.
         """
-        key = self.keys.get("gemini", "")
-        if not (self.cfg.rerank and key) or len(hits) < 2:
+        api_key = self.keys.get("gemini", "")
+        if not (self.cfg.rerank and api_key) or len(hits) < 2:
             return hits
 
+        line = text or scene.text
+        slot = key or str(scene.index)
         self._reject_ratio = 0.0
         self._filmable = True
         by_id = {h["id"]: h for h in hits}
         cache = self._rank_cache()
-        cached = cache.get(str(scene.index))
+        cached = cache.get(slot)
         order: List[str] = []
         reject: set = set()
         filmable, rounds = True, 0
-        if isinstance(cached, dict) and cached.get("order"):
+        if (isinstance(cached, dict) and cached.get("order")
+                and cached.get("query", query) == query):
             order = [i for i in cached["order"] if i in by_id]
             reject = set(cached.get("reject") or [])
             filmable = cached.get("filmable", True)
             rounds = int(cached.get("rounds") or 1)
+            if not order:
+                rounds = 0
+
+        blocked = {a for a in self._scene_creators | {self._last_creator} if a}
 
         while rounds < RERANK_ROUNDS:
-            fresh = [i for i in order if i not in reject and i not in self.used]
+            # usable means a clip a pick could actually take: not rejected, not
+            # already in the video, and one per creator
+            fresh = {by_id[i].get("author") or i for i in order
+                     if i not in reject and i not in self.used
+                     and by_id[i].get("author", "") not in blocked}
             if order and len(fresh) >= want:
                 break
             images: List[bytes] = []
@@ -753,7 +802,7 @@ class VisualBuilder:
                          f"judging {len(keep)} more")
 
             try:
-                verdict = llm.rank_clips(scene.text, query, images, key, log=self.log)
+                verdict = llm.rank_clips(line, query, images, api_key, log=self.log)
                 ranked, rejected, judged_filmable = verdict
             except Exception as exc:
                 self.log(f"    rerank skipped ({exc})")
@@ -777,8 +826,11 @@ class VisualBuilder:
             order += batch
             reject |= dropped
             rounds += 1
-            cache[str(scene.index)] = {"order": order, "reject": sorted(reject),
-                                       "filmable": filmable, "rounds": rounds}
+            # the search and the line go in too, so a verdict is never reused for
+            # another search, and the rerank benchmark can rebuild the case
+            cache[slot] = {"order": order, "reject": sorted(reject),
+                           "filmable": filmable, "rounds": rounds,
+                           "query": query, "line": line}
             self._rank_cache_path().write_text(json.dumps(cache, indent=2),
                                                encoding="utf-8")
 
@@ -805,7 +857,9 @@ class VisualBuilder:
             return {}
 
     # -- source selection --------------------------------------------------- #
-    def _stock_batch(self, query: str, count: int, scene: Scene) -> List[Dict]:
+    def _stock_batch(self, query: str, count: int, scene: Scene,
+                     text: Optional[str] = None, key: Optional[str] = None,
+                     need: Optional[float] = None) -> List[Dict]:
         """One search, up to `count` distinct clips taken from its results.
 
         Reusing a single search for every shot in a scene keeps the shots on the
@@ -823,15 +877,22 @@ class VisualBuilder:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []
 
-        hits = self._rerank(hits, scene, query, want=count)
+        hits = self._rerank(hits, scene, query, want=count, text=text, key=key)
+        need = scene.duration if need is None else need
         picked: List[Dict] = []
+        passed: Dict[str, int] = {}
         for hit in hits:
             # one clip per shot, and past that only while the clips taken are
             # too short between them to cover the scene without slowing down
             if (len(picked) >= count
-                    and sum(p["length"] for p in picked) >= scene.duration):
+                    and sum(p["length"] for p in picked) >= need):
                 break
             if hit["id"] in self.used:
+                continue
+            author = hit.get("author", "")
+            if author and (author in self._scene_creators or author == self._last_creator
+                           or any(p["author"] == author for p in picked)):
+                passed[author] = passed.get(author, 0) + 1
                 continue
             dest = self.cache / f"{provider}_{hit['id']}.mp4"
             try:
@@ -849,7 +910,11 @@ class VisualBuilder:
                 continue
             self.used.add(hit["id"])
             picked.append({"id": hit["id"], "path": dest, "length": length or math.inf,
-                           "author": hit.get("author", ""), "page": hit.get("page", "")})
+                           "author": author, "page": hit.get("page", ""),
+                           "query": query})
+        if passed and len(picked) < count:
+            self.log("    one clip per creator a scene; passed over "
+                     + ", ".join(f"{n} from {a}" for a, n in passed.items()))
         return picked
 
     def _local_batch(self, scene: Scene, query: str, count: int) -> List[Dict]:
@@ -892,6 +957,133 @@ class VisualBuilder:
         self.used.update(p.stem for p in picked)
         return [{"path": p, "author": "", "page": ""} for p in picked]
 
+    # -- beats --------------------------------------------------------------- #
+    def _plan(self, scene: Scene) -> List[float]:
+        multi = (self.cfg.cut_on_sentences
+                 and self.cfg.provider in MULTI_SHOT_PROVIDERS)
+        return (plan_shots(scene, self.lead_in, self.cfg.min_shot_seconds,
+                           self.cfg.max_shot_seconds)
+                if multi else [scene.duration])
+
+    def _beat_cache_path(self) -> Path:
+        # Shape-independent, like the diagram decisions: every cut of a video
+        # searches for the same things, so a second cut spends no request here.
+        return self.workdir.parent / "beats.json"
+
+    @staticmethod
+    def _beat_key(scene: Scene, text: str) -> str:
+        # Keyed by the words rather than by position, so a redraft cannot hand
+        # one scene's search to another.
+        raw = "\x1f".join([scene.heading or "", text])
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+    def _passages(self, scene: Scene, plan: Sequence[float]) -> List[Dict[str, Any]]:
+        """A scene's beats, each with the words spoken across it and its search.
+
+        A beat with no search written for it yet uses the scene's own, which is
+        exactly what a build did before beats existed.
+        """
+        stock = self.cfg.provider in ("pexels", "pixabay")
+        if not (stock and self.cfg.beat_seconds > 0):
+            return [{"lo": 0, "hi": len(plan), "text": scene.text,
+                     "query": scene_query(scene)}]
+        ranges = plan_beats(plan, self.cfg.beat_seconds)
+        words = cap.attach_punctuation(scene.words, scene.text) if scene.words else []
+        edges = [0.0]
+        for d in plan:
+            edges.append(edges[-1] + d)
+        cache = self._read_json(self._beat_cache_path())
+        beats = []
+        for n, (lo, hi) in enumerate(ranges):
+            last = n == len(ranges) - 1
+            text = " ".join(w["text"] for w in words
+                            if edges[lo] <= self.lead_in + w["start"]
+                            and (last or self.lead_in + w["start"] < edges[hi]))
+            # a scene that is one beat is judged against its whole text, as it
+            # always was, so its verdicts and benchmark cases keep their shape
+            text = scene.text if len(ranges) == 1 or not text else text
+            key = self._beat_key(scene, text)
+            beats.append({"lo": lo, "hi": hi, "text": text, "key": key,
+                          "query": (cache.get(key) or {}).get("query") or scene_query(scene)})
+        return beats
+
+    def prepare_beats(self, scenes: Sequence[Scene]) -> None:
+        """Write a search for every beat of every stock scene, in one request.
+
+        One search per scene held a thirty-second scene on a single subject
+        while the narration moved through four ideas, and the subject was often
+        a metaphor the narration never stated: a forest trail under a tree data
+        structure, a ring of keys under an index. A viewer called the footage
+        mostly unrelated. So a scene longer than `beat_seconds` is cut into
+        beats, and each beat's search is written from the words spoken during
+        it, with the scene's own search passed along as the writer's intent.
+        """
+        if self.cfg.provider not in ("pexels", "pixabay") or self.cfg.beat_seconds <= 0:
+            return
+        path = self._beat_cache_path()
+        cache = self._read_json(path)
+        pending: List[Tuple[Scene, Dict[str, Any]]] = []
+        planned = []
+        for scene in scenes:
+            if not scene.words:
+                continue
+            beats = self._passages(scene, self._plan(scene))
+            planned.append((scene, beats))
+            asked = {b["key"] for _, b in pending}
+            pending += [(scene, b) for b in beats
+                        if b.get("key") and b["key"] not in cache and b["key"] not in asked]
+
+        key = self.keys.get("gemini", "")
+        if pending and key:
+            try:
+                queries = llm.beat_queries(
+                    [{"text": b["text"], "heading": s.heading}
+                     for s, b in pending], key, log=self.log)
+            except llm.LLMUnavailable as exc:
+                self.log(f"    beat searches unavailable ({exc}); "
+                         f"each scene keeps its own search")
+                queries = []
+            for (scene, beat), q in zip(pending, queries):
+                if q:
+                    cache[beat["key"]] = {"text": beat["text"], "query": q}
+            if queries:
+                path.write_text(json.dumps(cache, indent=2, ensure_ascii=False),
+                                encoding="utf-8")
+                self.log(f"    wrote {len(queries)} searches for the beats of "
+                         f"{len({s.index for s, _ in pending})} scenes")
+
+        for scene, beats in planned:
+            for beat in beats:
+                if beat.get("key") in cache:
+                    beat["query"] = cache[beat["key"]]["query"]
+            self._beats[scene.index] = beats
+
+    @staticmethod
+    def _read_json(path: Path) -> Dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _fit(self, scene: Scene, plan: Sequence[float],
+             sources: List[Dict]) -> Tuple[List[float], List[Dict]]:
+        """Cut `plan` to the clips in `sources`, and give back any left over."""
+        lengths = [self._length(s) for s in sources]
+        fitted = fit_shots(plan, lengths, self.cfg.min_shot_seconds)
+        placed = [sources[i] for _, i in fitted]
+        # a clip taken for coverage and then not needed goes back for a later scene
+        for s in sources:
+            if s not in placed and s.get("id"):
+                self.used.discard(s["id"])
+        if any(d > lengths[i] + 0.05 for d, i in fitted):
+            self.log(f"    only {sum(lengths[i] for _, i in fitted):.1f}s of usable "
+                     f"footage for {sum(plan):.1f}s of scene {scene.index}; slowing it "
+                     f"to fit rather than looping")
+        return [d for d, _ in fitted], placed
+
     def _twin(self, provider: str, clip_id: str, path: Path,
               length: float) -> Optional[str]:
         """The id of a clip this build already uses that is this footage again."""
@@ -924,11 +1116,7 @@ class VisualBuilder:
                 for j in range(n)]
 
     def build(self, scene: Scene, force: bool = False) -> List[str]:
-        multi = (self.cfg.cut_on_sentences
-                 and self.cfg.provider in MULTI_SHOT_PROVIDERS)
-        plan = (plan_shots(scene, self.lead_in, self.cfg.min_shot_seconds,
-                           self.cfg.max_shot_seconds)
-                if multi else [scene.duration])
+        plan = self._plan(scene)
         query = scene_query(scene)
 
         # ---- reuse whatever this aspect already rendered -------------------- #
@@ -986,41 +1174,63 @@ class VisualBuilder:
             # a thumbnail can still consider these scenes.
             sources = []
         elif self.cfg.provider in ("pexels", "pixabay"):
-            sources = self._stock_batch(query, len(plan), scene)
-            hopeless = (not self._filmable
-                        or self._reject_ratio >= self.cfg.diagram_on_reject)
-            if self.cfg.diagrams and decided is None and hopeless:
-                # Two signals, and the first matters more: candidates can all look
-                # related to a bad query ("branching tree diagram" returns trees)
-                # while none of them illustrate the idea.
-                spec = self._diagram_spec(scene, query)
-                if spec is not None:
-                    why = ("not filmable" if not self._filmable
-                           else f"{self._reject_ratio:.0%} rejected")
-                    self.log(f"    {why}; drawing a {spec.kind} diagram")
-                    sources = []
+            self._scene_creators = set()
+            beats = self._beats.get(scene.index) or self._passages(scene, plan)
+            cut: List[float] = []
+            sources = []
+            for b, beat in enumerate(beats):
+                part = plan[beat["lo"]:beat["hi"]]
+                key = str(scene.index) if len(beats) == 1 else f"{scene.index}.{b}"
+                batch = self._stock_batch(beat["query"], len(part), scene,
+                                          text=beat["text"], key=key, need=sum(part))
+                if b == 0:
+                    hopeless = (not self._filmable
+                                or self._reject_ratio >= self.cfg.diagram_on_reject)
+                    if self.cfg.diagrams and decided is None and hopeless:
+                        # Two signals, and the first matters more: candidates can
+                        # all look related to a bad query ("branching tree
+                        # diagram" returns trees) while none illustrate the idea.
+                        spec = self._diagram_spec(scene, query)
+                        if spec is not None:
+                            why = ("not filmable" if not self._filmable
+                                   else f"{self._reject_ratio:.0%} rejected")
+                            self.log(f"    {why}; drawing a {spec.kind} diagram")
+                            for s in batch:
+                                self.used.discard(s["id"])
+                            break
+                if not batch and beat["query"] != query:
+                    # the passage's own search found nothing usable; the scene's
+                    # is a subject the writer chose, which beats a card
+                    batch = self._stock_batch(query, len(part), scene, text=beat["text"],
+                                              key=f"{key}~", need=sum(part))
+                if batch:
+                    part, batch = self._fit(scene, part, batch)
+                    self._scene_creators.update(s["author"] for s in batch if s["author"])
+                    cut += part
+                    sources += batch
+                elif sources and sources[-1] is None:
+                    cut[-1] += sum(part)          # one card, not a card restarting
+                else:
+                    cut.append(sum(part))
+                    sources.append(None)
+            if spec is not None:
+                sources = []
+            elif any(sources):
+                plan = cut
+                self._last_creator = next(
+                    (s["author"] for s in reversed(sources) if s), "")
+            else:
+                sources = []
             if decided is None:
                 self._decide(scene, spec is not None)
         elif self.cfg.provider == "local":
             sources = self._local_batch(scene, query, len(plan))
+            if sources:
+                plan, sources = self._fit(scene, plan, sources)
         else:
             sources = []
 
-        if sources:
-            lengths = [self._length(s) for s in sources]
-            fitted = fit_shots(plan, lengths, self.cfg.min_shot_seconds)
-            plan = [d for d, _ in fitted]
-            placed = [sources[i] for _, i in fitted]
-            # a clip taken for coverage and then not needed goes back for a later scene
-            for s in sources:
-                if s not in placed and s.get("id"):
-                    self.used.discard(s["id"])
-            if any(d > lengths[i] + 0.05 for d, i in fitted):
-                self.log(f"    only {sum(lengths[i] for _, i in fitted):.1f}s of usable "
-                         f"footage for a {scene.duration:.1f}s scene; slowing it to "
-                         f"fit rather than looping")
-            sources = placed
-        elif spec is None:
+        if not sources and spec is None:
             plan = [scene.duration]
 
         outs = self._shot_paths(scene, len(plan))
@@ -1067,6 +1277,7 @@ class VisualBuilder:
                 "path": str(out), "duration": duration,
                 "credit": src["author"] if src else "",
                 "credit_url": src["page"] if src else "",
+                "query": src.get("query", "") if src else "",
             })
 
         scene.visual = scene.shots[0]["path"]
@@ -1118,11 +1329,14 @@ def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
     builder = VisualBuilder(cfg, size, fps, workdir, keys, log, theme, theme_cfg,
                             total_scenes=len(scenes), lead_in=lead_in,
                             caption_cfg=caption_cfg, project_root=project_root)
+    builder.prepare_beats(scenes)
     for scene in scenes:
         builder.build(scene, force=force)
         cuts = "+".join(f"{s['duration']:.1f}" for s in scene.shots)
+        searched = " / ".join(dict.fromkeys(
+            s["query"] for s in scene.shots if s.get("query"))) or scene_query(scene)
         log(f"  visual  scene {scene.index:>3}  {len(scene.shots)} shot"
             f"{'s' if len(scene.shots) != 1 else ' '}  {cuts:<22} "
-            f"{scene_query(scene)[:38]}")
+            f"{searched[:90]}")
         for line in long_shot_warnings(scene, cfg):
             log(line)

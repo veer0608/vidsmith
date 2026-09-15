@@ -88,6 +88,20 @@ def test_a_credit_that_never_reached_the_description_is_caught(delivery):
     assert any("would not be published" in p for p in found), found
 
 
+def test_a_description_over_youtubes_limit_is_caught(tmp_path):
+    """YouTube refuses more than 5000 characters, and pasting stops there, so
+    the credits at the end of the box are the part that is lost."""
+    from vidsmith.check import credits_published
+
+    (tmp_path / "credits.txt").write_text("Footage from Pexels\n", encoding="utf-8")
+    (tmp_path / "description.txt").write_text(
+        "word " * 1100 + "\n\nFootage from Pexels\n", encoding="utf-8")
+
+    found = credits_published(tmp_path)
+
+    assert any("over YouTube's 5000" in p for p in found), found
+
+
 @pytest.mark.slow
 def test_a_thumbnail_naming_no_cut_is_caught(delivery):
     """`untitled.jpg` beside correctly named files, from a refresh that
