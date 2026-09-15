@@ -182,8 +182,10 @@ def test_over_the_disk_budget_the_oldest_render_goes_first(tmp_path, monkeypatch
     old, middle, new = (_finished(jobs) for _ in range(3))
     for age, job in zip((300, 200, 100), (old, middle, new)):
         job.finished = time.time() - age
-    one = jobs_mod._size(new.root)
-    monkeypatch.setattr(jobs_mod, "KEEP_BYTES", one * 2)
+    # exactly the two newest: records differ by a few bytes, so "twice one of
+    # them" can land just under what the pair actually holds
+    monkeypatch.setattr(jobs_mod, "KEEP_BYTES",
+                        jobs_mod._size(middle.root) + jobs_mod._size(new.root))
 
     with jobs._lock:
         jobs._sweep()

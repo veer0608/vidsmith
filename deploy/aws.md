@@ -215,6 +215,34 @@ Generate one on the box and paste it into `.env`:
 python3 -c "import secrets; print(secrets.token_urlsafe(18))"
 ```
 
+### Uploading to YouTube from the page
+
+Optional. With it, a finished render's Delivery card has **Connect YouTube** and
+**Upload to YouTube**, which send the title, the description with its credits,
+tags, the thumbnail and the caption track.
+
+1. In Google Cloud, **APIs & Services → Credentials → Create credentials → OAuth
+   client ID**, type **Web application**. The project needs the YouTube Data API
+   v3 enabled, and your account listed as a test user on the consent screen.
+2. Under **Authorized redirect URIs** add exactly
+   `https://vidsmith.duckdns.org/api/youtube/callback`. The page reports the
+   address it will use (`GET /api/youtube`, field `redirect_uri`); they have to
+   match character for character.
+3. Add the client to `.env` and restart:
+
+   ```
+   YOUTUBE_CLIENT_ID=
+   YOUTUBE_CLIENT_SECRET=
+   ```
+
+4. On the page, open a finished render and press **Connect YouTube** once. The
+   login is saved in `~/vidsmith/.youtube-token.json`, gitignored.
+
+A Desktop app client, which is what `vidsmith upload` uses on a laptop, will not
+work here: its redirect is a loopback port on the machine with the browser. And
+while the consent screen is in **Testing**, Google expires the saved login after
+seven days; the card then says **Sign In Again**.
+
 ## Run it as a service
 
 Renders take minutes and the queue lives in memory, so the process has to

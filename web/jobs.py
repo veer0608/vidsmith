@@ -115,6 +115,8 @@ class Job:
     # finishes ahead of it, rather than by the request that submitted it
     options: Dict[str, Any] = field(default_factory=dict)
     runtime: float = 0.0              # seconds of finished video, off the build log
+    # the upload to YouTube, once asked for: status, privacy, video id, error
+    youtube: Dict[str, Any] = field(default_factory=dict)
 
     def expires(self) -> float:
         """When the sweep will take it; 0 while it is still queued or running."""
@@ -137,6 +139,7 @@ class Job:
             "expires": _iso(self.expires()) if self.finished else "",
             "aspect": self.options.get("aspect", ""),
             "runtime": self.runtime,
+            "youtube": self.youtube,
             # the stop was asked for but the current stage has not returned yet,
             # so the page can say "stopping" rather than appearing to ignore it
             "cancelling": self.cancel_requested and self.status == "running",
@@ -223,7 +226,12 @@ class Jobs:
                   created=float(record.get("created") or 0.0),
                   finished=float(record.get("finished") or 0.0),
                   root=path, options=dict(record.get("options") or {}),
-                  runtime=float(record.get("runtime") or 0.0))
+                  runtime=float(record.get("runtime") or 0.0),
+                  youtube=dict(record.get("youtube") or {}))
+        if job.youtube.get("status") == "uploading":
+            # the restart stopped it partway; YouTube holds no finished video
+            job.youtube.update(status="failed",
+                               error="the server restarted during the upload")
         # read off the disk rather than the record, which only says what was there
         job.outputs = self._collect(job)
         if not job.finished or not any(f["kind"] == "mp4" for f in job.outputs):
@@ -239,13 +247,23 @@ class Jobs:
         directory that has one is always a finished render.
         """
         shutil.rmtree(job.root / "build", ignore_errors=True)
-        record = {"id": job.id, "status": job.status, "title": job.title,
-                  "created": job.created, "finished": job.finished,
-                  "options": job.options, "runtime": job.runtime,
-                  "log": job.log[-60:]}
+        self.record(job)
+
+    def record(self, job: Job) -> None:
+        """Write what the next process needs to take a finished render back.
+
+        Written again whenever something about it changes, such as an upload,
+        and replaced in one move so a restart never reads half a record.
+        """
+        body = {"id": job.id, "status": job.status, "title": job.title,
+                "created": job.created, "finished": job.finished,
+                "options": job.options, "runtime": job.runtime,
+                "youtube": job.youtube, "log": job.log[-60:]}
+        path = job.root / RECORD
         try:
-            (job.root / RECORD).write_text(json.dumps(record, indent=2),
-                                           encoding="utf-8")
+            partial = path.with_suffix(".json.part")
+            partial.write_text(json.dumps(body, indent=2), encoding="utf-8")
+            partial.replace(path)
         except OSError as exc:
             job.log.append(f"warn     could not record this render to keep it "
                            f"across a restart: {exc}")

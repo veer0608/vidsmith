@@ -7,7 +7,9 @@ from typing import Any, Dict, Optional
 
 import hmac
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+import html
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -18,6 +20,7 @@ from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
+from web.youtube import CALLBACK, Refused, YouTube
 
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
@@ -41,8 +44,17 @@ TOKEN = (os.environ.get("VIDSMITH_TOKEN")
 # `cards` needs no key, which is why it is the fallback the whole app leans on.
 PROVIDERS = ("pexels", "pixabay", "cards")
 
+# Where Google sends a person back after they allow YouTube access. Worked out
+# from the request when unset, which behind Caddy is the public https address;
+# set it when a proxy in front does not pass the scheme and host along. Either
+# way it has to match a redirect URI listed on the OAuth client exactly.
+PUBLIC_URL = (os.environ.get("VIDSMITH_PUBLIC_URL")
+              or env("VIDSMITH_PUBLIC_URL", *_DOTENVS)).strip().rstrip("/")
+
 app = FastAPI(title="vidsmith", docs_url="/api/docs", redoc_url=None)
 jobs = Jobs(WORKDIR)
+# the login lives beside .env at the repo root, where `vidsmith upload` keeps it
+youtube = YouTube(HERE.parent, lambda: _keys())
 
 
 def guard(x_vidsmith_token: str = Header(default=""), t: str = "") -> None:
@@ -232,6 +244,70 @@ def renders(_: None = Depends(guard)) -> Dict[str, Any]:
     """
     return {"renders": jobs.renders(), "keep_seconds": KEEP_SECONDS,
             "keep_bytes": KEEP_BYTES}
+
+
+def _redirect_uri(request: Request) -> str:
+    if PUBLIC_URL:
+        return PUBLIC_URL + CALLBACK
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host")
+            or request.url.netloc)
+    return f"{proto}://{host}{CALLBACK}"
+
+
+@app.get("/api/youtube")
+def youtube_status(request: Request, _: None = Depends(guard)) -> Dict[str, Any]:
+    """Whether uploading is set up and connected, and the redirect URI to register."""
+    return {**youtube.status(), "redirect_uri": _redirect_uri(request)}
+
+
+@app.post("/api/youtube/connect")
+def youtube_connect(request: Request, _: None = Depends(guard)) -> Dict[str, str]:
+    try:
+        return {"url": youtube.connect_url(_redirect_uri(request))}
+    except Refused as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get(CALLBACK, response_class=HTMLResponse)
+def youtube_callback(request: Request, state: str = "", code: str = "",
+                     error: str = "") -> HTMLResponse:
+    """Google's redirect after consent.
+
+    Deliberately outside the token gate: the browser arriving here is following
+    Google's redirect, and cannot carry the header. The single-use state issued
+    by `/api/youtube/connect`, which is gated, is what authorises it.
+    """
+    try:
+        message = youtube.finish_connect({"state": state, "code": code, "error": error},
+                                         _redirect_uri(request))
+        ok = True
+    except Refused as exc:
+        message, ok = str(exc), False
+    page = ("<!doctype html><meta charset='utf-8'><meta name='viewport' "
+            "content='width=device-width,initial-scale=1'><title>vidsmith</title>"
+            "<body style='font:16px system-ui,sans-serif;background:#000;color:#ededed;"
+            "display:grid;place-items:center;min-height:100vh;margin:0;padding:0 16px'>"
+            f"<main style='max-width:32rem'><h1 style='font-size:20px'>"
+            f"{'Connected' if ok else 'Not connected'}</h1><p>{html.escape(message)}</p>"
+            "<p><a href='/' style='color:#a78bfa'>Back to vidsmith</a></p></main>")
+    return HTMLResponse(page, status_code=200 if ok else 400)
+
+
+class UploadRequest(BaseModel):
+    privacy: str = "private"
+
+
+@app.post("/api/jobs/{job_id}/youtube", status_code=202)
+def youtube_upload(job_id: str, req: UploadRequest,
+                   _: None = Depends(guard)) -> Dict[str, Any]:
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    try:
+        return youtube.start(job, req.privacy, jobs.record)
+    except Refused as exc:
+        raise HTTPException(409, str(exc))
 
 
 class DraftRequest(BaseModel):

@@ -281,6 +281,10 @@
   .legend .s { color: var(--fg-3); }
   .empty { color: var(--fg-3); font-size: 13px; margin: 0; }
 
+  /* uploading a finished render */
+  .yt-row { display: grid; gap: 8px; }
+  .yt-row .btn { margin-top: 4px; }
+
   /* renders this instance still holds, newest first */
   .past { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
   .past li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 0;
@@ -535,6 +539,21 @@
             <div><dt>Check</dt><dd id="check-badge">—</dd></div>
             <div><dt>Kept until</dt><dd id="kept">—</dd></div>
           </dl>
+          <div id="yt-box" class="hidden">
+            <hr class="sep">
+            <p class="eyebrow"><span>YouTube</span><span id="yt-state"></span></p>
+            <div id="yt-upload-row" class="yt-row hidden">
+              <label class="l" for="yt-privacy">Visibility</label>
+              <select id="yt-privacy" name="yt-privacy">
+                <option value="private">Private</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="public">Public</option>
+              </select>
+              <button class="btn block" type="button" id="yt-upload">Upload to YouTube</button>
+            </div>
+            <button class="btn block hidden" type="button" id="yt-connect">Connect YouTube</button>
+            <p class="fine" id="yt-note" aria-live="polite"></p>
+          </div>
           <hr class="sep">
           <button class="btn block" type="button" id="again">New Video</button>
         </div>
@@ -959,7 +978,7 @@ async function loadOptions() {
       tokenPill();
     });
     // the list is behind the token, so a token pasted in is the moment to fetch it
-    $("tokenfield").addEventListener("change", loadPast);
+    $("tokenfield").addEventListener("change", () => { loadPast(); loadYouTube(); });
     tokenPill();
   }
   const saved = loadSettings();
@@ -985,6 +1004,8 @@ async function loadOptions() {
   $("hint").textContent = "Expect roughly five minutes of building per minute of video.";
   showTab(window.location.hash === "#topic" ? "topic" : "script");
   updateMeter();
+  // before reattach, so a finished render shown on load knows whether to offer an upload
+  await loadYouTube();
   await reattach();
   watchBusy();
   loadPast();
@@ -1532,9 +1553,131 @@ function render(job) {
     $("player-wrap").classList.remove("hidden");
   }
   showDescription(job.id);
+  drawYouTube(job);
   finished();
   return true;
 }
+
+/* ---------------------------------------------------------------- YouTube
+   The delivery used to end at a zip, and the description was then typed into
+   YouTube Studio by hand, which is the pasting step `vidsmith upload` exists to
+   remove. The server fills the whole form from the build: title, description
+   and its credits, tags, thumbnail and a real caption track. */
+let ytStatus = null, shownJob = null, ytTimer = null, publicArmed = null;
+
+async function loadYouTube() {
+  if (needsAuth && !token()) return;
+  try {
+    const r = await fetch("/api/youtube", {headers: authHeaders()});
+    ytStatus = r.ok ? await r.json() : null;
+  } catch { ytStatus = null; }
+  if (shownJob) drawYouTube(shownJob);
+}
+
+function drawYouTube(job) {
+  shownJob = job;
+  const box = $("yt-box");
+  // an instance with no OAuth client says nothing, rather than offering a
+  // button that can only ever fail
+  if (job.status !== "done" || !ytStatus || !ytStatus.configured) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  const yt = job.youtube || {};
+  const uploading = yt.status === "uploading", done = yt.status === "done";
+  $("yt-connect").classList.toggle("hidden", done || uploading || ytStatus.connected);
+  $("yt-upload-row").classList.toggle("hidden", done || !ytStatus.connected);
+  $("yt-privacy").disabled = uploading;
+  working($("yt-upload"), uploading);
+  const pct = Math.round((yt.progress || 0) * 100);
+  // a saved login Google has stopped honouring still reads as connected on disk
+  $("yt-state").textContent = done ? (yt.privacy || "uploaded")
+    : uploading ? `${pct}%` : yt.reconnect ? "Sign In Again"
+    : ytStatus.connected ? "Connected" : "Not connected";
+
+  const note = $("yt-note");
+  if (done) {
+    note.innerHTML = `Uploaded as ${esc(yt.privacy || "private")}. ` +
+      `<a href="${esc(yt.url)}" target="_blank" rel="noopener">Watch</a> · ` +
+      `<a href="${esc(yt.studio)}" target="_blank" rel="noopener">Edit in YouTube Studio</a>` +
+      (yt.warning ? `<br>It is up, but not everything went with it: ${esc(yt.warning)}` : "");
+  } else if (uploading) {
+    note.textContent = "Uploading the video, then its thumbnail and captions. You can leave this page.";
+  } else if (yt.status === "failed") {
+    note.textContent = `The upload did not finish: ${yt.error || "no reason given"}`;
+    if (yt.reconnect) $("yt-connect").classList.remove("hidden");
+  } else {
+    note.textContent = ytStatus.connected
+      ? "Sends the title, description with its credits, tags, thumbnail and captions. Private can be changed in YouTube Studio later."
+      : "Connect once, then any finished render uploads from here with its title, description, thumbnail and captions.";
+  }
+
+  clearInterval(ytTimer);
+  ytTimer = null;
+  if (uploading) {
+    ytTimer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/jobs/${job.id}`, {headers: authHeaders()});
+        if (!r.ok) { clearInterval(ytTimer); ytTimer = null; return; }
+        const fresh = await r.json();
+        if (shownJob && shownJob.id === fresh.id) drawYouTube(fresh);
+      } catch { /* a dropped poll; the next tick tries again */ }
+    }, 2000);
+  }
+}
+
+$("yt-connect").onclick = async () => {
+  working($("yt-connect"), true);
+  let r, body;
+  try {
+    r = await fetch("/api/youtube/connect", {method: "POST", headers: authHeaders()});
+    body = await readBody(r);
+  } catch (e) {
+    body = {detail: e.message};
+  } finally {
+    working($("yt-connect"), false);
+  }
+  if (!r || !r.ok) { $("yt-note").textContent = body.detail || "Could not start connecting."; return; }
+  window.open(body.url, "_blank", "noopener");
+  $("yt-note").textContent = "Finish signing in to Google in the new tab. This updates when it is done.";
+  // Google sends the tab back to the server, not to this page, so ask the
+  // server until it has the login, for as long as a consent screen stays valid
+  const until = Date.now() + 15 * 60 * 1000;
+  const wait = setInterval(async () => {
+    await loadYouTube();
+    if ((ytStatus && ytStatus.connected) || Date.now() > until) clearInterval(wait);
+  }, 3000);
+};
+
+$("yt-upload").onclick = async () => {
+  if (!shownJob) return;
+  const privacy = $("yt-privacy").value;
+  // Public is seen the moment it lands, and taking a video down does not
+  // unpublish it, so it takes a second press. Private and unlisted do not.
+  if (privacy === "public" && !publicArmed) {
+    $("yt-upload").textContent = "Press Again to Publish Publicly";
+    publicArmed = setTimeout(() => { publicArmed = null; $("yt-upload").textContent = "Upload to YouTube"; }, 4000);
+    return;
+  }
+  clearTimeout(publicArmed);
+  publicArmed = null;
+  $("yt-upload").textContent = "Upload to YouTube";
+  working($("yt-upload"), true);
+  let r, body;
+  try {
+    r = await fetch(`/api/jobs/${shownJob.id}/youtube`, {
+      method: "POST", headers: {...authHeaders(), "Content-Type": "application/json"},
+      body: JSON.stringify({privacy})});
+    body = await readBody(r);
+  } catch (e) {
+    body = {detail: e.message};
+  }
+  working($("yt-upload"), false);
+  if (!r || !r.ok) {
+    if (r && r.status === 401) forgetToken();
+    $("yt-note").textContent = body.detail || "The upload could not start.";
+    return;
+  }
+  drawYouTube({...shownJob, youtube: body});
+};
 
 /* One place to hand the box back: the Render button is re-enabled here, and
    the meter keeps an over-long or empty script explained rather than sent. */
@@ -1657,6 +1800,9 @@ $("sample").onclick = () => {
    here, so a reload does not bring the finished one back over a new script. */
 $("again").onclick = () => {
   forgetJob();
+  shownJob = null;
+  clearInterval(ytTimer);
+  ytTimer = null;
   $("progress").classList.add("hidden");
   $("player").removeAttribute("src");
   $("player-wrap").classList.add("hidden");

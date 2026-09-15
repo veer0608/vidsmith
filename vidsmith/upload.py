@@ -69,6 +69,63 @@ class UploadFailed(RuntimeError):
     """
 
 
+class NotConnected(UploadFailed):
+    """No saved login, or one Google no longer honours, and nobody to ask.
+
+    The web service runs on a box with no browser, so it cannot fall through to
+    the consent screen the way the CLI does; the page asks the person to connect
+    instead. A distinct class so the route can say that rather than "failed".
+    """
+
+
+def consent_url(client_id: str, redirect_uri: str, state: str) -> str:
+    """Google's consent screen for these scopes, coming back to `redirect_uri`.
+
+    `access_type=offline` with `prompt=consent` is what makes the response carry
+    a refresh token; without both, a second authorisation returns only an access
+    token and every later upload asks again.
+    """
+    return f"{AUTH_URL}?" + urllib.parse.urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": SCOPES,
+        "access_type": "offline",
+        "prompt": "consent",
+        "state": state,
+    })
+
+
+def exchange_code(code: str, client_id: str, client_secret: str,
+                  redirect_uri: str) -> Dict[str, Any]:
+    """Trade an authorisation code for tokens. `redirect_uri` must match exactly."""
+    return _post_token({
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    })
+
+
+def save_grant(repo_root: Path, granted: Dict[str, Any]) -> None:
+    """Keep a first authorisation, which is the only one carrying a refresh token."""
+    if not granted.get("refresh_token"):
+        raise UploadFailed(
+            "Google returned no refresh token; revoke vidsmith's access at "
+            "myaccount.google.com/permissions and authorise again")
+    _save_token(token_path(repo_root), granted)
+
+
+def connected(repo_root: Path) -> bool:
+    """Whether a login is saved. Not whether Google still honours it."""
+    try:
+        saved = json.loads(token_path(repo_root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return bool(isinstance(saved, dict) and saved.get("refresh_token"))
+
+
 # --------------------------------------------------------------------------- #
 # consent, once
 # --------------------------------------------------------------------------- #
@@ -133,16 +190,7 @@ def _consent(client_id: str, client_secret: str, log=print) -> Dict[str, Any]:
     server = HTTPServer(("127.0.0.1", 0), _Catcher)
     port = server.server_address[1]
     redirect = f"http://127.0.0.1:{port}"
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect,
-        "response_type": "code",
-        "scope": SCOPES,
-        "access_type": "offline",
-        "prompt": "consent",
-        "state": _Catcher.state,
-    }
-    url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
+    url = consent_url(client_id, redirect, _Catcher.state)
 
     thread = Thread(target=server.handle_request, daemon=True)
     thread.start()
@@ -157,13 +205,7 @@ def _consent(client_id: str, client_secret: str, log=print) -> Dict[str, Any]:
     if not _Catcher.code:
         raise UploadFailed("no authorisation code came back within five minutes")
 
-    return _post_token({
-        "code": _Catcher.code,
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect,
-        "grant_type": "authorization_code",
-    })
+    return exchange_code(_Catcher.code, client_id, client_secret, redirect)
 
 
 def _post_token(form: Dict[str, str]) -> Dict[str, Any]:
@@ -177,18 +219,22 @@ def _post_token(form: Dict[str, str]) -> Dict[str, Any]:
 
 
 def access_token(repo_root: Path, client_id: str, client_secret: str,
-                 log=print) -> str:
+                 log=print, interactive: bool = True) -> str:
     """A usable access token, refreshing or asking for consent as needed.
 
     The refresh token is the thing worth keeping, so it is written back on every
     exchange: Google returns a refresh token on the *first* authorisation and
     then omits it from refresh responses, and a save that copied the response
     wholesale would erase it on the first refresh.
+
+    `interactive=False` is the web service, on a box with no browser to open:
+    with no usable login it raises `NotConnected` rather than waiting five
+    minutes on a consent screen nobody can see.
     """
     if not client_id or not client_secret:
         raise UploadFailed(
             "no YouTube client: set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET "
-            "from a Desktop app OAuth client in Google Cloud (see README, Uploading it)")
+            "from an OAuth client in Google Cloud (see README, Uploading it)")
 
     path = token_path(repo_root)
     saved: Dict[str, Any] = {}
@@ -215,12 +261,11 @@ def access_token(repo_root: Path, client_id: str, client_secret: str,
             _save_token(path, saved)
             return saved["access_token"]
 
+    if not interactive:
+        raise NotConnected("YouTube is not connected, or Google no longer accepts "
+                           "the saved login; connect it again")
     granted = _consent(client_id, client_secret, log=log)
-    if not granted.get("refresh_token"):
-        raise UploadFailed(
-            "Google returned no refresh token; revoke vidsmith's access at "
-            "myaccount.google.com/permissions and authorise again")
-    _save_token(path, granted)
+    save_grant(repo_root, granted)
     return granted["access_token"]
 
 
