@@ -580,9 +580,18 @@ competing with the voice.
   room to write, so it would eventually have failed a build with a message about
   disk rather than about jobs. `sweep_orphans()` runs from the constructor,
   where `_jobs` is empty by definition, so anything present belongs to a process
-  that has gone and age never needs consulting. Do not move that call anywhere
-  else: run at any other moment it deletes the render in flight, and it looks
-  exactly like a tidy-up.
+  that has gone. Do not move that call anywhere else: run at any other moment
+  it deletes the render in flight, and it looks exactly like a tidy-up.
+  **Then deleting all of them cost the videos.** Every deploy removed a render
+  somebody had not downloaded yet, and one was saved only by copying it off the
+  box by hand before a restart. A finished render now drops its `build/` (364 MB
+  of a 410 MB two-minute job) and writes `job.json` last, so a directory that
+  has one is always a finished render; `sweep_orphans()` registers those again
+  as done and removes everything else as before. What is held is bounded twice,
+  by `VIDSMITH_KEEP_DAYS` (7) and `VIDSMITH_KEEP_GB` (4, oldest first, never the
+  newest), and a failed render still goes after an hour. The record is read
+  back, never trusted: its id must name its directory and `out/` must still
+  hold an mp4, and the outputs are listed off the disk.
 - **Claim the render slot and you own giving it back.** `Jobs.submit` sets
   `_active` under the lock, but only `_run` clears it, so anything between the
   two that can raise has to release it itself. Writing the job directory did
@@ -1097,8 +1106,10 @@ Every build now does that itself: `build/manifest{tag}.json` carries seconds per
 stage, ffmpeg time within each, and a `share` line. The first real one, a
 20-second local-footage build, put ffmpeg at 75%, which agrees with the table.
 
-Jobs live in memory under `jobs/<id>/` and are swept an hour after finishing, so
-anything worth keeping is copied into `projects/`. `VIDSMITH_TOKEN` gates the
+Jobs live in memory under `jobs/<id>/`. A finished render is kept for
+`VIDSMITH_KEEP_DAYS` within `VIDSMITH_KEEP_GB`, survives a restart through its
+`job.json`, and is listed by `GET /api/jobs` for the page's Past Renders card; a
+failed one is swept after an hour. `VIDSMITH_TOKEN` gates the
 API when set; `/healthz` stays open and reports ffmpeg and bundled fonts.
 **`keys` is behind the token**, deliberately: it inventories which credentials
 the box holds, and a stranger who found the URL has no business reading it.
@@ -1158,7 +1169,8 @@ are unauthenticated, and between them they have caught every deploy here that
 reported success and had changed nothing.
 
 Updating is one line, and the restart is what sweeps orphaned job directories,
-so it cleans up on the way in:
+so it cleans up on the way in. Finished renders survive it, but a render still
+in flight does not, so check `/api/busy` first:
 
 ```bash
 ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git pull --ff-only; bash scripts/fetch-runtime-deps.sh --fonts-only; sudo systemctl daemon-reload; sudo systemctl restart vidsmith"

@@ -17,7 +17,7 @@ from vidsmith.config import ASPECTS, VoiceConfig, env
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
-from web.jobs import KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
+from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
 
 HERE = Path(__file__).resolve().parent
 WORKDIR = Path(os.environ.get("VIDSMITH_JOBS", HERE.parent / "jobs"))
@@ -223,6 +223,17 @@ def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     return jobs.snapshot(job.id) or job.public()
 
 
+@app.get("/api/jobs")
+def renders(_: None = Depends(guard)) -> Dict[str, Any]:
+    """Finished renders still held, newest first, with when each will go.
+
+    Behind the token like every job route: a title is the subject of somebody's
+    video, and the list is the archive of what this instance has made.
+    """
+    return {"renders": jobs.renders(), "keep_seconds": KEEP_SECONDS,
+            "keep_bytes": KEEP_BYTES}
+
+
 class DraftRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=200)
     minutes: float = 2.0
@@ -294,7 +305,7 @@ def archive(job_id: str, _: None = Depends(guard)) -> FileResponse:
     The mp4 alone is not the deliverable. `credits*.txt` carries attribution the
     stock licence requires and `description.txt` is the file that gets pasted
     into YouTube, and both were being left behind because taking one link is
-    easier than taking six. Jobs are swept an hour after they finish.
+    easier than taking six. A finished render is kept for `KEEP_SECONDS`.
     """
     path = jobs.archive(job_id)
     if path is None:

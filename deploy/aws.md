@@ -394,8 +394,11 @@ is open to anyone who finds the address.
 - **One at a time.** Queue depth is one by design, so a second caller gets a 429
   rather than both renders starving. `GET /api/busy` is unguarded so the page can
   say the box is working before someone writes a script.
-- **Jobs are swept an hour after they finish.** Anything worth keeping has to be
-  downloaded or copied into `projects/`.
+- **Finished renders are kept for 7 days, within 4 GB.** `VIDSMITH_KEEP_DAYS`
+  and `VIDSMITH_KEEP_GB` change that; the oldest go first when the budget is
+  reached. They survive a restart and a deploy, and the page lists them under
+  Past Renders. A render's working files are deleted as it finishes, so the
+  budget is spent on deliveries. A failed render is swept after an hour.
 - **A reboot loses the queue,** which lives in memory. `Restart=always` brings
   the service back; it does not bring back a render that was in flight.
 
