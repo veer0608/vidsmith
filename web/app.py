@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from vidsmith import llm
 from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, VoiceConfig, env
+from vidsmith import cover
 from vidsmith import retake as retakes
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
@@ -377,6 +378,40 @@ def swap_shot(job_id: str, scene: int, shot: int, req: SwapRequest,
         raise HTTPException(409, str(exc))
     except Busy as exc:
         raise HTTPException(429, str(exc))
+    if job is None:
+        raise HTTPException(404, "no such job")
+    return jobs.snapshot(job.id) or job.public()
+
+
+@app.get("/api/jobs/{job_id}/thumbnail/candidates")
+def thumbnail_candidates(job_id: str, q: str = "",
+                         _: None = Depends(guard)) -> Dict[str, Any]:
+    """Photographs the thumbnail could be made from, from the build's search or `q`."""
+    job = _finished(job_id)
+    try:
+        return cover.candidates(job.root, keys=_keys(), query=q or None)
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+
+
+class ThumbnailRequest(BaseModel):
+    photo: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    scene: Optional[int] = None
+    shot: Optional[int] = None
+    query: str = Field(default="", max_length=retakes.MAX_QUERY)
+
+
+@app.post("/api/jobs/{job_id}/thumbnail")
+def set_thumbnail(job_id: str, req: ThumbnailRequest,
+                  _: None = Depends(guard)) -> Dict[str, Any]:
+    """Make the thumbnail from a photograph or a shot's frame, and re-credit it."""
+    try:
+        job = jobs.set_thumbnail(job_id, photo=req.photo, scene=req.scene,
+                                 shot=req.shot, query=req.query, keys=_keys())
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+    except RuntimeError as exc:                 # ffmpeg could not read the frame
+        raise HTTPException(500, f"the thumbnail could not be made: {exc}")
     if job is None:
         raise HTTPException(404, "no such job")
     return jobs.snapshot(job.id) or job.public()

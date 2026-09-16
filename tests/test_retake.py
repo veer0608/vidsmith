@@ -32,6 +32,9 @@ def finished_build(root: Path, provider: str = "pexels") -> Path:
     """What a finished stock render leaves on disk once its downloads are gone."""
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
+    (root / "script.md").write_text(
+        "# A Title\n\n## Racks\nRacks hold the servers. Each one hums all night long.\n\n"
+        "Then someone types the fix.\n", encoding="utf-8")
     write_default_config(root / "config.yaml", "A Title")
     raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
     raw["visuals"]["provider"] = provider

@@ -481,6 +481,11 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
                 thumb_credit = None
             thumbs.titled(source, proj.out / f"{slug}{tag}.jpg", cfg.title,
                           theme, target)
+            # the search it came from, so the page can offer that search's
+            # other photographs instead of asking the model to write it again
+            write_thumbnail_choice(proj.build, tag, {
+                "kind": "photo", "query": stock["query"], "id": stock.get("id", "")}
+                if stock else {"kind": "frame"})
         except Exception as exc:
             log(f"         thumbnail fell back to a plain frame ({exc})")
             render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
@@ -570,6 +575,14 @@ def thumbnail_credit_line(stock: Dict[str, Any]) -> str:
     """
     line = f"{THUMB_CREDIT}{stock['author']} - {stock.get('page', '')}"
     return line.rstrip(" -") + "\n"
+
+
+def write_thumbnail_choice(build_dir: Path, tag: str, body: Dict[str, Any]) -> Path:
+    """Record what a cut's thumbnail was made from, beside the build."""
+    path = Path(build_dir) / f"thumbnail{tag}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body, indent=2), encoding="utf-8")
+    return path
 
 
 def kept_thumbnail_credit(path: Path) -> str:
