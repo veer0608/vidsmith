@@ -663,8 +663,11 @@ class VisualBuilder:
         """
         ledger = self._load_ledger()
         for j, shot in enumerate(scene.shots):
+            # the clip and the search it came from, so a finished render can
+            # offer that shot's other candidates without searching blind
             ledger[f"{scene.index}:{j}"] = {
-                "credit": shot.get("credit", ""), "url": shot.get("credit_url", "")
+                "credit": shot.get("credit", ""), "url": shot.get("credit_url", ""),
+                "id": shot.get("clip", ""), "query": shot.get("query", ""),
             }
         self._ledger_path().write_text(json.dumps(ledger, indent=2), encoding="utf-8")
 
@@ -1131,11 +1134,12 @@ class VisualBuilder:
             paths = self._shot_paths(scene, len(on_disk))
             got = [ff.duration(p) for p in paths] if on_disk == paths else []
             if got and abs(sum(got) - scene.duration) <= 0.15:
+                entries = [ledger.get(f"{scene.index}:{j}", {}) for j in range(len(paths))]
                 scene.shots = [
                     {"path": str(p), "duration": d,
-                     "credit": ledger.get(f"{scene.index}:{j}", {}).get("credit", ""),
-                     "credit_url": ledger.get(f"{scene.index}:{j}", {}).get("url", "")}
-                    for j, (p, d) in enumerate(zip(paths, got))
+                     "credit": entry.get("credit", ""), "credit_url": entry.get("url", ""),
+                     "query": entry.get("query", ""), "clip": entry.get("id", "")}
+                    for p, d, entry in zip(paths, got, entries)
                 ]
                 scene.visual = scene.shots[0]["path"]
                 return [s["path"] for s in scene.shots]
@@ -1278,6 +1282,7 @@ class VisualBuilder:
                 "credit": src["author"] if src else "",
                 "credit_url": src["page"] if src else "",
                 "query": src.get("query", "") if src else "",
+                "clip": src.get("id", "") if src else "",
             })
 
         scene.visual = scene.shots[0]["path"]

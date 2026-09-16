@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from vidsmith import llm
 from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, VoiceConfig, env
+from vidsmith import retake as retakes
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
@@ -308,6 +309,77 @@ def youtube_upload(job_id: str, req: UploadRequest,
         return youtube.start(job, req.privacy, jobs.record)
     except Refused as exc:
         raise HTTPException(409, str(exc))
+
+
+def _finished(job_id: str):
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    if job.status != "done" or job.root is None:
+        raise HTTPException(409, "only a finished render has shots to change")
+    return job
+
+
+@app.get("/api/jobs/{job_id}/shots")
+def shots(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
+    """Every shot of a finished render, and whether its clip can be changed.
+
+    Answers rather than refuses when it cannot, because that is the ordinary
+    case for a cards build or a render from before shots were kept, and the page
+    only needs to know whether to offer anything.
+    """
+    job = _finished(job_id)
+    try:
+        return {"available": True, "reason": "", **retakes.shots(job.root)}
+    except retakes.RetakeRefused as exc:
+        return {"available": False, "reason": str(exc), "shots": []}
+
+
+@app.get("/api/jobs/{job_id}/shots/{scene}/{shot}/frame")
+def shot_frame(job_id: str, scene: int, shot: int,
+               _: None = Depends(guard)) -> FileResponse:
+    job = _finished(job_id)
+    try:
+        path = retakes.frame(job.root, scene, shot)
+    except (retakes.RetakeRefused, RuntimeError):
+        raise HTTPException(404, "no frame for that shot")
+    return FileResponse(path, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/jobs/{job_id}/shots/{scene}/{shot}/candidates")
+def shot_candidates(job_id: str, scene: int, shot: int, q: str = "",
+                    _: None = Depends(guard)) -> Dict[str, Any]:
+    """The clips this shot could hold instead, from its own search or `q`."""
+    job = _finished(job_id)
+    try:
+        return retakes.candidates(job.root, scene, shot, keys=_keys(), query=q or None)
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+
+
+class SwapRequest(BaseModel):
+    clip: str = Field(min_length=1, max_length=40)
+    query: str = Field(default="", max_length=retakes.MAX_QUERY)
+
+
+@app.post("/api/jobs/{job_id}/shots/{scene}/{shot}", status_code=202)
+def swap_shot(job_id: str, scene: int, shot: int, req: SwapRequest,
+              _: None = Depends(guard)) -> Dict[str, Any]:
+    """Put a different clip under one shot and deliver the video again.
+
+    Queued like a render, because the encode is most of one. The job keeps its
+    id, so the page follows it the same way.
+    """
+    try:
+        job = jobs.retake(job_id, scene, shot, req.clip, req.query, keys=_keys())
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+    except Busy as exc:
+        raise HTTPException(429, str(exc))
+    if job is None:
+        raise HTTPException(404, "no such job")
+    return jobs.snapshot(job.id) or job.public()
 
 
 class DraftRequest(BaseModel):

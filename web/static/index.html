@@ -285,6 +285,34 @@
   .yt-row { display: grid; gap: 8px; }
   .yt-row .btn { margin-top: 4px; }
 
+  /* changing one shot of a finished render: its frames, then the other clips */
+  .shots, .clips { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px;
+                   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+  .tall-shots .shots, .tall-shots .clips { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+  .tile { display: grid; gap: 4px; align-content: start; width: 100%; margin: 0; padding: 4px;
+          border: 1px solid transparent; border-radius: var(--r-sm); background: none; color: inherit;
+          font: inherit; text-align: left; cursor: pointer;
+          transition: background-color .15s ease, border-color .15s ease; }
+  .tile:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border); }
+  .tile[aria-pressed="true"] { border-color: var(--brand-a);
+                               background: color-mix(in srgb, var(--brand-a) 10%, transparent); }
+  .tile:disabled { cursor: not-allowed; opacity: .5; }
+  .tile img, .swap-head img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover;
+                              border-radius: 4px; background: var(--surface-2); }
+  .tall-shots .tile img, .tall-shots .swap-head img { aspect-ratio: 9 / 16; }
+  .tile .cap { display: flex; justify-content: space-between; gap: 6px; min-width: 0;
+               font-size: 12px; color: var(--fg-2); }
+  .tile .cap span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* the time is the part that must survive; a long creator name gives way */
+  .tile .cap span:first-child { flex: none; }
+  .tile .badge { height: 20px; font-size: 11px; justify-self: start; }
+  .swap-head { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 12px;
+               align-items: start; margin-bottom: 12px; }
+  .tall-shots .swap-head { grid-template-columns: 96px minmax(0, 1fr); }
+  .said { margin: 0; font-size: 13.5px; text-wrap: pretty; overflow-wrap: anywhere; }
+  .swap-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  @media (max-width: 640px) { .swap-head { grid-template-columns: 112px minmax(0, 1fr); } }
+
   /* renders this instance still holds, newest first */
   .past { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
   .past li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 0;
@@ -401,6 +429,7 @@
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10m4 0h2M4 17h4m4 0h8M16 5v4M10 15v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="M4 8l8-4.5L20 8v8l-8 4.5L4 16z M4 8l8 4.5L20 8 M12 12.5v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M7.5 5v14M16.5 5v14M3.5 9.5h4M3.5 14.5h4M16.5 9.5h4M16.5 14.5h4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 12l8.5-8.5M16 7l2.5 2.5M14 9l2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
 </svg>
 
@@ -467,6 +496,49 @@
         <!-- aria-hidden: the stage above already announces every change, and
              reading nine rows again on each poll would drown it -->
         <ol class="steps" id="steps" aria-hidden="true"></ol>
+      </section>
+
+      <!-- A render's footage is the part most often wrong. Each shot is kept with
+           the search it came from, so one can be changed without building the
+           rest again. -->
+      <section class="card hidden" id="shots-card" aria-labelledby="shots-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--s3)" aria-hidden="true"><svg><use href="#i-film"/></svg></span>
+          <h2 id="shots-h">Shots</h2>
+          <div class="end"><span class="badge num" id="shots-count"></span></div>
+        </div>
+        <div class="card-b">
+          <p class="hint" id="shots-note" aria-live="polite" style="margin:0"></p>
+          <ul class="shots" id="shots"></ul>
+          <div id="swap" class="hidden">
+            <hr class="sep">
+            <div class="swap-head">
+              <img id="swap-now" alt="">
+              <div>
+                <p class="eyebrow num"><span id="swap-where"></span><span id="swap-len"></span></p>
+                <p class="said" id="swap-said"></p>
+                <p class="fine" id="swap-credit"></p>
+              </div>
+            </div>
+            <form class="inline" id="swap-search" novalidate>
+              <div>
+                <label class="l" for="swap-q">Search</label>
+                <input type="text" id="swap-q" name="swap-q" autocomplete="off" spellcheck="false"
+                       maxlength="100" enterkeyhint="search" placeholder="server rack with blinking lights…">
+              </div>
+              <button class="btn" type="submit" id="swap-find">Search</button>
+            </form>
+            <p class="hint" id="swap-status" aria-live="polite" style="margin:0"></p>
+            <ul class="clips" id="clips"></ul>
+            <div class="swap-actions">
+              <button class="btn primary" type="button" id="swap-use" disabled>Use This Clip</button>
+              <button class="btn" type="button" id="swap-close">Cancel</button>
+            </div>
+            <p class="fine">The whole video is encoded again, which takes a few minutes.
+              The video you have now stays until the new one is ready.</p>
+            <p class="error" id="swap-error" aria-live="polite"></p>
+          </div>
+        </div>
       </section>
 
       <section class="card hidden" id="files-card" aria-labelledby="files-h">
@@ -1448,7 +1520,7 @@ function render(job) {
   document.title = titleFor(job, pct);
   const meta = jobMeta(job.id);
   $("job-title").textContent = job.title || "Your Video";
-  $("fact-shape").textContent = meta.aspect || "—";
+  $("fact-shape").textContent = meta.aspect || job.aspect || "—";
   if (job.status !== "done") {
     $("fact-length-label").textContent = "Estimated Length";
     $("fact-length").textContent = meta.estimate ? `about ${fmt(meta.estimate)}` : "—";
@@ -1491,6 +1563,7 @@ function render(job) {
   if (job.status !== "done") {
     // nothing from a previous render stays on screen beside this one
     for (const id of ["files-card", "copybar", "player-wrap"]) $(id).classList.add("hidden");
+    hideShots();
     // A queued job has no stage and no progress, so the running job's label
     // would read "starting" beside a bar stuck at zero and look like a hang.
     // Say where in the line it is instead; `position` comes from the queue
@@ -1543,7 +1616,10 @@ function render(job) {
   const video = job.outputs.find((f) => f.kind === "mp4");
   if (video) {
     const p = $("player");
-    p.src = `/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}${authQuery()}`;
+    // versioned by when it finished: a changed shot rewrites the file under the
+    // same name, and a cached copy would play the video from before the change
+    const src = withAuth(`/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}`, {v: job.expires || ""});
+    if (p.getAttribute("src") !== src) p.src = src;
     p.className = portrait ? "tall" : "";
     p.setAttribute("aria-label", job.title || "The finished video");
     p.onloadedmetadata = () => {
@@ -1554,6 +1630,7 @@ function render(job) {
   }
   showDescription(job.id);
   drawYouTube(job);
+  loadShots(job);
   finished();
   return true;
 }
@@ -1679,6 +1756,181 @@ $("yt-upload").onclick = async () => {
   drawYouTube({...shownJob, youtube: body});
 };
 
+/* ----------------------------------------------------------------- Shots
+   Fixing one bad shot used to mean building the whole video again, with every
+   other shot free to change too. The server keeps each shot's clip and the
+   search it came from, so a finished render offers that search's other results
+   for one shot, and encodes the video again around the clip picked. The model's
+   verdicts are shown beside the clips rather than obeyed: it already chose the
+   shot being replaced. */
+let shotJob = null, shotList = [], pickedShot = null, pickedClip = null, clipQuery = "", clipsFor = 0;
+
+const withAuth = (path, extra = {}) =>
+  `${path}?${new URLSearchParams({...(needsAuth ? {t: token()} : {}), ...extra})}`;
+
+function hideShots() {
+  shotJob = null;
+  closeSwap();
+  $("shots-card").classList.add("hidden");
+}
+
+async function loadShots(job) {
+  shotJob = job;
+  let body;
+  try {
+    const r = await fetch(`/api/jobs/${job.id}/shots`, {headers: authHeaders()});
+    body = r.ok ? await r.json() : null;
+  } catch { body = null; }
+  if (!shotJob || shotJob.id !== job.id) return;        // another render was opened meanwhile
+  if (!body || !body.available || !body.shots.length) { $("shots-card").classList.add("hidden"); return; }
+  shotList = body.shots;
+  const card = $("shots-card");
+  card.classList.remove("hidden");
+  card.classList.toggle("tall-shots", ["9:16", "4:5"].includes(body.aspect));
+  $("shots-count").textContent = `${whole.format(shotList.length)} shot${shotList.length === 1 ? "" : "s"}`;
+  const swap = job.swap || {};
+  // a changed shot keeps its file name, so the still is asked for again whenever
+  // the render has finished again
+  const version = job.expires || "";
+  $("shots").innerHTML = shotList.map((s, i) => {
+    const changed = swap.status === "done" && swap.scene === s.scene && swap.shot === s.shot;
+    const label = `Scene ${s.scene + 1}, shot ${s.shot + 1}, at ${fmt(s.start)}` +
+      (s.credit ? `, footage by ${s.credit}` : "") + (s.swappable ? "" : ", a drawn scene");
+    return `<li><button type="button" class="tile" data-shot="${i}" aria-pressed="false"` +
+      `${s.swappable ? "" : " disabled"} aria-label="${esc(label)}">` +
+      `<img loading="lazy" alt="" src="${esc(withAuth(`/api/jobs/${job.id}/shots/${s.scene}/${s.shot}/frame`, {v: version}))}">` +
+      `<span class="cap num"><span>${fmt(s.start)}</span><span>${esc(s.credit || (s.swappable ? "" : "Drawn"))}</span></span>` +
+      (changed ? `<span class="badge ok">Changed</span>` : "") + `</button></li>`;
+  }).join("");
+  $("shots-note").textContent = swap.status === "failed"
+    ? `The last change did not happen, so the video is as it was: ${swap.error || "no reason given"}`
+    : swap.status === "done"
+      ? `Scene ${swap.scene + 1}, shot ${swap.shot + 1} now has the clip you picked. Choose another shot to change it too.`
+      : "Choose a shot that does not fit to see other clips for it.";
+}
+
+$("shots").addEventListener("click", (event) => {
+  const tile = event.target.closest("[data-shot]");
+  if (!tile || tile.disabled || !shotJob) return;
+  openSwap(Number(tile.dataset.shot));
+});
+
+function openSwap(i) {
+  pickedShot = shotList[i];
+  pickedClip = null;
+  for (const t of $("shots").querySelectorAll("[data-shot]")) t.setAttribute("aria-pressed", String(Number(t.dataset.shot) === i));
+  const s = pickedShot;
+  $("swap").classList.remove("hidden");
+  $("swap-now").src = $("shots").querySelector(`[data-shot="${i}"] img`).src;
+  $("swap-where").textContent = `Scene ${s.scene + 1}${s.heading ? `: ${s.heading}` : ""} · shot ${s.shot + 1}`;
+  $("swap-len").textContent = `${fmt(s.start)} for ${s.duration.toFixed(1)}s`;
+  $("swap-said").textContent = s.said ? `“${s.said}”` : "";
+  $("swap-credit").textContent = s.credit ? `Now: footage by ${s.credit}` : "";
+  $("swap-q").value = s.query || "";
+  $("swap-error").textContent = "";
+  findClips("");
+}
+
+function closeSwap() {
+  pickedShot = null;
+  pickedClip = null;
+  clipsFor += 1;                                   // a search still on its way is dropped
+  $("swap").classList.add("hidden");
+  $("clips").innerHTML = "";
+  for (const t of $("shots").querySelectorAll("[data-shot]")) t.setAttribute("aria-pressed", "false");
+}
+
+async function findClips(query) {
+  if (!shotJob || !pickedShot) return;
+  const asked = ++clipsFor, s = pickedShot;
+  pickedClip = null;
+  $("swap-use").disabled = true;
+  $("clips").innerHTML = "";
+  $("swap-status").textContent = "Searching…";
+  working($("swap-find"), true);
+  let r, body;
+  try {
+    r = await fetch(withAuth(`/api/jobs/${shotJob.id}/shots/${s.scene}/${s.shot}/candidates`, query ? {q: query} : {}),
+                    {headers: authHeaders()});
+    body = await readBody(r);
+  } catch (e) {
+    body = {detail: "Could not reach the server."};
+  } finally {
+    working($("swap-find"), false);
+  }
+  if (asked !== clipsFor) return;
+  if (!r || !r.ok) {
+    if (r && r.status === 401) forgetToken();
+    $("swap-status").textContent = detailText(body, "The search did not work.");
+    return;
+  }
+  clipQuery = body.query;
+  $("swap-q").value = body.query;
+  const clips = body.candidates || [];
+  $("swap-status").textContent = clips.length
+    ? `${whole.format(clips.length)} clip${clips.length === 1 ? "" : "s"} for “${body.query}” not already in the video. ` +
+      "Pick one, or search for something else."
+    : `Nothing for “${body.query}” that is not already in the video. Try another search.`;
+  $("clips").innerHTML = clips.map((c) => {
+    const short = c.duration && c.duration < body.duration;
+    const label = `Clip by ${c.author || "an unnamed creator"}, ${c.duration ? fmt(c.duration) : "length unknown"}` +
+      (c.verdict === "rejected" ? ", judged off-topic by the model" : "") + (short ? ", shorter than the shot" : "");
+    return `<li><button type="button" class="tile" data-clip="${esc(c.id)}" aria-pressed="false" aria-label="${esc(label)}">` +
+      `<img loading="lazy" alt="" referrerpolicy="no-referrer" src="${esc(c.preview)}">` +
+      `<span class="cap num"><span>${c.duration ? fmt(c.duration) : "—"}</span><span>${esc(c.author || "")}</span></span>` +
+      (c.verdict === "rejected" ? `<span class="badge warn">Judged Off-Topic</span>`
+        : short ? `<span class="badge">Plays Slowed</span>` : "") +
+      `</button></li>`;
+  }).join("");
+}
+
+$("swap-search").addEventListener("submit", (e) => {
+  e.preventDefault();
+  findClips($("swap-q").value.trim());
+});
+
+$("clips").addEventListener("click", (event) => {
+  const tile = event.target.closest("[data-clip]");
+  if (!tile) return;
+  pickedClip = tile.dataset.clip;
+  for (const t of $("clips").querySelectorAll("[data-clip]")) t.setAttribute("aria-pressed", String(t === tile));
+  $("swap-use").disabled = false;
+});
+
+$("swap-close").onclick = closeSwap;
+
+$("swap-use").onclick = async () => {
+  if (!shotJob || !pickedShot || !pickedClip || running) return;
+  const s = pickedShot;
+  working($("swap-use"), true);
+  $("swap-error").textContent = "";
+  let r, body;
+  try {
+    r = await fetch(`/api/jobs/${shotJob.id}/shots/${s.scene}/${s.shot}`, {
+      method: "POST", headers: {...authHeaders(), "Content-Type": "application/json"},
+      body: JSON.stringify({clip: pickedClip, query: clipQuery})});
+    body = await readBody(r);
+  } catch {
+    body = {detail: "Could not reach the server."};
+  }
+  working($("swap-use"), false);
+  if (!r || !r.ok) {
+    if (r && r.status === 401) forgetToken();
+    $("swap-use").disabled = false;
+    $("swap-error").textContent = detailText(body, "The change could not start.");
+    return;
+  }
+  // the same job, building again: follow it exactly as the first build was followed
+  hideShots();
+  store.drop("vidsmith_stage_clock");
+  running = body.id;
+  $("go").disabled = true;
+  $("log").classList.remove("err");
+  render(body);
+  follow(body.id);
+  window.scrollTo({top: 0});
+};
+
 /* One place to hand the box back: the Render button is re-enabled here, and
    the meter keeps an over-long or empty script explained rather than sent. */
 function finished() {
@@ -1801,6 +2053,7 @@ $("sample").onclick = () => {
 $("again").onclick = () => {
   forgetJob();
   shownJob = null;
+  hideShots();
   clearInterval(ytTimer);
   ytTimer = null;
   $("progress").classList.add("hidden");
@@ -1937,6 +2190,7 @@ $("form").addEventListener("submit", async (e) => {
   $("log").classList.remove("err");
   $("files").innerHTML = "";
   $("files-card").classList.add("hidden");
+  hideShots();
   $("player-wrap").classList.add("hidden");
   $("copybar").classList.add("hidden");
   $("copied").textContent = "";

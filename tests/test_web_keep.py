@@ -32,8 +32,11 @@ def stub_pipeline(monkeypatch):
     def fake_build(root, **kwargs):
         log = kwargs.get("log") or (lambda *a: None)
         root = Path(root)
-        (root / "build" / "visuals").mkdir(parents=True, exist_ok=True)
+        (root / "build" / "visuals" / "cache").mkdir(parents=True, exist_ok=True)
         (root / "build" / "visuals" / "scene_000_00.mp4").write_bytes(b"x" * 5000)
+        (root / "build" / "visuals" / "cache" / "pexels_1.mp4").write_bytes(b"x" * 50000)
+        (root / "build" / "picture.mp4").write_bytes(b"x" * 8000)
+        (root / "build" / "scenes.json").write_text("[]", encoding="utf-8")
         out = root / "out"
         out.mkdir(parents=True, exist_ok=True)
         (out / "a-title.mp4").write_bytes(b"video")
@@ -48,7 +51,10 @@ def stub_pipeline(monkeypatch):
 def _settle(jobs, limit: int = 200) -> None:
     for _ in range(limit):
         if not jobs.busy():
-            return
+            # The slot is released and the sweep run under one lock, and `busy`
+            # reads it without one: waiting for the lock is waiting for the sweep.
+            with jobs._lock:
+                return
         time.sleep(0.02)
     raise AssertionError("the render slot was never released")
 
@@ -67,11 +73,26 @@ def test_a_finished_render_drops_its_working_files_and_records_itself(tmp_path):
     jobs = Jobs(tmp_path)
     job = _finished(jobs)
 
-    assert not (job.root / "build").exists(), "the working files are 90% of the disk"
+    build = job.root / "build"
+    assert not (build / "visuals" / "cache").exists(), "the downloads are most of the disk"
+    assert not (build / "picture.mp4").exists(), "the cut is remade by any retake"
+    # what changing one shot later needs, and a small share of the whole
+    assert (build / "visuals" / "scene_000_00.mp4").exists()
+    assert (build / "scenes.json").exists()
     assert (job.root / "out" / "a-title.mp4").exists()
     record = json.loads((job.root / "job.json").read_text(encoding="utf-8"))
     assert record["id"] == job.id and record["status"] == "done"
     assert record["runtime"] == 128.9
+
+
+def test_a_render_with_no_stock_footage_keeps_no_working_files(tmp_path):
+    """Cards have no other candidates, so there is no shot to change later."""
+    jobs = Jobs(tmp_path)
+    job = jobs.submit(SCRIPT, {"aspect": "16:9", "provider": "cards"})
+    _settle(jobs)
+
+    assert job.status == "done", job.log
+    assert not (job.root / "build").exists()
 
 
 def test_a_failed_render_is_not_recorded(tmp_path, monkeypatch):

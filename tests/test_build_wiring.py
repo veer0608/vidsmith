@@ -252,6 +252,64 @@ def test_a_stopped_build_still_says_done(project, rendered):
 
 
 # --------------------------------------------------------------------------- #
+# a retake
+# --------------------------------------------------------------------------- #
+def test_a_retake_asks_no_model_keeps_the_thumbnail_and_recredits_the_description(
+        project, rendered, monkeypatch):
+    """One shot changed; the title, chapters and thumbnail did not.
+
+    A retake runs this same build rather than a copy of the render stage, so it
+    must not spend what a first build spends: the thumbnail pick and the
+    description are model calls, and the photograph could come back different.
+    The credits are the one thing that has to change, in the file people paste.
+    """
+    import json
+
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": "a-real-key", "pexels": "", "pixabay": ""})
+    for name in ("suggest_queries", "upload_metadata"):
+        monkeypatch.setattr(pl.llm, name, lambda *a, _n=name, **k: pytest.fail(f"{_n} was called"))
+    monkeypatch.setattr(pl.thumbs, "from_stock", lambda *a, **k: pytest.fail("thumbnail chosen again"))
+    monkeypatch.setattr(pl.thumbs, "choose", lambda *a, **k: pytest.fail("thumbnail chosen again"))
+    stubbed = pl.visuals.build_all
+
+    def swapped(scenes, cfg, size, fps, workdir, keys, **kwargs):
+        assert not keys["gemini"], "the visuals stage could still spend a model call"
+        stubbed(scenes, cfg, size, fps, workdir, keys, **kwargs)
+        scenes[0].shots[0].update(credit="New Creator", credit_url="https://pexels.com/v/22")
+
+    monkeypatch.setattr(pl.visuals, "build_all", swapped)
+    out = project / "out"
+    out.mkdir()
+    (out / "a-test-video.jpg").write_bytes(b"the chosen thumbnail")
+    (out / "credits.txt").write_text(
+        "Footage from Pexels\nOld Creator - https://pexels.com/v/10\n"
+        "Thumbnail: Jane Doe - https://pexels.com/photo/1\n", encoding="utf-8")
+    (out / "youtube.json").write_text(json.dumps(
+        {"title": "A Test Video", "description": "What it is about.", "tags": ["t"]}),
+        encoding="utf-8")
+
+    lines = []
+    pl.build(project, log=lines.append, retake=True)
+
+    assert (out / "a-test-video.jpg").read_bytes() == b"the chosen thumbnail"
+    credits = (out / "credits.txt").read_text(encoding="utf-8")
+    assert "New Creator" in credits and "Old Creator" not in credits
+    assert credits.count("Thumbnail: Jane Doe") == 1, "the photograph is still owed its credit"
+    description = (out / "description.txt").read_text(encoding="utf-8")
+    assert "What it is about." in description and "New Creator" in description
+    assert "Jane Doe" in description
+    assert [l.split(" ", 1)[0] for l in lines][-1] == "done"
+
+
+def test_kept_thumbnail_credit_reads_only_the_thumbnail_lines(tmp_path):
+    path = tmp_path / "credits.txt"
+    assert pl.kept_thumbnail_credit(path) == ""
+    path.write_text("Footage from Pexels\nAda - x\nThumbnail: Jane - y", encoding="utf-8")
+    assert pl.kept_thumbnail_credit(path) == "Thumbnail: Jane - y\n"
+
+
+# --------------------------------------------------------------------------- #
 # what an edited directive costs
 # --------------------------------------------------------------------------- #
 def _parsed(root):
