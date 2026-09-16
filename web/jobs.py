@@ -32,6 +32,7 @@ from typing import Any, Deque, Dict, List, Optional
 import yaml
 
 from vidsmith import pipeline
+from vidsmith import retake as retakes
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
 
@@ -54,13 +55,20 @@ STAGE_PROGRESS = {
 # How long a finished render stays downloadable, and how much disk all of them
 # may hold between them. It was an hour and the directories did not survive a
 # restart, so a deploy deleted the video someone had not downloaded yet, and a
-# render finished while nobody was watching was simply gone. A render's working
-# files are deleted the moment it finishes - 364 MB of a 410 MB two-minute job -
-# so what is kept is the delivery, and a budget measured on that goes a long way.
+# render finished while nobody was watching was simply gone. Most of a render's
+# working files are deleted the moment it finishes - the downloads alone were
+# 315 MB of a 428 MB build - so what is kept is the delivery and what a retake
+# needs, and a budget measured on that goes a long way.
 KEEP_SECONDS = int(float(os.environ.get("VIDSMITH_KEEP_DAYS", "7")) * 86400)
 KEEP_BYTES = int(float(os.environ.get("VIDSMITH_KEEP_GB", "4")) * 1024 ** 3)
 # A failed or stopped render has nothing to download, only a log to read.
 FAILED_KEEP_SECONDS = 60 * 60
+# What a finished render's build/ can lose and still have a shot changed later:
+# the downloaded footage, the cut and the mixed narration are all remade or
+# fetched again by a retake. What stays is the per-shot clips, the timings, the
+# ledger and the verdicts, about a tenth of the whole.
+DISPOSABLE = ("visuals*/cache", "picture*.mp4", "narration.wav",
+              ".thumbframes", ".thumbstock")
 # Written beside a finished render's files, so the next process can list it.
 RECORD = "job.json"
 # A bound on the payload, not on length; the minutes limit in app.py is the
@@ -117,6 +125,10 @@ class Job:
     runtime: float = 0.0              # seconds of finished video, off the build log
     # the upload to YouTube, once asked for: status, privacy, video id, error
     youtube: Dict[str, Any] = field(default_factory=dict)
+    # a shot change waiting or running, and what to put back if it fails
+    retake: Dict[str, Any] = field(default_factory=dict)
+    # how the last shot change ended, for the page: status, scene, shot, error
+    swap: Dict[str, Any] = field(default_factory=dict)
 
     def expires(self) -> float:
         """When the sweep will take it; 0 while it is still queued or running."""
@@ -140,6 +152,7 @@ class Job:
             "aspect": self.options.get("aspect", ""),
             "runtime": self.runtime,
             "youtube": self.youtube,
+            "swap": self.swap,
             # the stop was asked for but the current stage has not returned yet,
             # so the page can say "stopping" rather than appearing to ignore it
             "cancelling": self.cancel_requested and self.status == "running",
@@ -217,6 +230,12 @@ class Jobs:
             record = json.loads((path / RECORD).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        # A restart during a shot change leaves the delivery half rewritten and
+        # the copy it was taken from beside it; the copy is the good one.
+        try:
+            recovered = retakes.recover(path)
+        except OSError:
+            recovered = False
         if not isinstance(record, dict) or record.get("status") != "done" \
                 or record.get("id") != path.name:
             return None
@@ -228,6 +247,9 @@ class Jobs:
                   root=path, options=dict(record.get("options") or {}),
                   runtime=float(record.get("runtime") or 0.0),
                   youtube=dict(record.get("youtube") or {}))
+        if recovered:
+            job.swap = {"status": "failed",
+                        "error": "the server restarted during the change"}
         if job.youtube.get("status") == "uploading":
             # the restart stopped it partway; YouTube holds no finished video
             job.youtube.update(status="failed",
@@ -241,12 +263,23 @@ class Jobs:
     def _keep(self, job: Job) -> None:
         """Make a finished render cheap to hold and able to outlive the process.
 
-        The working files go: downloaded footage, per-shot clips and the picture
-        cut are 364 MB of a two-minute render whose delivery is 46 MB, and
-        nothing reads them once `out/` is written. Then the record, last, so a
-        directory that has one is always a finished render.
+        The bulk of the working files go: downloaded footage and the picture cut
+        were 330 MB of a 428 MB build whose delivery is 46 MB. The per-shot
+        clips, timings and credit ledger stay, because they are what lets one
+        shot be changed later without building the video again. A build that
+        used no stock footage has no shot to change, so it keeps nothing. Then
+        the record, last, so a directory that has one is always a finished
+        render.
         """
-        shutil.rmtree(job.root / "build", ignore_errors=True)
+        build = job.root / "build"
+        if job.options.get("provider", "pexels") not in retakes.SWAPPABLE:
+            shutil.rmtree(build, ignore_errors=True)
+        for pattern in DISPOSABLE:
+            for path in list(build.glob(pattern)):
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
         self.record(job)
 
     def record(self, job: Job) -> None:
@@ -337,6 +370,11 @@ class Jobs:
             with self._lock:
                 if job_id in self._waiting:
                     self._waiting.remove(job_id)
+            if job.retake:
+                # the render itself finished long ago; only the change is off
+                self._undo(job, "stopped  the change was cancelled before it "
+                                "started; the video is as it was")
+                return "cancelled"
             job.status = "cancelled"
             job.finished = time.time()
             job.log.append("stopped  cancelled before it started")
@@ -405,6 +443,68 @@ class Jobs:
         if start_now:
             self._spawn(job)
         return job
+
+    def retake(self, job_id: str, scene: int, shot: int, clip: str,
+               query: str = "", keys: Optional[Dict[str, str]] = None) -> Optional[Job]:
+        """Queue a change to one shot of a finished render.
+
+        It is a render as far as the box is concerned - the master pass is most
+        of the encode - so it takes the same slot and waits in the same line.
+        The job keeps its id, and the page follows it the way it followed the
+        first build. Everything that can be refused is refused here, before it
+        waits: a clip that is not in the search, a render that is on YouTube.
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+        if job.status != "done" or job.root is None:
+            raise retakes.RetakeRefused("only a finished render can have a shot changed")
+        state = job.youtube.get("status")
+        if state == "uploading":
+            raise retakes.RetakeRefused("this render is uploading to YouTube; "
+                                        "wait for it to finish")
+        if state == "done":
+            raise retakes.RetakeRefused("this render is on YouTube already, so a "
+                                        "changed video would be a second upload")
+        retakes.check(job.root, scene, shot, clip, query or None, keys)
+
+        with self._lock:
+            if job.status != "done":
+                raise retakes.RetakeRefused("this render is already being changed")
+            if self._full_locked():
+                raise Busy(self._full_message_locked())
+            job.retake = {"scene": scene, "shot": shot, "clip": str(clip),
+                          "query": query, "keys": keys,
+                          "finished": job.finished, "created": job.created}
+            job.swap = {}
+            # a render stopped once must not stop the next change at its first line
+            job.cancel_requested = False
+            job.status, job.stage, job.error = "queued", "", ""
+            job.progress, job.finished, job.created = 0.0, 0.0, time.time()
+            job.log = []
+            start_now = self._active is None
+            if start_now:
+                self._active = job.id
+                job.status = "running"
+            else:
+                self._waiting.append(job.id)
+        if start_now:
+            self._spawn(job)
+        return job
+
+    def _undo(self, job: Job, line: str, error: str = "") -> None:
+        """A shot change that did not happen: the render is as it was."""
+        before = job.retake
+        job.retake = {}
+        job.cancel_requested = False
+        job.status, job.stage, job.progress = "done", "done", 1.0
+        job.finished = before.get("finished") or time.time()
+        job.created = before.get("created") or job.created
+        job.log.append(line)
+        job.swap = ({"status": "failed", "scene": before.get("scene"),
+                     "shot": before.get("shot"), "error": error} if error else {})
+        job.outputs = self._collect(job)
+        self.record(job)
 
     def _full_locked(self) -> bool:
         """Whether there is nowhere to put another job. Caller holds the lock."""
@@ -501,8 +601,17 @@ class Jobs:
                 # inch forward across the slowest stage so it does not look stuck
                 job.progress = min(0.78, job.progress + 0.02)
 
+        retaking = dict(job.retake)
         try:
-            pipeline.build(job.root, log=log)
+            if retaking:
+                retakes.replace(job.root, retaking["scene"], retaking["shot"],
+                                retaking["clip"], keys=retaking.get("keys"),
+                                query=retaking["query"] or None, log=log)
+                job.swap = {"status": "done", "scene": retaking["scene"],
+                            "shot": retaking["shot"]}
+                job.retake = {}
+            else:
+                pipeline.build(job.root, log=log)
             job.outputs = self._collect(job)
             job.title = self._title(job)
             job.runtime = _runtime(job.log)
@@ -511,13 +620,25 @@ class Jobs:
             job.finished = time.time()
             self._keep(job)
         except Cancelled as stopped:
-            job.log.append(f"stopped  cancelled during {stopped}")
-            job.status = "cancelled"
+            if retaking:
+                self._undo(job, f"stopped  cancelled during {stopped}; the video "
+                                f"is as it was")
+            else:
+                job.log.append(f"stopped  cancelled during {stopped}")
+                job.status = "cancelled"
         except Exception as exc:                      # a render can fail anywhere
-            job.error = f"{type(exc).__name__}: {exc}"
-            job.log.append(f"error    {job.error}")
-            job.log.extend(traceback.format_exc().strip().splitlines()[-4:])
-            job.status = "failed"
+            error = f"{type(exc).__name__}: {exc}"
+            job.log.append(f"error    {error}")
+            if not isinstance(exc, retakes.RetakeRefused):
+                job.log.extend(traceback.format_exc().strip().splitlines()[-4:])
+            if retaking:
+                # A failed change is not a failed render. Marking it failed
+                # would hand a finished video to the one-hour sweep.
+                self._undo(job, "retake   the video is as it was before the change",
+                           error=str(exc))
+            else:
+                job.error = error
+                job.status = "failed"
         finally:
             job.finished = job.finished or time.time()
             self._finish(job.id)

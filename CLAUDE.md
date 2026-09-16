@@ -28,6 +28,7 @@ before writing anything. The traps are the reason this file exists.
 | Publish a video anywhere | Things that have actually broken here, attribution and chapters | Crediting is a licence condition; YouTube drops a chapter list rather than the bad line |
 | Edit the web page | Web service | Ask the server for what it knows; do not hardcode a second copy |
 | Touch the web queue | Web service; Things that have actually broken here, the render slot | Claim the slot and you own giving it back on every path out |
+| Change how a finished render swaps a shot | Web service, one shot of a finished render | A retake is `build(retake=True)`, never a second copy of the render stage |
 | Show it to someone | Deploying | The tunnel beats both hosts |
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
@@ -584,8 +585,10 @@ competing with the voice.
   it deletes the render in flight, and it looks exactly like a tidy-up.
   **Then deleting all of them cost the videos.** Every deploy removed a render
   somebody had not downloaded yet, and one was saved only by copying it off the
-  box by hand before a restart. A finished render now drops its `build/` (364 MB
-  of a 410 MB two-minute job) and writes `job.json` last, so a directory that
+  box by hand before a restart. A finished render now drops the bulk of its
+  `build/` - the downloads, the cut and the mixed narration, `DISPOSABLE` in
+  `web/jobs.py` - keeping only what changing a shot later needs, and writes
+  `job.json` last, so a directory that
   has one is always a finished render; `sweep_orphans()` registers those again
   as done and removes everything else as before. What is held is bounded twice,
   by `VIDSMITH_KEEP_DAYS` (7) and `VIDSMITH_KEEP_GB` (4, oldest first, never the
@@ -1130,6 +1133,33 @@ failed one is swept after an hour. `VIDSMITH_TOKEN` gates the
 API when set; `/healthz` stays open and reports ffmpeg and bundled fonts.
 **`keys` is behind the token**, deliberately: it inventories which credentials
 the box holds, and a stranger who found the URL has no business reading it.
+
+**One shot of a finished render can be changed without building it again.**
+The footage is the part most often wrong, and the only fix was a whole new
+build in which every other shot was free to change too. `vidsmith/retake.py`
+offers the shot's own search results (or a typed search), the reranker's
+verdicts shown beside them rather than obeyed, encodes the clip picked to
+exactly the slot the old one filled, and runs `pipeline.build(retake=True)`.
+Four rules hold it together:
+
+- **A retake is the same build, never a copy of the render stage**, because a
+  second writer is how credits go missing here. `retake=True` blanks the model
+  key so nothing optional is spent, keeps the thumbnail and its credit line,
+  and rewrites `description.txt` from `youtube.json` on disk so it names the new
+  creator.
+- **A clip comes only from a search result, never a URL the caller sends**,
+  because the server downloads it. A clip already in the video is refused, and
+  the replacement is encoded as `retake_*.mp4`, never `scene_*`, because the
+  reuse path cuts in every file matching that name.
+- **A failed or stopped retake hands back the video it started from, still
+  `done`.** Marking it failed would give a finished video to the one-hour sweep.
+  `out/` and the touched files are copied to `build/.retake-backup` first, and a
+  copy still there at startup means the process died mid-master:
+  `_adopt` calls `retake.recover()` before it reads the record.
+- **It takes the render slot and waits in the line**, because the master pass is
+  most of an encode. The job keeps its id, and the page follows it like the first
+  build. A render already on YouTube is refused: a changed video would be a second
+  upload.
 
 `VIDSMITH_JOBS` moves the job directory, and `VIDSMITH_MAX_MINUTES` (default 4)
 caps how long a submitted script may run. Both exist because the host, not the

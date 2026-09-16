@@ -219,7 +219,8 @@ def find_keys(project_root: Path) -> Dict[str, str]:
 
 
 def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
-          overrides: Optional[Dict[str, str]] = None, log=print) -> Path:
+          overrides: Optional[Dict[str, str]] = None, log=print,
+          retake: bool = False) -> Path:
     """Build the project, and write `build/manifest{tag}.json` however it ends.
 
     The manifest is written from here rather than at each return inside the
@@ -227,10 +228,18 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     fail anywhere: one writer on the way out is the only one that cannot miss a
     path. A cancellation from the web page is a BaseException, not an Exception,
     and is recorded as that rather than as a failure.
+
+    `retake` is a finished build encoded again after `vidsmith.retake` has put a
+    different clip under one shot. It is this same path rather than a copy of
+    the render stage, because a second writer is how credits go missing here.
+    Nothing in it is a question for a model: the footage is chosen, so the
+    thumbnail and its credit are kept, and the description is rewritten from the
+    `youtube.json` already on disk so it names the new clip's creator.
     """
     with manifest.recording() as rec:
         try:
-            result = _build(project_root, force, stop_after, overrides, log, rec)
+            result = _build(project_root, force, stop_after, overrides, log, rec,
+                            retake)
         except BaseException as exc:
             rec.finish("failed" if isinstance(exc, Exception) else "cancelled", exc)
             rec.write()
@@ -242,7 +251,8 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
 
 
 def _build(project_root: Path, force: Sequence[str], stop_after: str,
-           overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder) -> Path:
+           overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder,
+           retake: bool = False) -> Path:
     started = time.time()
     proj = Project(project_root)
     if not proj.script.exists():
@@ -265,6 +275,10 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     rec.fact("voice", f"{cfg.voice.provider} {cfg.voice.name}")
     theme = resolve_theme(cfg.theme.preset, cfg.theme.accent, cfg.theme.font)
     keys = find_keys(project_root)
+    if retake:
+        # With no model key, every optional call in the build is skipped rather
+        # than spent: the searches are written and the verdicts already made.
+        keys = {**keys, "gemini": ""}
     force = set(force)
     scenes_json = proj.build / "scenes.json"
 
@@ -442,30 +456,35 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     # Sampled from the picture track, not the delivery file: the delivery file
     # has captions, watermark and progress bar burned in, none of which belong
     # on a thumbnail. The frame is chosen for relevance, then titled.
-    try:
-        hook = scenes[0].text if scenes else ""
-        target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
-        # the scenes' own visual directives, which are what the video shows -
-        # not the hook, which is where every script keeps its frustration
-        subjects = ", ".join(dict.fromkeys(
-            visuals.scene_query(s) for s in scenes))
-        stock = thumbs.from_stock(cfg.title, subjects, cfg.size, keys,
-                                  proj.build / ".thumbstock", log=log)
-        if stock:
-            source = stock["path"]
-            thumb_credit = stock
-        else:
-            drawn = _drawn_ranges(proj, scenes, intro)
-            frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
-                                  hook, keys["gemini"], log=log, include=drawn)
-            source = frame.path
-            thumb_credit = None
-        thumbs.titled(source, proj.out / f"{slug}{tag}.jpg", cfg.title,
-                      theme, target)
-    except Exception as exc:
-        log(f"         thumbnail fell back to a plain frame ({exc})")
-        render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
-                         at=intro + min(2.0, speech / 3))
+    #
+    # A retake keeps the thumbnail it has. Choosing again would spend a model
+    # call and could land on a different photograph, and nobody asked for that.
+    thumb_lines = kept_thumbnail_credit(proj.out / f"credits{tag}.txt") if retake else ""
+    if not retake:
+        try:
+            hook = scenes[0].text if scenes else ""
+            target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
+            # the scenes' own visual directives, which are what the video shows -
+            # not the hook, which is where every script keeps its frustration
+            subjects = ", ".join(dict.fromkeys(
+                visuals.scene_query(s) for s in scenes))
+            stock = thumbs.from_stock(cfg.title, subjects, cfg.size, keys,
+                                      proj.build / ".thumbstock", log=log)
+            if stock:
+                source = stock["path"]
+                thumb_credit = stock
+            else:
+                drawn = _drawn_ranges(proj, scenes, intro)
+                frame = thumbs.choose(picture, proj.build / ".thumbframes", cfg.title,
+                                      hook, keys["gemini"], log=log, include=drawn)
+                source = frame.path
+                thumb_credit = None
+            thumbs.titled(source, proj.out / f"{slug}{tag}.jpg", cfg.title,
+                          theme, target)
+        except Exception as exc:
+            log(f"         thumbnail fell back to a plain frame ({exc})")
+            render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
+                             at=intro + min(2.0, speech / 3))
 
     # Each aspect fetches its own clips (portrait searches return different
     # footage), so attribution is per cut - one shared file would silently drop
@@ -480,6 +499,10 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     if thumb_credit and thumb_credit.get("author"):
         credits += thumbnail_credit_line(thumb_credit)
         named += 1
+    elif thumb_lines:
+        # the photograph is still on the thumbnail, so its credit is still owed
+        credits += thumb_lines
+        named += thumb_lines.count("\n")
     if credits:
         (proj.out / f"credits{tag}.txt").write_text(credits, encoding="utf-8")
         log(f"credits  {named} creators to attribute")
@@ -491,7 +514,18 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     if not done("render"):
         rec.enter("meta")
         # ---- upload metadata --------------------------------------------- #
-        if keys["gemini"]:
+        meta_json = proj.out / "youtube.json"
+        if retake and meta_json.exists():
+            # The title, chapters and tags describe narration that has not
+            # moved, so only the credits under them change. Written the way
+            # `thumbs --refresh` writes it, through the one writer.
+            try:
+                write_metadata(proj.out, json.loads(meta_json.read_text(encoding="utf-8")),
+                               source=cfg.source)
+                log("meta     description.txt now credits the clips in use")
+            except (OSError, ValueError) as exc:
+                log(f"meta     skipped ({exc})")
+        elif keys["gemini"]:
             try:
                 meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"],
                                            log=log)
@@ -536,6 +570,15 @@ def thumbnail_credit_line(stock: Dict[str, Any]) -> str:
     """
     line = f"{THUMB_CREDIT}{stock['author']} - {stock.get('page', '')}"
     return line.rstrip(" -") + "\n"
+
+
+def kept_thumbnail_credit(path: Path) -> str:
+    """The thumbnail credit lines a credits file already carries, if any."""
+    if not path.exists():
+        return ""
+    return "".join(ln if ln.endswith("\n") else ln + "\n"
+                   for ln in path.read_text(encoding="utf-8").splitlines(True)
+                   if ln.startswith(THUMB_CREDIT))
 
 
 def set_thumbnail_credit(path: Path, stock: Optional[Dict[str, Any]]) -> None:
