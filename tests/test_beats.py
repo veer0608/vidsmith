@@ -549,3 +549,48 @@ def test_the_rerank_prompt_carries_the_style_only_when_chosen(monkeypatch, genre
     assert ("STYLE: this video's footage should be nature" in sent[0]) is present
     if present:
         assert "never rejected for being off style" in sent[0]
+
+
+# --------------------------------------------------------------------------- #
+# footage too dark to read
+# --------------------------------------------------------------------------- #
+def _still(lit_fraction, bright=200, dim=20):
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("L", (100, 100), dim)
+    lit = int(100 * lit_fraction)
+    if lit:
+        img.paste(bright, (0, 0, lit, 100))
+    buf = BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("lit,dark", [(0.05, True), (0.0, True), (0.2, False), (0.9, False)])
+def test_a_still_is_too_dark_when_almost_nothing_is_lit(lit, dark):
+    """The night-highway truck measured 5% lit; night streets 15 to 40%."""
+    assert visuals.too_dark(_still(lit)) is dark
+
+
+def test_bytes_that_are_not_an_image_are_not_called_dark():
+    assert visuals.too_dark(b"jpg") is False
+
+
+def test_a_dark_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    shown = []
+
+    def fake(line, query, images, key, log=None, genre="any"):
+        shown.append(len(images))
+        return list(range(len(images))), [], True
+
+    stills = {f"s{i}": _still(0.02 if i == 0 else 0.8) for i in range(8)}
+    monkeypatch.setattr(builder, "_preview", lambda url: stills[url])
+    monkeypatch.setattr(visuals.llm, "rank_clips", fake)
+
+    kept = builder._rerank(_stills(), scene, "truck at night", want=2, text="t", key="0.1")
+
+    assert shown == [7], "the dark still was shown to the model"
+    assert "0" not in {h["id"] for h in kept}
