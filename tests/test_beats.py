@@ -426,6 +426,17 @@ def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, 
     # pushed harder, it moved "the mug on your desk" outdoors and lost the ship
     assert "place or setting the passage names is part of the subject" in sent[0]
     assert "Only when the passage names no place" in sent[0]
+    # technology's words made every shot a screen, doorstep included
+    assert "never becomes its subject" in sent[0]
+
+
+def test_no_genre_offers_a_screen_as_a_style_word():
+    """A noun offered as a style word is taken as a subject."""
+    from vidsmith.genres import GENRES
+
+    for name, genre in GENRES.items():
+        words = {w.strip() for w in genre.words.split(",")}
+        assert not words & {"screen", "laptop", "phone", "data", "digital"}, name
 
 
 @pytest.mark.parametrize("reply", ['["only one"]', "not json at all"])

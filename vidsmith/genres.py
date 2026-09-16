@@ -44,10 +44,15 @@ GENRES: Dict[str, Genre] = {
                       "business: offices, meetings, professionals at work, clean "
                       "modern workplaces",
                       "office, professional, meeting, modern workplace, team"),
+    # Its words used to be nouns - screen, laptop, data - and a style word that
+    # is a noun becomes the subject: a delivery video turned into phone maps,
+    # with "the box lands on your doorstep" shown as a hand holding a phone.
+    # They describe a look now, and screens only come from the narration.
     "technology": Genre("Technology",
-                        "technology: screens, code, devices, data centres and people "
-                        "using software",
-                        "screen, digital, laptop, futuristic, neon, data"),
+                        "technology: modern, high-tech and automated settings with "
+                        "clean, cool lighting; screens and devices only where the "
+                        "narration is about software or a device",
+                        "modern, high-tech, automated, sleek, cool blue light"),
     "nature": Genre("Nature",
                     "nature: landscapes, wildlife, water, forests, sky and the "
                     "outdoors",
@@ -87,7 +92,9 @@ def prompt_block(name: str) -> str:
             "as light, look or detail: \"the mug on your desk\" in a nature video is "
             "\"coffee mug on sunlit desk\", never a mug outdoors, and \"shipped across "
             "the ocean\" keeps its ship and its ocean. Only when the passage names no "
-            "place may the style choose one.\n")
+            "place may the style choose one. A style word describes the shot and never "
+            "becomes its subject: a passage about a truck is still a truck, not a "
+            "screen or a phone in one.\n")
 
 
 def rerank_block(name: str) -> str:
