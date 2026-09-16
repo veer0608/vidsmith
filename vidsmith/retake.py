@@ -18,20 +18,18 @@ supplies, because this downloads whatever it is given.
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import captions as cap
 from . import ffmpeg_util as ff
-from . import pipeline, visuals
+from . import pipeline, snapshot, visuals
 from .config import Config, aspect_tag, load_config
 from .script_parser import Scene, load_scenes
 
 # Only a stock search has other candidates to offer. A card, a local file and a
 # drawn diagram are the build's own, and changing them is a script edit.
 SWAPPABLE = ("pexels", "pixabay")
-BACKUP = ".retake-backup"
 MAX_QUERY = 100
 
 
@@ -264,7 +262,8 @@ def replace(root: Path, scene_index: int, shot_index: int, clip_id: str,
     Everything a retake rewrites is copied aside first and put back if any part
     of it fails or is stopped, so a failed retake leaves the video it started
     from rather than half of a new one. The copy is removed once it is over; one
-    still present means a process died partway, and `recover()` finishes it.
+    still present means a process died partway, and `snapshot.restore()`
+    finishes it.
     """
     build = Build(root)
     clip_id = str(clip_id)
@@ -275,7 +274,7 @@ def replace(root: Path, scene_index: int, shot_index: int, clip_id: str,
         f"by {hit.get('author') or 'an unnamed creator'}, for '{query}'")
 
     target = build.shot_path(scene_index, shot_index)
-    backup = _stash(build, target)
+    snapshot.take(build.root, touched(build, target))
     try:
         dest = build.vis / "cache" / f"{build.provider}_{clip_id}.mp4"
         if not dest.exists():
@@ -303,57 +302,14 @@ def replace(root: Path, scene_index: int, shot_index: int, clip_id: str,
                                                 encoding="utf-8")
         final = pipeline.build(build.root, log=log, retake=True)
     except BaseException:
-        _restore(build, target, backup)
+        snapshot.restore(build.root)
         raise
-    shutil.rmtree(backup, ignore_errors=True)
+    snapshot.discard(build.root)
     return final
 
 
-def _stash(build: Build, target: Path) -> Path:
-    backup = build.proj.build / BACKUP
-    shutil.rmtree(backup, ignore_errors=True)
-    backup.mkdir(parents=True)
-    if build.proj.out.is_dir():
-        shutil.copytree(build.proj.out, backup / "out")
-    for path in (target, build.vis / "credits.json", build.proj.build / "scenes.json"):
-        if path.exists():
-            shutil.copy2(path, backup / path.name)
-    # which files these were, so recovery after a crash needs nothing else
-    (backup / "shot.txt").write_text(str(target.relative_to(build.proj.build)),
-                                     encoding="utf-8")
-    return backup
-
-
-def _restore(build: Build, target: Path, backup: Path) -> None:
-    if (backup / "out").is_dir():
-        shutil.rmtree(build.proj.out, ignore_errors=True)
-        shutil.copytree(backup / "out", build.proj.out)
-    for path in (target, build.vis / "credits.json", build.proj.build / "scenes.json"):
-        saved = backup / path.name
-        if saved.exists():
-            shutil.copy2(saved, path)
-    shutil.rmtree(backup, ignore_errors=True)
-
-
-def recover(root: Path) -> bool:
-    """Put back a retake the process died during. True when there was one.
-
-    Run before a finished render is taken back at startup: the master pass
-    writes the delivery in place, so a restart in the middle of one leaves a
-    truncated video under the old name, and the copy beside it is the good one.
-    """
-    root = Path(root)
-    backup = root / "build" / BACKUP
-    if not backup.is_dir():
-        return False
-    try:
-        relative = (backup / "shot.txt").read_text(encoding="utf-8").strip()
-        build = Build(root)
-        _restore(build, build.proj.build / relative, backup)
-    except (OSError, RetakeRefused):
-        # the copy of out/ is the part that matters, and needs no config to put back
-        if (backup / "out").is_dir():
-            shutil.rmtree(root / "out", ignore_errors=True)
-            shutil.copytree(backup / "out", root / "out")
-        shutil.rmtree(backup, ignore_errors=True)
-    return True
+def touched(build: Build, target: Path) -> List[str]:
+    """What a retake rewrites, relative to the job: the delivery and the shot."""
+    return [str(p.relative_to(build.root)).replace("\\", "/")
+            for p in (build.proj.out, target, build.vis / "credits.json",
+                      build.proj.build / "scenes.json")]

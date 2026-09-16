@@ -319,6 +319,22 @@
   .tall-thumb .tile img { aspect-ratio: 9 / 16; }
   .tall-thumb .clips { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
 
+  /* rewriting one scene of a finished render */
+  .scene-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 0; }
+  .scene-list > li { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--border); }
+  .scene-list > li:first-child { border-top: 0; padding-top: 0; }
+  .scene-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .scene-top .n { color: var(--fg-3); font-size: 12.5px; flex: none; }
+  .scene-top .h { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+  .scene-text { margin: 0; color: var(--fg-2); font-size: 13.5px; text-wrap: pretty; overflow-wrap: anywhere; }
+  .scene-edit textarea { width: 100%; min-height: 110px; resize: vertical; padding: 10px 12px;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm); font: 14px/1.6 var(--sans); }
+  .scene-edit textarea:focus { outline: none; border-color: var(--focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent); }
+  @media (max-width: 640px) { .scene-edit textarea { font-size: 16px; } }
+
   /* renders this instance still holds, newest first */
   .past { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
   .past li { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 0;
@@ -545,6 +561,20 @@
               The video you have now stays until the new one is ready.</p>
             <p class="error" id="swap-error" aria-live="polite"></p>
           </div>
+        </div>
+      </section>
+
+      <!-- A line that reads badly aloud used to cost the whole video. Only the
+           scene whose words change is voiced and filmed again. -->
+      <section class="card hidden" id="script-card" aria-labelledby="scenes-h">
+        <div class="card-h">
+          <span class="chip" style="--c:var(--brand-a)" aria-hidden="true"><svg><use href="#i-doc"/></svg></span>
+          <h2 id="scenes-h">Script</h2>
+          <div class="end"><span class="badge num" id="scenes-count"></span></div>
+        </div>
+        <div class="card-b">
+          <p class="hint" id="scenes-note" aria-live="polite" style="margin:0"></p>
+          <ol class="scene-list" id="scene-list"></ol>
         </div>
       </section>
 
@@ -1610,6 +1640,7 @@ function render(job) {
     for (const id of ["files-card", "copybar", "player-wrap"]) $(id).classList.add("hidden");
     hideShots();
     hideThumb();
+    hideScript();
     // A queued job has no stage and no progress, so the running job's label
     // would read "starting" beside a bar stuck at zero and look like a hang.
     // Say where in the line it is instead; `position` comes from the queue
@@ -1677,6 +1708,7 @@ function render(job) {
   showDescription(job.id);
   drawYouTube(job);
   loadShots(job).then(() => drawThumb(job));
+  loadScript(job);
   finished();
   return true;
 }
@@ -1839,7 +1871,8 @@ async function loadShots(job) {
   // the render has finished again
   const version = job.expires || "";
   $("shots").innerHTML = shotList.map((s, i) => {
-    const changed = swap.status === "done" && swap.scene === s.scene && swap.shot === s.shot;
+    const changed = swap.kind !== "scene" && swap.status === "done" &&
+      swap.scene === s.scene && swap.shot === s.shot;
     const label = `Scene ${s.scene + 1}, shot ${s.shot + 1}, at ${fmt(s.start)}` +
       (s.credit ? `, footage by ${s.credit}` : "") + (s.swappable ? "" : ", a drawn scene");
     return `<li><button type="button" class="tile" data-shot="${i}" aria-pressed="false"` +
@@ -1848,9 +1881,10 @@ async function loadShots(job) {
       `<span class="cap num"><span>${fmt(s.start)}</span><span>${esc(s.credit || (s.swappable ? "" : "Drawn"))}</span></span>` +
       (changed ? `<span class="badge ok">Changed</span>` : "") + `</button></li>`;
   }).join("");
-  $("shots-note").textContent = swap.status === "failed"
+  const shotSwap = swap.kind !== "scene";
+  $("shots-note").textContent = swap.status === "failed" && shotSwap
     ? `The last change did not happen, so the video is as it was: ${swap.error || "no reason given"}`
-    : swap.status === "done"
+    : swap.status === "done" && shotSwap
       ? `Scene ${swap.scene + 1}, shot ${swap.shot + 1} now has the clip you picked. Choose another shot to change it too.`
       : "Choose a shot that does not fit to see other clips for it.";
 }
@@ -1976,6 +2010,116 @@ $("swap-use").onclick = async () => {
   follow(body.id);
   window.scrollTo({top: 0});
 };
+
+/* ---------------------------------------------------------------- Script
+   Rewording one line used to mean building the whole video again. The server
+   compares the script against the scenes it last built, so a scene whose words
+   changed is voiced and filmed again and every other scene keeps its voice and
+   its clips. Words that would change more than that - a heading, a directive -
+   are refused before anything waits. */
+// the word limit is the page's own `wordCap`, served by /api/options
+let scriptJob = null, sceneRows = [], scriptWords = 0;
+
+function hideScript() {
+  scriptJob = null;
+  $("script-card").classList.add("hidden");
+  $("scene-list").innerHTML = "";
+}
+
+async function loadScript(job) {
+  scriptJob = job;
+  let body;
+  try {
+    const r = await fetch(`/api/jobs/${job.id}/scenes`, {headers: authHeaders()});
+    body = r.ok ? await r.json() : null;
+  } catch { body = null; }
+  if (!scriptJob || scriptJob.id !== job.id) return;
+  if (!body || !body.editable || !body.scenes.length) { $("script-card").classList.add("hidden"); return; }
+  sceneRows = body.scenes;
+  scriptWords = body.words || 0;
+  $("script-card").classList.remove("hidden");
+  $("scenes-count").textContent = `${whole.format(sceneRows.length)} scene${sceneRows.length === 1 ? "" : "s"}`;
+  const swap = job.swap || {};
+  $("scenes-note").textContent = swap.kind === "scene" && swap.status === "failed"
+    ? `The last edit did not happen, so the script and video are as they were: ${swap.error || "no reason given"}`
+    : swap.kind === "scene" && swap.status === "done"
+      ? `Scene ${swap.scene + 1} was rewritten and rebuilt; the rest of the video was kept.`
+      : "Edit a scene's words to voice and film that scene again. The other scenes are kept.";
+  $("scene-list").innerHTML = sceneRows.map((sc) =>
+    `<li data-scene="${sc.index}"><div class="scene-top"><span class="n num">${sc.index + 1}</span>` +
+    `<span class="h">${esc(sc.heading || `Scene ${sc.index + 1}`)}</span>` +
+    `<button type="button" class="btn sm" data-edit="${sc.index}" aria-label="Edit scene ${sc.index + 1}">Edit</button></div>` +
+    `<p class="scene-text">${esc(sc.text)}</p></li>`).join("");
+}
+
+$("scene-list").addEventListener("click", (event) => {
+  const edit = event.target.closest("[data-edit]");
+  if (edit) return openScene(Number(edit.dataset.edit));
+  const cancel = event.target.closest("[data-cancel]");
+  if (cancel) return loadScript(scriptJob);
+  const save = event.target.closest("[data-save]");
+  if (save) saveScene(Number(save.dataset.save));
+});
+
+function openScene(index) {
+  const sc = sceneRows.find((row) => row.index === index);
+  const li = $("scene-list").querySelector(`[data-scene="${index}"]`);
+  if (!sc || !li) return;
+  // one scene open at a time; the others stay as they read
+  for (const other of $("scene-list").querySelectorAll("[data-edit]")) other.disabled = true;
+  li.querySelector(".scene-text").outerHTML =
+    `<div class="scene-edit"><label class="l" for="scene-text-${index}">Narration</label>` +
+    `<textarea id="scene-text-${index}" spellcheck="true" maxlength="2000"` +
+    ` aria-describedby="scene-meta-${index} scene-error-${index}">${esc(sc.text)}</textarea>` +
+    `<p class="fine num" id="scene-meta-${index}"></p>` +
+    `<div class="swap-actions"><button class="btn primary" type="button" data-save="${index}">Save and Rebuild This Scene</button>` +
+    `<button class="btn" type="button" data-cancel="${index}">Cancel</button></div>` +
+    `<p class="error" id="scene-error-${index}" aria-live="polite"></p></div>`;
+  const box = $(`scene-text-${index}`);
+  const meter = () => {
+    const words = box.value.trim() ? box.value.trim().split(/\s+/).length : 0;
+    const total = scriptWords - sc.words + words;
+    $(`scene-meta-${index}`).textContent = `${whole.format(words)} words in this scene · ` +
+      `${whole.format(total)}${wordCap ? ` of ${whole.format(wordCap)}` : ""} in the script. ` +
+      "The whole video is mixed and encoded again, which takes a few minutes.";
+  };
+  box.addEventListener("input", meter);
+  meter();
+  box.focus();
+}
+
+async function saveScene(index) {
+  if (!scriptJob || running) return;
+  const button = $("scene-list").querySelector(`[data-save="${index}"]`);
+  const text = $(`scene-text-${index}`).value.trim();
+  $(`scene-error-${index}`).textContent = "";
+  if (!text) { $(`scene-error-${index}`).textContent = "A scene needs some narration."; return; }
+  working(button, true);
+  let r, body;
+  try {
+    r = await fetch(`/api/jobs/${scriptJob.id}/scenes/${index}`, {
+      method: "POST", headers: {...authHeaders(), "Content-Type": "application/json"},
+      body: JSON.stringify({text})});
+    body = await readBody(r);
+  } catch {
+    body = {detail: "Could not reach the server."};
+  }
+  working(button, false);
+  if (!r || !r.ok) {
+    if (r && r.status === 401) forgetToken();
+    $(`scene-error-${index}`).textContent = detailText(body, "The edit could not start.");
+    return;
+  }
+  // the same job building again, followed the way the first build was
+  hideScript();
+  store.drop("vidsmith_stage_clock");
+  running = body.id;
+  $("go").disabled = true;
+  $("log").classList.remove("err");
+  render(body);
+  follow(body.id);
+  window.scrollTo({top: 0});
+}
 
 /* ------------------------------------------------------------- Thumbnail
    The build chooses the thumbnail alone, and it is the first thing a viewer
@@ -2242,6 +2386,7 @@ $("again").onclick = () => {
   shownJob = null;
   hideShots();
   hideThumb();
+  hideScript();
   clearInterval(ytTimer);
   ytTimer = null;
   $("progress").classList.add("hidden");
@@ -2380,6 +2525,7 @@ $("form").addEventListener("submit", async (e) => {
   $("files-card").classList.add("hidden");
   hideShots();
   hideThumb();
+  hideScript();
   $("player-wrap").classList.add("hidden");
   $("copybar").classList.add("hidden");
   $("copied").textContent = "";

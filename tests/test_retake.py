@@ -16,7 +16,7 @@ import yaml
 
 from conftest import make_scene
 
-from vidsmith import retake, visuals
+from vidsmith import retake, snapshot, visuals
 from vidsmith.config import VisualConfig, write_default_config
 from vidsmith.script_parser import save_scenes
 
@@ -234,7 +234,7 @@ def test_a_swap_encodes_the_new_clip_to_the_old_slot_and_delivers_again(root, en
     assert ledger["0:1"] == {"credit": "creator 22", "url": "https://pexels.com/v/22",
                              "id": "22", "query": "server rack"}
     assert ledger["0:0"] == LEDGER["0:0"]
-    assert not (root / "build" / retake.BACKUP).exists()
+    assert not (root / snapshot.BACKUP).exists()
     assert "retake   scene 0 shot 1: pexels 22 by creator 22" in lines[0]
 
 
@@ -265,7 +265,7 @@ def test_a_failed_swap_leaves_the_video_it_started_from(root, encodes, monkeypat
     assert not (root / "out" / "stray.txt").exists()
     assert (root / "build" / "visuals" / "scene_000_01.mp4").read_bytes() == b"clip 0:1"
     assert json.loads((root / "build" / "visuals" / "credits.json").read_text()) == LEDGER
-    assert not (root / "build" / retake.BACKUP).exists()
+    assert not (root / snapshot.BACKUP).exists()
 
 
 def test_a_stopped_swap_is_put_back_too(root, encodes, monkeypatch):
@@ -287,14 +287,14 @@ def test_a_stopped_swap_is_put_back_too(root, encodes, monkeypatch):
 def test_a_swap_the_process_died_during_is_put_back_at_the_next_start(root):
     build = retake.Build(root)
     target = build.shot_path(0, 1)
-    retake._stash(build, target)
+    snapshot.take(root, retake.touched(build, target))
     (root / "out" / "a-title.mp4").write_bytes(b"truncated")
     target.write_bytes(b"the new clip")
 
-    assert retake.recover(root) is True
+    assert snapshot.restore(root) is True
     assert (root / "out" / "a-title.mp4").read_bytes() == b"the video before"
     assert target.read_bytes() == b"clip 0:1"
-    assert retake.recover(root) is False, "nothing is left to recover"
+    assert snapshot.restore(root) is False, "nothing is left to recover"
 
 
 def test_a_shots_still_follows_its_clip(root, monkeypatch):

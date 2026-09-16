@@ -306,6 +306,43 @@ def test_a_retake_asks_no_model_keeps_the_thumbnail_and_recredits_the_descriptio
     assert [l.split(" ", 1)[0] for l in lines][-1] == "done"
 
 
+@pytest.mark.parametrize("model", ["answers", "is unavailable"])
+def test_an_edit_keeps_the_thumbnail_and_never_publishes_stale_chapter_times(
+        project, rendered, monkeypatch, model):
+    """An edited scene moves every chapter after it.
+
+    The description is written again when the model answers. When it does not,
+    the old one is kept without its chapters: every time in it is still a valid
+    time, and every one now points at the wrong moment.
+    """
+    import json
+
+    key = "a-real-key" if model == "answers" else ""
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": key, "pexels": "", "pixabay": ""})
+    monkeypatch.setattr(pl.llm, "suggest_queries", lambda *a, **k: 0)
+    monkeypatch.setattr(pl.llm, "upload_metadata", lambda *a, **k: {
+        "title": "A Test Video", "description": "Written again.",
+        "chapters": [{"time": "0:00", "label": "Start"}], "tags": []})
+    monkeypatch.setattr(pl.thumbs, "from_stock", lambda *a, **k: pytest.fail("thumbnail chosen again"))
+    out = project / "out"
+    out.mkdir()
+    (out / "a-test-video.jpg").write_bytes(b"the chosen thumbnail")
+    (out / "youtube.json").write_text(json.dumps({
+        "title": "A Test Video", "description": "The old one.", "tags": [],
+        "chapters": [{"time": "0:00", "label": "Old"}, {"time": "0:12", "label": "Moved"}]}),
+        encoding="utf-8")
+
+    pl.build(project, log=lambda *a: None, edit=True)
+
+    assert (out / "a-test-video.jpg").read_bytes() == b"the chosen thumbnail"
+    description = (out / "description.txt").read_text(encoding="utf-8")
+    if model == "answers":
+        assert "Written again." in description
+    else:
+        assert "The old one." in description and "0:12" not in description
+
+
 def test_kept_thumbnail_credit_reads_only_the_thumbnail_lines(tmp_path):
     path = tmp_path / "credits.txt"
     assert pl.kept_thumbnail_credit(path) == ""
@@ -351,9 +388,63 @@ def test_editing_one_directive_leaves_the_other_scene_alone(tmp_path):
     assert not (vis / "scene_001_00.mp4").exists(), "scene two is the edited one"
 
 
-def test_editing_the_narration_still_drops_everything(tmp_path):
-    """The scoped path must not be reachable from a real redraft: a changed line
-    moves the timings, and every scene after it starts somewhere new."""
+def test_editing_one_scenes_words_rebuilds_that_scene_and_keeps_the_rest(tmp_path):
+    """A re-worded line used to re-voice and re-search the whole video.
+
+    The mixed narration holds the old voice, so it goes, and so do the edited
+    scene's clips, which were cut to its old slot. Every other scene keeps its
+    clips: a clip is cut to its own scene's slot, which an edit elsewhere does
+    not move, only where the slot starts.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "script.md").write_text(SCRIPT, encoding="utf-8")
+    write_default_config(root / "config.yaml", "A Test Video")
+    _parsed(root)
+
+    build = root / "build"
+    vis = build / "visuals"
+    vis.mkdir(parents=True, exist_ok=True)
+    (build / "narration.wav").write_bytes(b"the voice")
+    (vis / "scene_000_00.mp4").write_bytes(b"scene one")
+    (vis / "scene_001_00.mp4").write_bytes(b"scene two")
+
+    (root / "script.md").write_text(
+        SCRIPT.replace("A second line,", "A rewritten second line,"),
+        encoding="utf-8")
+    _parsed(root)
+
+    assert not (build / "narration.wav").exists(), "it holds the old words"
+    assert not (vis / "scene_001_00.mp4").exists(), "cut to the old slot"
+    assert (vis / "scene_000_00.mp4").read_bytes() == b"scene one"
+
+
+def test_the_edited_scene_is_voiced_again_and_the_others_keep_their_timings(tmp_path):
+    from vidsmith.script_parser import load_scenes, save_scenes
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "script.md").write_text(SCRIPT, encoding="utf-8")
+    write_default_config(root / "config.yaml", "A Test Video")
+    _parsed(root)
+    scenes = load_scenes(root / "build" / "scenes.json")
+    for scene in scenes:
+        scene.words = [{"text": "old", "start": 0.0, "end": 0.3}]
+        scene.duration, scene.audio = 4.0, f"scene_{scene.index}.mp3"
+    save_scenes(scenes, root / "build" / "scenes.json")
+
+    (root / "script.md").write_text(
+        SCRIPT.replace("A second line,", "A rewritten second line,"), encoding="utf-8")
+    _parsed(root)
+
+    after = load_scenes(root / "build" / "scenes.json")
+    assert after[0].words and after[0].duration == 4.0, "an untouched scene lost its voice"
+    assert not after[1].words and after[1].text.startswith("A rewritten"), \
+        "the edited scene would be spoken with its old words"
+
+
+def test_adding_a_scene_still_drops_everything(tmp_path):
+    """Everything keyed by position points at the wrong scene once one is added."""
     root = tmp_path / "proj"
     root.mkdir()
     (root / "script.md").write_text(SCRIPT, encoding="utf-8")
@@ -366,9 +457,7 @@ def test_editing_the_narration_still_drops_everything(tmp_path):
     (build / "narration.wav").write_bytes(b"the voice")
     (vis / "scene_000_00.mp4").write_bytes(b"scene one")
 
-    (root / "script.md").write_text(
-        SCRIPT.replace("A second line,", "A rewritten second line,"),
-        encoding="utf-8")
+    (root / "script.md").write_text(SCRIPT + "\nA third scene arrives.\n", encoding="utf-8")
     _parsed(root)
 
     assert not (build / "narration.wav").exists()
