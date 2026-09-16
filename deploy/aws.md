@@ -151,7 +151,16 @@ diagnosed from a `WorkingDirectory` and a commit hash that had both come from a
 laptop. If you do work interactively, run `hostname` first. `ip-172-31-...` is
 the box and anything else is not.
 
-**Updating a running instance** is one line:
+**Updating a running instance** is one command, run from a checkout:
+
+```bash
+vidsmith deploy
+```
+
+It refuses while a render is running (`--wait 10` waits for it), deploys over
+ssh, tells you the security group needs your current address when ssh times
+out, and only reports success once `/healthz` on the public URL shows the commit
+that was pushed. What it runs is this line, which still works by hand:
 
 ```bash
 ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git fetch origin; git checkout main; git pull --ff-only; git log --oneline -1; bash scripts/fetch-runtime-deps.sh --fonts-only; sudo systemctl daemon-reload; sudo systemctl restart vidsmith; systemctl is-active vidsmith"
