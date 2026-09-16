@@ -127,9 +127,12 @@ class YouTube:
         job.youtube = {"status": "uploading", "privacy": privacy, "progress": 0.0,
                        "started": time.time()}
         save(job)
+        # a copy taken before the thread starts: the worker updates job.youtube
+        # in place, and the response is serialised after this returns
+        started = dict(job.youtube)
         threading.Thread(target=self._run, args=(job, files, privacy, save),
                          daemon=True).start()
-        return job.youtube
+        return started
 
     @staticmethod
     def _files(out: Path, aspect: str) -> Dict[str, Optional[Path]]:
