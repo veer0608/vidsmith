@@ -670,6 +670,13 @@
           <hr class="sep">
           <button class="btn danger block hidden" type="button" id="stop">Stop This Render</button>
           <p class="fine" id="stop-hint">Stopping waits for the current stage to finish. It cannot be undone.</p>
+          <!-- A render is minutes long, and nobody watches a progress bar for that
+               long. Hidden where the browser has no notifications at all. -->
+          <div id="notify-box" class="hidden">
+            <hr class="sep">
+            <label class="check" style="min-height:0"><input type="checkbox" id="notify"> Notify Me When It's Done</label>
+            <p class="fine" id="notify-note" aria-live="polite"></p>
+          </div>
         </div>
       </section>
 
@@ -1579,6 +1586,59 @@ function drawSteps(job) {
 }
 
 /* The tab title is what someone sees from another tab during a half-hour wait. */
+/* ---------------------------------------------------------------- Alerts
+   Permission can only be asked for from a click, so it is asked when the box
+   is ticked, and the choice is remembered in this browser. A denied permission
+   is said out loud rather than leaving a ticked box that will never fire. */
+const canNotify = "Notification" in window;
+
+function drawNotify() {
+  if (!canNotify) return;
+  $("notify-box").classList.remove("hidden");
+  const wanted = store.get("vidsmith_notify") === true;
+  const allowed = Notification.permission === "granted";
+  $("notify").checked = wanted && allowed;
+  $("notify-note").textContent = Notification.permission === "denied"
+    ? "This browser has blocked notifications for this site. Allow them in the site settings to use this."
+    : wanted && allowed ? "You will get a notification when it finishes, even from another tab." : "";
+}
+
+$("notify").addEventListener("change", async () => {
+  if (!canNotify) return;
+  if (!$("notify").checked) { store.set("vidsmith_notify", false); drawNotify(); return; }
+  let permission = Notification.permission;
+  if (permission === "default") {
+    try { permission = await Notification.requestPermission(); } catch { permission = "denied"; }
+  }
+  store.set("vidsmith_notify", permission === "granted");
+  drawNotify();
+});
+
+/* What finished, in the words the person would use: a change that did not
+   happen is not "ready", and a Shorts version is not the video itself. */
+function finishedMessage(job) {
+  const title = job.title || "Your video";
+  const swap = job.swap || {};
+  if (job.status === "failed") return [`${title} failed`, "The build log says where."];
+  if (job.status === "cancelled") return [`${title} stopped`, "The render was stopped."];
+  if (swap.status === "failed") {
+    return [`${title}: the change did not finish`, `The video is as it was. ${swap.error || ""}`.trim()];
+  }
+  if (swap.kind === "cut") return [`${title}: Shorts version ready`, "The 9:16 cut is ready to watch and download."];
+  if (swap.kind === "scene") return [`${title}: scene ${swap.scene + 1} rebuilt`, "The rest of the video was kept."];
+  if (swap.kind === "shot") return [`${title}: shot swapped`, `Scene ${swap.scene + 1}, shot ${swap.shot + 1} has the new clip.`];
+  return [`${title} is ready`, job.runtime ? `${fmt(job.runtime)} of video, ready to watch and download.` : "Ready to watch and download."];
+}
+
+function announceFinished(job) {
+  if (!canNotify || Notification.permission !== "granted" || store.get("vidsmith_notify") !== true) return;
+  const [heading, body] = finishedMessage(job);
+  try {
+    const note = new Notification(heading, {body, tag: `vidsmith-${job.id}`});
+    note.onclick = () => { window.focus(); note.close(); };
+  } catch { /* some browsers only allow notifications from a service worker */ }
+}
+
 function titleFor(job, pct) {
   const state = job.status === "done" ? "Done"
     : job.status === "failed" ? "Failed"
@@ -2408,7 +2468,11 @@ async function poll(id) {
     if (r.status === 401) forgetToken();
     clearInterval(timer); finished(); return;
   }
-  if (render(job)) clearInterval(timer);
+  if (render(job)) {
+    clearInterval(timer);
+    // only a job this page watched finish: a reload onto a finished one has no news
+    announceFinished(job);
+  }
 }
 
 function lostContact() {
@@ -2493,6 +2557,8 @@ $("again").onclick = () => {
    browsers and some mobile views refuse those outright, the same reason the
    token is a field and not a prompt(). */
 let stopArmed = null;
+drawNotify();
+
 $("stop").onclick = async () => {
   if (!running) return;
   if (!stopArmed) {
