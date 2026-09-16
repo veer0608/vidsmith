@@ -137,26 +137,60 @@ def narration_words(text: str) -> int:
 
 def parse_text(text: str) -> tuple[str, List[Scene]]:
     """`parse_script` without a file; the title is "" when there is no `#`."""
+    title, scenes, _ = _parse(text)
+    return title, scenes
+
+
+def replace_scene_text(text: str, index: int, new_text: str) -> str:
+    """The script with one scene's narration replaced and every other line kept.
+
+    The file is the source of truth and a person wrote it, so it is edited in
+    place rather than written back from parsed scenes, which would drop the
+    notes, the formatting and every choice about where a line breaks. The new
+    words take the place of the lines that scene's narration came from, as one
+    line, so a blank line in them cannot quietly start another scene.
+    """
+    _, scenes, spans = _parse(text)
+    if not 0 <= index < len(scenes):
+        raise ValueError(f"the script has no scene {index}")
+    words = " ".join(new_text.split())
+    if not words:
+        raise ValueError("a scene needs some narration")
+    lines = text.splitlines()
+    first, *rest = spans[index]
+    # every line dropped comes after the first, so the first keeps its position
+    drop = set(rest)
+    kept = [line for i, line in enumerate(lines) if i not in drop]
+    kept[first] = words
+    return "\n".join(kept) + ("\n" if text.endswith("\n") else "")
+
+
+def _parse(text: str) -> tuple[str, List[Scene], List[List[int]]]:
+    """Parse, and say which lines of the file each scene's narration came from."""
     lines = text.splitlines()
 
     title = ""
     scenes: List[Scene] = []
+    spans: List[List[int]] = []
     cur_heading = ""
     cur_query = ""
     cur_hold = 0.0
     cur_diagram = ""
     buf: List[str] = []
+    buf_lines: List[int] = []
 
     def flush():
         # cur_heading is read here but only ever assigned in the loop below, so
         # it needs no nonlocal. It survives a flush on purpose: a heading is a
         # section, not a label for one paragraph, so every scene under one `##`
         # keeps it, and an undirected scene is searched on it.
-        nonlocal buf, cur_query, cur_hold, cur_diagram
+        nonlocal buf, buf_lines, cur_query, cur_hold, cur_diagram
         text = _clean(" ".join(buf))
-        buf = []
+        taken = buf_lines
+        buf, buf_lines = [], []
         if not text:
             return
+        spans.append(taken)
         scenes.append(
             Scene(
                 index=len(scenes),
@@ -172,7 +206,7 @@ def parse_text(text: str) -> tuple[str, List[Scene]]:
         cur_hold = 0.0
         cur_diagram = ""
 
-    for raw in lines:
+    for number, raw in enumerate(lines):
         line = raw.rstrip()
 
         if NOTE.match(line):
@@ -219,9 +253,10 @@ def parse_text(text: str) -> tuple[str, List[Scene]]:
             continue
 
         buf.append(line.strip())
+        buf_lines.append(number)
 
     flush()
-    return title, scenes
+    return title, scenes, spans
 
 
 def save_scenes(scenes: List[Scene], path: Path) -> None:

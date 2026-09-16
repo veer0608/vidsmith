@@ -18,6 +18,7 @@ from vidsmith import music as music_mod
 from vidsmith.config import ASPECTS, VoiceConfig, env
 from vidsmith import cover
 from vidsmith import retake as retakes
+from vidsmith import rewrite
 from vidsmith import script_parser
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
@@ -374,6 +375,41 @@ def swap_shot(job_id: str, scene: int, shot: int, req: SwapRequest,
     """
     try:
         job = jobs.retake(job_id, scene, shot, req.clip, req.query, keys=_keys())
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+    except Busy as exc:
+        raise HTTPException(429, str(exc))
+    if job is None:
+        raise HTTPException(404, "no such job")
+    return jobs.snapshot(job.id) or job.public()
+
+
+@app.get("/api/jobs/{job_id}/scenes")
+def script_scenes(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
+    """A finished render's scenes as the script has them, and the word limit."""
+    job = _finished(job_id)
+    try:
+        body = rewrite.scenes(job.root)
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+    # whether a scene can be rebuilt on its own, which needs the kept build
+    body["editable"] = (job.root / "build" / "scenes.json").exists()
+    return {**body, "word_cap": WORD_CAP}
+
+
+class SceneEdit(BaseModel):
+    text: str = Field(min_length=1, max_length=rewrite.MAX_SCENE_CHARS)
+
+
+@app.post("/api/jobs/{job_id}/scenes/{scene}", status_code=202)
+def edit_scene(job_id: str, scene: int, req: SceneEdit,
+               _: None = Depends(guard)) -> Dict[str, Any]:
+    """New words for one scene: it is voiced and filmed again, the rest is kept.
+
+    Queued like a render, because the whole video is mixed and encoded again.
+    """
+    try:
+        job = jobs.edit_scene(job_id, scene, req.text, word_cap=WORD_CAP)
     except retakes.RetakeRefused as exc:
         raise HTTPException(409, str(exc))
     except Busy as exc:

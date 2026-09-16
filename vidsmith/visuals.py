@@ -1334,6 +1334,12 @@ def build_all(scenes: Sequence[Scene], cfg: VisualConfig, size: Tuple[int, int],
     builder = VisualBuilder(cfg, size, fps, workdir, keys, log, theme, theme_cfg,
                             total_scenes=len(scenes), lead_in=lead_in,
                             caption_cfg=caption_cfg, project_root=project_root)
+    if not force:
+        # Scenes whose clips are reused never pass through a search, so nothing
+        # marks their footage as taken, and a scene rebuilt beside them - after
+        # an edit to its words or its directive - could pick the same clip.
+        builder.used |= {entry.get("id") for entry in builder._load_ledger().values()
+                         if isinstance(entry, dict) and entry.get("id")}
     builder.prepare_beats(scenes)
     for scene in scenes:
         builder.build(scene, force=force)

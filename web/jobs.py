@@ -34,6 +34,7 @@ import yaml
 from vidsmith import pipeline
 from vidsmith import cover
 from vidsmith import retake as retakes
+from vidsmith import rewrite, snapshot
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
 
@@ -126,9 +127,10 @@ class Job:
     runtime: float = 0.0              # seconds of finished video, off the build log
     # the upload to YouTube, once asked for: status, privacy, video id, error
     youtube: Dict[str, Any] = field(default_factory=dict)
-    # a shot change waiting or running, and what to put back if it fails
+    # a change to a finished render - one shot's clip, or one scene's words -
+    # waiting or running, and what to put back if it fails
     retake: Dict[str, Any] = field(default_factory=dict)
-    # how the last shot change ended, for the page: status, scene, shot, error
+    # how the last change ended, for the page: kind, status, scene, shot, error
     swap: Dict[str, Any] = field(default_factory=dict)
     # a thumbnail being composed, which a shot change must not start under
     retitling: bool = False
@@ -233,10 +235,10 @@ class Jobs:
             record = json.loads((path / RECORD).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
-        # A restart during a shot change leaves the delivery half rewritten and
-        # the copy it was taken from beside it; the copy is the good one.
+        # A restart during a change leaves the delivery half rewritten and the
+        # copy it was taken from beside it; the copy is the good one.
         try:
-            recovered = retakes.recover(path)
+            recovered = snapshot.restore(path)
         except OSError:
             recovered = False
         if not isinstance(record, dict) or record.get("status") != "done" \
@@ -457,11 +459,35 @@ class Jobs:
         first build. Everything that can be refused is refused here, before it
         waits: a clip that is not in the search, a render that is on YouTube.
         """
+        job = self._changeable(job_id)
+        if job is None:
+            return None
+        retakes.check(job.root, scene, shot, clip, query or None, keys)
+        return self._queue_change(job, {"kind": "shot", "scene": scene, "shot": shot,
+                                        "clip": str(clip), "query": query, "keys": keys})
+
+    def edit_scene(self, job_id: str, scene: int, text: str,
+                   word_cap: Optional[int] = None) -> Optional[Job]:
+        """Queue new words for one scene of a finished render.
+
+        Only that scene is voiced and filmed again; the rest of the video keeps
+        its narration and its clips, and the whole of it is mixed and encoded
+        once more, so it waits in the render line like any render.
+        """
+        job = self._changeable(job_id)
+        if job is None:
+            return None
+        rewrite.check(job.root, scene, text, word_cap)
+        return self._queue_change(job, {"kind": "scene", "scene": scene,
+                                        "text": text, "word_cap": word_cap})
+
+    def _changeable(self, job_id: str) -> Optional[Job]:
+        """A finished render that may be changed, a refusal, or None if unknown."""
         job = self.get(job_id)
         if job is None:
             return None
         if job.status != "done" or job.root is None:
-            raise retakes.RetakeRefused("only a finished render can have a shot changed")
+            raise retakes.RetakeRefused("only a finished render can be changed")
         state = job.youtube.get("status")
         if state == "uploading":
             raise retakes.RetakeRefused("this render is uploading to YouTube; "
@@ -469,16 +495,15 @@ class Jobs:
         if state == "done":
             raise retakes.RetakeRefused("this render is on YouTube already, so a "
                                         "changed video would be a second upload")
-        retakes.check(job.root, scene, shot, clip, query or None, keys)
+        return job
 
+    def _queue_change(self, job: Job, work: Dict[str, Any]) -> Job:
         with self._lock:
             if job.status != "done" or job.retitling:
                 raise retakes.RetakeRefused("this render is already being changed")
             if self._full_locked():
                 raise Busy(self._full_message_locked())
-            job.retake = {"scene": scene, "shot": shot, "clip": str(clip),
-                          "query": query, "keys": keys,
-                          "finished": job.finished, "created": job.created}
+            job.retake = {**work, "finished": job.finished, "created": job.created}
             job.swap = {}
             # a render stopped once must not stop the next change at its first line
             job.cancel_requested = False
@@ -542,8 +567,9 @@ class Jobs:
         job.finished = before.get("finished") or time.time()
         job.created = before.get("created") or job.created
         job.log.append(line)
-        job.swap = ({"status": "failed", "scene": before.get("scene"),
-                     "shot": before.get("shot"), "error": error} if error else {})
+        job.swap = ({"kind": before.get("kind", "shot"), "status": "failed",
+                     "scene": before.get("scene"), "shot": before.get("shot"),
+                     "error": error} if error else {})
         job.outputs = self._collect(job)
         self.record(job)
 
@@ -644,12 +670,18 @@ class Jobs:
 
         retaking = dict(job.retake)
         try:
-            if retaking:
+            if retaking.get("kind") == "scene":
+                rewrite.apply(job.root, retaking["scene"], retaking["text"],
+                              word_cap=retaking.get("word_cap"), log=log)
+                job.swap = {"kind": "scene", "status": "done",
+                            "scene": retaking["scene"]}
+                job.retake = {}
+            elif retaking:
                 retakes.replace(job.root, retaking["scene"], retaking["shot"],
                                 retaking["clip"], keys=retaking.get("keys"),
                                 query=retaking["query"] or None, log=log)
-                job.swap = {"status": "done", "scene": retaking["scene"],
-                            "shot": retaking["shot"]}
+                job.swap = {"kind": "shot", "status": "done",
+                            "scene": retaking["scene"], "shot": retaking["shot"]}
                 job.retake = {}
             else:
                 pipeline.build(job.root, log=log)

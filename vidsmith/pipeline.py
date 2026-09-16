@@ -74,7 +74,8 @@ def _prune(path: Path, owned) -> int:
 
 
 def invalidate(proj: "Project", log=print,
-               only: Optional[Set[int]] = None) -> None:
+               only: Optional[Set[int]] = None,
+               respoken: Optional[Set[int]] = None) -> None:
     """Drop everything keyed by scene index after the script changes.
 
     The diagram decisions, the rerank verdicts and the attribution ledger are all
@@ -91,6 +92,14 @@ def invalidate(proj: "Project", log=print,
     footage stay, because none of them can have changed. Without it, rewording
     one directive re-ranked all seven scenes of a build - a vision call each,
     against a daily budget that is not reported anywhere.
+
+    `respoken` names the scenes among them whose narration changed. They lose
+    their clips like any scoped scene, and the mixed narration goes too, since
+    it holds their old voice. Every other scene keeps its voice and its clips:
+    a clip is cut to its own scene's slot, and a slot does not move when an
+    earlier scene gets longer, only where it starts does, which the captions,
+    the mix and the cut all take from the timings fresh on every build. A
+    one-line edit used to re-voice and re-search the whole video.
     """
     removed = 0
     scoped = only is not None
@@ -103,6 +112,9 @@ def invalidate(proj: "Project", log=print,
     if scoped:
         for name in ("diagram_scenes.json", "diagrams.json"):
             removed += _prune(proj.build / name, owned)
+        if respoken and (proj.build / "narration.wav").exists():
+            (proj.build / "narration.wav").unlink()
+            removed += 1
     else:
         # narration.wav is the one that actually reached the viewer: it is only
         # rebuilt when it is missing, so a redraft left the previous script's
@@ -142,7 +154,11 @@ def invalidate(proj: "Project", log=print,
         picture.unlink()
         removed += 1
 
-    if removed and scoped:
+    if removed and scoped and respoken:
+        n = len(respoken)
+        log(f"script   the words changed in {n} scene{'' if n == 1 else 's'}; "
+            f"dropped {removed} stale artifacts and kept every other scene")
+    elif removed and scoped:
         n = len(wanted)
         log(f"script   the shot changed on {n} scene{'' if n == 1 else 's'}; "
             f"dropped {removed} stale artifacts and kept the narration")
@@ -151,7 +167,7 @@ def invalidate(proj: "Project", log=print,
 
 
 def carry_timings(cached: List[Scene], fresh: List[Scene],
-                  redrawn: Set[int]) -> List[Scene]:
+                  redrawn: Set[int], respoken: Optional[Set[int]] = None) -> List[Scene]:
     """Keep the voice on a picture-only edit, and drop only the picture.
 
     The freshly parsed scenes are authoritative about the script - they hold the
@@ -162,8 +178,13 @@ def carry_timings(cached: List[Scene], fresh: List[Scene],
     `llm.suggest_queries()` wrote that one and a re-parse loses it back to the
     heading fallback. Without this the model is asked again for every undirected
     scene in the script, which is the cost this whole path exists to avoid.
+
+    A `respoken` scene carries nothing: its words are new, so its voice, its
+    timings and its search all have to be made again.
     """
     for old, new in zip(cached, fresh):
+        if new.index in (respoken or ()):
+            continue
         new.audio = old.audio
         new.words = old.words
         new.duration = old.duration
@@ -220,7 +241,7 @@ def find_keys(project_root: Path) -> Dict[str, str]:
 
 def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
           overrides: Optional[Dict[str, str]] = None, log=print,
-          retake: bool = False) -> Path:
+          retake: bool = False, edit: bool = False) -> Path:
     """Build the project, and write `build/manifest{tag}.json` however it ends.
 
     The manifest is written from here rather than at each return inside the
@@ -235,11 +256,18 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     Nothing in it is a question for a model: the footage is chosen, so the
     thumbnail and its credit are kept, and the description is rewritten from the
     `youtube.json` already on disk so it names the new clip's creator.
+
+    `edit` is a finished build after one scene's words were rewritten. Those
+    scenes need their searches and verdicts, so the model is asked as usual,
+    but the thumbnail was chosen for the video and is kept. The description is
+    written again, because its chapter times moved with the narration; when the
+    model cannot write it, the old one is kept without its chapters rather than
+    with times that now point at the wrong moment.
     """
     with manifest.recording() as rec:
         try:
             result = _build(project_root, force, stop_after, overrides, log, rec,
-                            retake)
+                            retake, edit)
         except BaseException as exc:
             rec.finish("failed" if isinstance(exc, Exception) else "cancelled", exc)
             rec.write()
@@ -252,7 +280,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
 
 def _build(project_root: Path, force: Sequence[str], stop_after: str,
            overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder,
-           retake: bool = False) -> Path:
+           retake: bool = False, edit: bool = False) -> Path:
     started = time.time()
     proj = Project(project_root)
     if not proj.script.exists():
@@ -295,18 +323,22 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     if scenes_json.exists():
         cached = load_scenes(scenes_json)
         aligned = len(cached) == len(scenes)
-        spoken = aligned and all(c.narration_key() == s.narration_key()
-                                 for c, s in zip(cached, scenes))
         # the scenes whose "[visual: ...]" or "[diagram: ...]" line moved, which
         # is a change to the picture and to nothing else
         redrawn = {s.index for c, s in zip(cached, scenes)
                    if c.picture_key() != s.picture_key()} if aligned else set()
-        if not spoken:
+        # the scenes whose words moved: a new voice and a new picture for each,
+        # since the picture is cut to the slot the voice sets
+        respoken = {s.index for c, s in zip(cached, scenes)
+                    if c.narration_key() != s.narration_key()} if aligned else set()
+        if not aligned:
+            # a scene added or removed moves every index-keyed cache onto the
+            # wrong scene, so nothing keyed by position can be trusted
             invalidate(proj, log)
-        elif redrawn:
-            invalidate(proj, log, only=redrawn)
+        elif respoken or redrawn:
+            invalidate(proj, log, only=redrawn | respoken, respoken=respoken)
             if "voice" not in force and "parse" not in force:
-                scenes = carry_timings(cached, scenes, redrawn)
+                scenes = carry_timings(cached, scenes, redrawn, respoken)
         elif "voice" not in force and "parse" not in force:
             scenes = cached
             log("         reusing cached scene timings")
@@ -459,8 +491,10 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     #
     # A retake keeps the thumbnail it has. Choosing again would spend a model
     # call and could land on a different photograph, and nobody asked for that.
-    thumb_lines = kept_thumbnail_credit(proj.out / f"credits{tag}.txt") if retake else ""
-    if not retake:
+    keep_thumbnail = retake or edit
+    thumb_lines = (kept_thumbnail_credit(proj.out / f"credits{tag}.txt")
+                   if keep_thumbnail else "")
+    if not keep_thumbnail:
         try:
             hook = scenes[0].text if scenes else ""
             target = (1280, 720) if cfg.size[0] >= cfg.size[1] else None
@@ -538,6 +572,10 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
                 log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
             except Exception as exc:
                 log(f"meta     skipped ({exc})")
+                if edit:
+                    _without_chapters(proj, cfg, log)
+        elif edit:
+            _without_chapters(proj, cfg, log)
 
         # Read the delivery back before anyone else does. Reported, never
         # raised: the same rule the thumbnail follows, that a finished render
@@ -575,6 +613,24 @@ def thumbnail_credit_line(stock: Dict[str, Any]) -> str:
     """
     line = f"{THUMB_CREDIT}{stock['author']} - {stock.get('page', '')}"
     return line.rstrip(" -") + "\n"
+
+
+def _without_chapters(proj: Project, cfg: Config, log=print) -> None:
+    """Keep the old description after an edit, minus the chapter times it moved.
+
+    YouTube drops a whole chapter list for one bad line, but a list whose times
+    are all valid and all wrong is worse: it is published and it misleads.
+    """
+    meta_json = proj.out / "youtube.json"
+    if not meta_json.exists():
+        return
+    try:
+        meta = json.loads(meta_json.read_text(encoding="utf-8"))
+        meta["chapters"] = []
+        write_metadata(proj.out, meta, source=cfg.source)
+        log("meta     kept the description without its chapters; their times moved")
+    except (OSError, ValueError) as exc:
+        log(f"meta     skipped ({exc})")
 
 
 def write_thumbnail_choice(build_dir: Path, tag: str, body: Dict[str, Any]) -> Path:

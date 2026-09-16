@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient        # noqa: E402
 
 import web.jobs as jobs_mod                      # noqa: E402
 from test_retake import _hits, finished_build    # noqa: E402
-from vidsmith import retake, visuals             # noqa: E402
+from vidsmith import retake, snapshot, visuals   # noqa: E402
 from web import app as web_app                   # noqa: E402
 from web.jobs import Jobs                        # noqa: E402
 
@@ -143,7 +143,7 @@ def test_a_swap_rebuilds_the_same_job_and_finishes_it_again(api):
 
     assert job.status == "done", job.log
     assert (job.root / "out" / "a-title.mp4").read_bytes() == b"the video after"
-    assert job.swap == {"status": "done", "scene": 0, "shot": 1}
+    assert job.swap == {"kind": "shot", "status": "done", "scene": 0, "shot": 1}
     assert job.finished > before, "the keep runs from the change, not the first build"
     ledger = json.loads((job.root / "build" / "visuals" / "credits.json").read_text())
     assert ledger["0:1"]["id"] == "22"
@@ -210,7 +210,7 @@ def test_a_stopped_swap_does_not_stop_the_next_one(api, stubs, monkeypatch):
     assert _swap(api, job).status_code == 202
     _settle(web_app.jobs)
 
-    assert job.swap == {"status": "done", "scene": 0, "shot": 1}, job.log
+    assert job.swap == {"kind": "shot", "status": "done", "scene": 0, "shot": 1}, job.log
     assert job.cancel_requested is False
 
 
@@ -234,7 +234,7 @@ def test_a_restart_during_a_swap_brings_back_the_video_from_before(tmp_path):
     job = jobs.submit(SCRIPT, {"aspect": "16:9"})
     _settle(jobs)
     build = retake.Build(job.root)
-    retake._stash(build, build.shot_path(0, 1))
+    snapshot.take(job.root, retake.touched(build, build.shot_path(0, 1)))
     (job.root / "out" / "a-title.mp4").write_bytes(b"truncated by the restart")
 
     again = Jobs(tmp_path).get(job.id)

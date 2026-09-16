@@ -473,6 +473,16 @@ competing with the voice.
   *fresh* scenes, so the new directive is always the one that survives. An
   unedited scene keeps its cached `query` there too, because a re-parse loses a
   model-written search back to the heading fallback and asks for it again.
+  **A changed `narration_key()` no longer drops everything either, unless a
+  scene was added or removed.** The old reasoning was that an edited line moves
+  every later scene's start, which is true and does not matter: a clip is cut
+  to its own scene's slot, and starts are read fresh by the captions, the mix
+  and the cut on every build. `invalidate(only=..., respoken=...)` drops the
+  edited scenes' clips and entries plus `narration.wav`, `carry_timings()` copies
+  nothing onto a respoken scene so it is voiced again, and `build_all` marks
+  the ledger's clips as used so the re-filmed scene cannot pick footage another
+  scene already shows. Only a change in scene count still drops everything,
+  because that moves every index-keyed cache onto the wrong scene.
 - **Sizes must key off frame WIDTH, never height.** 15% of 1920 is not the same
   kind of quantity as 15% of 1080; keying box heights to height made portrait
   diagrams nearly square. Portrait then gets larger type deliberately.
@@ -1153,13 +1163,26 @@ Four rules hold it together:
   reuse path cuts in every file matching that name.
 - **A failed or stopped retake hands back the video it started from, still
   `done`.** Marking it failed would give a finished video to the one-hour sweep.
-  `out/` and the touched files are copied to `build/.retake-backup` first, and a
+  `out/` and the touched files are copied to the job's `.backup/` first, and a
   copy still there at startup means the process died mid-master:
-  `_adopt` calls `retake.recover()` before it reads the record.
+  `_adopt` calls `snapshot.restore()` before it reads the record.
 - **It takes the render slot and waits in the line**, because the master pass is
   most of an encode. The job keeps its id, and the page follows it like the first
   build. A render already on YouTube is refused: a changed video would be a second
   upload.
+
+**One scene's words can be rewritten too.** `vidsmith/rewrite.py` replaces that
+scene's narration lines in `script.md` in place, keeping notes and every other
+line, and refuses words that would change anything else once parsed (a
+heading, a directive, a split scene). Then `pipeline.build(edit=True)` rebuilds
+only that scene, per the scoped invalidation above, keeps the thumbnail, and
+writes the description again because its chapter times moved. When the model
+cannot write it, the old description is kept **without** its chapters rather
+than publishing times that now point at the wrong moment. Both kinds of change
+back up through `vidsmith/snapshot.py` into the job's `.backup/`, restored on
+failure and at startup. The page's inline script is parsed by `node --check` in
+`test_page_script.py`, because a duplicate `let` once took the whole page down
+while every text-reading page test passed.
 
 **The thumbnail can be chosen by hand too, and it is not a render.**
 `vidsmith/cover.py` offers the photographs from the search the build used
