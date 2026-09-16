@@ -446,6 +446,15 @@ score the same. Fewer tied files than shots means fewer shots, not repeats, and
 the plan collapses. Variety comes from equally named variants
 (`byte-pointing-2.png`), which tie and are spread across scenes by `self.used`.
 
+**`visuals.genre` steers the searches, it does not filter the results.**
+Pexels has no genre parameter, so `genres.py` hands a style direction to the
+two prompts that write stock searches, `beat_queries` and `suggest_queries`,
+with the passage's subject still ranked above the style. Only Pixabay's
+`video_type=animation` is a real filter. It needs a Gemini key to do anything
+on Pexels. The genre is part of the beat cache key and of the Pixabay search
+key, except `any`, which adds nothing, so caches written before genres existed
+are still found.
+
 The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
 sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at
 `-14`. Raising `music_gain_db` without re-checking the mix is how the bed starts

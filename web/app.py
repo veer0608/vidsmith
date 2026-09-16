@@ -13,8 +13,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
 
+from vidsmith import genres as genres_mod
 from vidsmith import llm
 from vidsmith import music as music_mod
+from vidsmith.genres import GENRES
 from vidsmith.config import ASPECTS, VoiceConfig, env
 from vidsmith import cover
 from vidsmith import retake as retakes
@@ -91,6 +93,7 @@ class BuildRequest(BaseModel):
     aspect: str = "16:9"
     theme: str = "midnight"
     provider: str = "pexels"
+    genre: str = "any"
     watermark: str = ""
     music: bool = True
     mood: str = "calm"
@@ -107,6 +110,8 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(400, f"theme must be one of {sorted(PRESETS)}")
     if req.provider not in PROVIDERS:
         raise HTTPException(400, f"provider must be one of {list(PROVIDERS)}")
+    if req.genre not in GENRES:
+        raise HTTPException(400, f"genre must be one of {list(GENRES)}")
     if req.mood not in music_mod.moods():
         raise HTTPException(400, f"mood must be one of {music_mod.moods()}")
     words = script_parser.narration_words(req.script)
@@ -184,6 +189,9 @@ def options() -> Dict[str, Any]:
             # how long a finished job stays downloadable, for "kept until"
             "keep_seconds": KEEP_SECONDS,
             "moods": music_mod.moods(), "max_minutes": MAX_MINUTES,
+            # the footage style buttons, labels included, so a genre added to
+            # genres.py reaches the page without anyone editing it
+            "genres": genres_mod.options(),
             # counted the way the check counts, so the meter turns red at
             # exactly the script that would come back as a 400
             "word_cap": WORD_CAP,

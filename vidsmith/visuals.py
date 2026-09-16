@@ -32,6 +32,7 @@ from .theme import Theme, resolve as resolve_theme
 from . import cards
 from . import captions as cap
 from . import diagram
+from . import genres
 from . import llm
 from . import manifest
 from . import usage
@@ -547,17 +548,20 @@ def _pexels_photo_fetch(query: str, key: str, orientation: str,
     return out
 
 
-def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
-    return _cached_search("pixabay", (query, want_h),
-                          lambda: _pixabay_fetch(query, key))
+def pixabay_search(query: str, key: str, want_h: int,
+                   video_type: str = "all") -> List[Dict]:
+    # `all` keeps the key it always had, so the searches already cached and the
+    # ones bench/rank_clips looks up by name are still found
+    parts = (query, want_h) if video_type == "all" else (query, want_h, video_type)
+    return _cached_search("pixabay", parts,
+                          lambda: _pixabay_fetch(query, key, video_type))
 
 
-def _pixabay_fetch(query: str, key: str) -> List[Dict]:
-    r = requests.get(
-        "https://pixabay.com/api/videos/",
-        params={"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"},
-        timeout=TIMEOUT,
-    )
+def _pixabay_fetch(query: str, key: str, video_type: str = "all") -> List[Dict]:
+    params = {"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"}
+    if video_type != "all":
+        params["video_type"] = video_type
+    r = requests.get("https://pixabay.com/api/videos/", params=params, timeout=TIMEOUT)
     usage.stock_headers("pixabay", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
     results = []
@@ -881,7 +885,8 @@ class VisualBuilder:
                 hits = pexels_search(query, self.keys.get("pexels", ""),
                                      self.cfg.orientation, want_h)
             else:
-                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h)
+                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h,
+                                      genres.get(self.cfg.genre).pixabay_type)
         except Exception as exc:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []
@@ -979,11 +984,15 @@ class VisualBuilder:
         # searches for the same things, so a second cut spends no request here.
         return self.workdir.parent / "beats.json"
 
-    @staticmethod
-    def _beat_key(scene: Scene, text: str) -> str:
+    def _beat_key(self, scene: Scene, text: str) -> str:
         # Keyed by the words rather than by position, so a redraft cannot hand
-        # one scene's search to another.
-        raw = "\x1f".join([scene.heading or "", text])
+        # one scene's search to another. A genre is part of the key, or choosing
+        # one on a rebuild would be served the searches written without it;
+        # `any` adds nothing, so searches cached before genres are still found.
+        parts = [scene.heading or "", text]
+        if self.cfg.genre not in ("", "any"):
+            parts.append(self.cfg.genre)
+        raw = "\x1f".join(parts)
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
     def _passages(self, scene: Scene, plan: Sequence[float]) -> List[Dict[str, Any]]:
@@ -1047,7 +1056,8 @@ class VisualBuilder:
             try:
                 queries = llm.beat_queries(
                     [{"text": b["text"], "heading": s.heading}
-                     for s, b in pending], key, log=self.log)
+                     for s, b in pending], key, log=self.log,
+                    genre=self.cfg.genre)
             except llm.LLMUnavailable as exc:
                 self.log(f"    beat searches unavailable ({exc}); "
                          f"each scene keeps its own search")

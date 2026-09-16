@@ -73,6 +73,10 @@ class VisualConfig:
     # one subject while the narration moved through four ideas, and a viewer
     # called the footage mostly unrelated. 0 searches once per scene.
     beat_seconds: float = 8.0
+    # The kind of footage to search for, see genres.py. It steers the searches
+    # Gemini writes rather than filtering results, so it needs a Gemini key to
+    # do anything; `any` searches exactly as a build did before it existed.
+    genre: str = "any"
 
 
 @dataclass
@@ -206,10 +210,12 @@ _CLOSED_SETS = {
 
 
 def _check(cfg: "Config", path: Path) -> None:
+    from .genres import GENRES
     from .theme import PRESETS
 
     checks = dict(_CLOSED_SETS)
     checks[("theme", "preset")] = tuple(PRESETS)
+    checks[("visuals", "genre")] = tuple(GENRES)
     for (section, key), allowed in checks.items():
         value = getattr(getattr(cfg, section), key)
         if value not in allowed:

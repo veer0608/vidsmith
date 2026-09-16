@@ -170,6 +170,32 @@ def test_a_redrafted_passage_gets_a_new_search(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_choosing_a_genre_writes_new_searches_in_that_style(tmp_path, monkeypatch):
+    """A genre is part of the beat key, or a rebuild that picked one would be
+    served the searches written without it and look exactly the same."""
+    seen = []
+
+    def fake(passages, api_key, log=None, genre="any", **k):
+        seen.append(genre)
+        return [f"{genre} {i}" for i in range(len(passages))]
+
+    monkeypatch.setattr(visuals.llm, "beat_queries", fake)
+    _builder(tmp_path).prepare_beats([_long_scene()])
+    styled = _builder(tmp_path, genre="cinematic")
+    styled.prepare_beats([_long_scene()])
+
+    assert seen == ["any", "cinematic"]
+    assert styled._beats[0][0]["query"] == "cinematic 0"
+
+
+def test_the_default_genre_keeps_the_searches_already_cached(tmp_path, monkeypatch):
+    calls = []
+    _write_searches(monkeypatch, calls)
+    _builder(tmp_path).prepare_beats([_long_scene()])
+    _builder(tmp_path, genre="any").prepare_beats([_long_scene()])
+    assert len(calls) == 1
+
+
 def test_no_model_means_each_scene_keeps_its_own_search(tmp_path, monkeypatch):
     lines = []
 
@@ -379,6 +405,24 @@ def test_beat_queries_reads_one_search_per_passage(monkeypatch):
     assert got == ["hard drive close up", "engineer reading code"]
     assert "1. [scene: Disks] Disks are slow." in sent[0]
     assert "2. Code reads it." in sent[0]
+    assert "STYLE" not in sent[0], "no genre chosen, so nothing added"
+
+
+@pytest.mark.parametrize("writer", ["beat_queries", "suggest_queries"])
+def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, writer):
+    from vidsmith import llm
+
+    sent = []
+    monkeypatch.setattr(llm, "generate", lambda prompt, *a, **k: sent.append(prompt) or
+                        '["forest at dawn"]')
+    if writer == "beat_queries":
+        llm.beat_queries([{"text": "Trees grow slowly."}], "k", genre="nature")
+    else:
+        llm.suggest_queries([make_scene("Trees grow slowly.", heading="Trees")], "k",
+                            genre="nature", log=lambda *a: None)
+
+    assert "STYLE: the footage for this video should be nature" in sent[0]
+    assert "subject of the passage always comes first" in sent[0]
 
 
 @pytest.mark.parametrize("reply", ['["only one"]', "not json at all"])

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
+from .genres import GENRES
 from .theme import PRESETS as THEME_PRESETS
 from .pipeline import (KEY_ENV, KEY_NOTES, Project, _slug, find_keys,
                        resolve_title, set_thumbnail_credit, write_metadata)
@@ -88,6 +89,7 @@ def cmd_build(args) -> int:
         "music": args.music, "captions": args.captions, "theme": args.theme,
         "accent": args.accent, "watermark": args.watermark,
         "no_cards": "1" if args.no_cards else "", "mood": args.mood,
+        "genre": args.genre,
     }
     out = pipeline.build(
         root,
@@ -478,6 +480,8 @@ def main(argv=None) -> int:
     b.add_argument("name")
     b.add_argument("--aspect", choices=sorted(ASPECTS), help="override output shape")
     b.add_argument("--provider", choices=["cards", "pexels", "pixabay", "local"])
+    b.add_argument("--genre", choices=list(GENRES),
+                   help="the kind of stock footage to search for")
     b.add_argument("--voice", help="edge-tts voice, e.g. en-IN-PrabhatNeural")
     b.add_argument("--music", help='"auto", "none", or a path to a music file')
     b.add_argument("--mood", choices=music.moods(),
