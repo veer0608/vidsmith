@@ -1273,9 +1273,19 @@ DejaVu faces and `/api/busy` should carry `waiting`. Both are one request, both
 are unauthenticated, and between them they have caught every deploy here that
 reported success and had changed nothing.
 
-Updating is one line, and the restart is what sweeps orphaned job directories,
-so it cleans up on the way in. Finished renders survive it, but a render still
-in flight does not, so check `/api/busy` first:
+**Deploy with `vidsmith deploy`.** It reads `main`'s sha from origin, stops if
+`/healthz` already reports it, refuses while `/api/busy` says a render is running
+(`--wait MINUTES` waits instead), runs the line below over ssh with `hostname`
+first so the output names the machine, and does not return until the public
+`/healthz` reports the new commit with ffmpeg and both fonts and `/api/busy`
+answers. An ssh timeout comes back as the security group, with your current
+address from checkip, rather than as a dead box; refused, a bad key and a missing
+key file are each named. `VIDSMITH_HOST` and `VIDSMITH_SSH_KEY` override the
+defaults.
+
+The line it runs, for when it cannot. The restart is what sweeps orphaned job
+directories, so it cleans up on the way in. Finished renders survive it, but a
+render still in flight does not, so check `/api/busy` first:
 
 ```bash
 ssh -t -i ~/.ssh/vidsmith-key.pem ubuntu@vidsmith.duckdns.org "cd vidsmith; git pull --ff-only; bash scripts/fetch-runtime-deps.sh --fonts-only; sudo systemctl daemon-reload; sudo systemctl restart vidsmith"

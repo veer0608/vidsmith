@@ -356,6 +356,19 @@ def cmd_upload(args) -> int:
     return 0
 
 
+def cmd_deploy(args) -> int:
+    """Deploy main to the live instance: idle check, pull, restart, verify."""
+    from . import deploy
+
+    try:
+        deploy.deploy(host=args.host or deploy.HOST, key=args.key or deploy.KEY,
+                      wait_minutes=args.wait, force=args.force)
+    except deploy.DeployFailed as exc:
+        print(f"\nnot deployed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_doctor(args) -> int:
     ok = True
     from . import build_info
@@ -526,6 +539,15 @@ def main(argv=None) -> int:
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
     d.set_defaults(func=cmd_doctor)
+
+    dp = sub.add_parser("deploy", help="put main on the live box and prove it is live")
+    dp.add_argument("--host", default=None, help="default: VIDSMITH_HOST or vidsmith.duckdns.org")
+    dp.add_argument("--key", default=None, help="ssh key; default ~/.ssh/vidsmith-key.pem")
+    dp.add_argument("--wait", type=float, default=0.0, metavar="MINUTES",
+                    help="wait this long for a running render instead of refusing")
+    dp.add_argument("--force", action="store_true",
+                    help="deploy even when the box already runs main")
+    dp.set_defaults(func=cmd_deploy)
 
     args = p.parse_args(argv)
     try:

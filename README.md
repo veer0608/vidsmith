@@ -120,6 +120,7 @@ Or have Gemini draft one:
 | `vidsmith check NAME` | read a finished build for faults before publishing it |
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
+| `vidsmith deploy` | put `main` on the live instance, refusing during a render and proving the new commit is live |
 
 Useful `build` flags:
 
