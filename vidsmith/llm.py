@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import requests
 
+from . import genres
 from . import manifest
 from . import usage
 from .config import VoiceConfig
@@ -485,7 +486,7 @@ Rules:
   not "data infrastructure". "hands counting cash" not "personal finance".
 - No proper nouns, no text-on-screen, no people's names, no numbers.
 - Consecutive lines must not repeat the same subject.
-
+{style}
 Return ONLY a JSON array of strings, one per line, in order.
 
 NARRATION:
@@ -588,7 +589,7 @@ def thumbnail_query(title: str, subjects: str, api_key: str,
 
 
 def suggest_queries(scenes: Sequence[Scene], api_key: str,
-                    model: str = DEFAULT_MODEL, log=print) -> int:
+                    model: str = DEFAULT_MODEL, log=print, genre: str = "any") -> int:
     """Fill in the b-roll query for scenes that have no [visual:] directive."""
     pending = [s for s in scenes if not (s.query and s.query.strip())
                or s.query.strip() == s.heading.strip()]
@@ -596,7 +597,9 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
         return 0
     lines = "\n".join(f"{i + 1}. {s.text}" for i, s in enumerate(pending))
     try:
-        raw = generate(QUERY_PROMPT.format(lines=lines), api_key, model,
+        raw = generate(QUERY_PROMPT.format(lines=lines,
+                                           style=genres.prompt_block(genre)),
+                       api_key, model,
                        temperature=0.6, log=log)
         queries = _json_block(raw)
     except (LLMUnavailable, ValueError) as exc:
@@ -640,7 +643,7 @@ Rules:
   numbers.
 - Passages from the same scene must not repeat a subject, and no main subject
   appears more than twice in the whole video.
-
+{style}
 Return ONLY a JSON array of strings, one per passage, in order.
 
 PASSAGES:
@@ -649,7 +652,8 @@ PASSAGES:
 
 
 def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
-                 model: str = DEFAULT_MODEL, log=print) -> List[str]:
+                 model: str = DEFAULT_MODEL, log=print,
+                 genre: str = "any") -> List[str]:
     """A stock search per passage of narration, in order.
 
     Each passage is a dict with `text` and optionally the scene's `heading`. One
@@ -668,7 +672,9 @@ def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
     for i, p in enumerate(passages):
         prefix = f"[scene: {p['heading']}] " if p.get("heading") else ""
         lines.append(f"{i + 1}. {prefix}{p['text']}")
-    raw = generate(BEAT_QUERY_PROMPT.format(lines="\n".join(lines)), api_key, model,
+    raw = generate(BEAT_QUERY_PROMPT.format(lines="\n".join(lines),
+                                            style=genres.prompt_block(genre)),
+                   api_key, model,
                    temperature=0.5, log=log)
     try:
         queries = _json_block(raw)

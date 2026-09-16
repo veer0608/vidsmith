@@ -66,6 +66,34 @@ def test_a_repeated_pixabay_search_does_not_hit_the_api(monkeypatch):
     assert first == second
 
 
+def test_an_animation_genre_asks_pixabay_for_animation_only(monkeypatch):
+    """The one genre Pixabay can filter on is passed to it as a filter, and is
+    its own cache entry, so film results cached for the same words are not
+    served to an animated build."""
+    sent = []
+
+    def fake_get(url, params=None, **kwargs):
+        sent.append(dict(params or {}))
+        return FakeResponse(PIXABAY_PAYLOAD)
+
+    monkeypatch.setattr(visuals.requests, "get", fake_get)
+    visuals.pixabay_search("city at night", "key", 1080)
+    visuals.pixabay_search("city at night", "key", 1080, "animation")
+
+    assert len(sent) == 2
+    assert "video_type" not in sent[0]
+    assert sent[1]["video_type"] == "animation"
+
+
+def test_the_default_video_type_keeps_the_old_cache_name(monkeypatch):
+    """bench/rank_clips finds past searches by the name they had before genres."""
+    names = []
+    monkeypatch.setattr(visuals, "_cached_search",
+                        lambda provider, parts, fetch: names.append(parts) or [])
+    visuals.pixabay_search("q", "key", 1080)
+    assert names == [("q", 1080)]
+
+
 def test_a_repeated_pexels_search_does_not_hit_the_api(monkeypatch):
     calls = _count_calls(monkeypatch, PEXELS_VIDEO_PAYLOAD)
 

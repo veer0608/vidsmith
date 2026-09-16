@@ -655,6 +655,7 @@ class Jobs:
         cfg.theme.watermark = (options.get("watermark") or "")[:40]
         cfg.render.aspect = options.get("aspect") or cfg.render.aspect
         cfg.visuals.provider = options.get("provider") or cfg.visuals.provider
+        cfg.visuals.genre = options.get("genre") or cfg.visuals.genre
         cfg.visuals.orientation = (
             "portrait" if cfg.render.aspect in ("9:16", "4:5") else "landscape"
         )

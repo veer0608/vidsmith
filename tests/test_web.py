@@ -84,6 +84,8 @@ def test_options_lists_what_the_form_needs(client):
     assert "16:9" in body["aspects"] and "9:16" in body["aspects"]
     assert "midnight" in body["themes"]
     assert "calm" in body["moods"]
+    assert body["genres"][0] == {"name": "any", "label": "Any"}
+    assert {"name": "cinematic", "label": "Cinematic"} in body["genres"]
 
 
 def test_options_carries_the_stage_order_for_the_stepper(client):
@@ -211,7 +213,7 @@ def test_the_page_loads(client):
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("field,value", [
     ("aspect", "21:9"), ("theme", "neon"), ("provider", "unsplash"),
-    ("mood", "furious"),
+    ("mood", "furious"), ("genre", "horror"),
 ])
 def test_unknown_options_are_refused(client, field, value):
     r = client.post("/api/jobs", json={"script": SCRIPT, field: value})
@@ -336,7 +338,7 @@ def test_a_submitted_job_is_visible_immediately(client):
 
 def test_the_job_writes_the_script_and_a_config(tmp_path):
     jobs = Jobs(tmp_path)
-    job = jobs.submit(SCRIPT, {"aspect": "9:16", "theme": "ink",
+    job = jobs.submit(SCRIPT, {"aspect": "9:16", "theme": "ink", "genre": "nature",
                                "watermark": "@x", "music": False})
     _settle(jobs)
     written = (job.root / "script.md").read_text(encoding="utf-8")
@@ -349,6 +351,7 @@ def test_the_job_writes_the_script_and_a_config(tmp_path):
     assert cfg["theme"]["watermark"] == "@x"
     assert cfg["audio"]["music"] == ""
     assert cfg["visuals"]["orientation"] == "portrait"
+    assert cfg["visuals"]["genre"] == "nature"
 
 
 # --------------------------------------------------------------------------- #

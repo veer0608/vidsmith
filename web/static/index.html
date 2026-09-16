@@ -150,6 +150,11 @@
                 color: var(--fg-2); font: 500 13px var(--sans); cursor: pointer; }
   .seg button:hover { color: var(--fg); }
   .seg button[aria-selected="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px var(--border); }
+  .seg button[aria-checked="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 0 0 1px var(--border); }
+  /* footage style: a full settings row, wrapping rather than scrolling on a phone */
+  .genre-row { grid-column: 1 / -1; }
+  .genre-row .seg { display: flex; flex-wrap: wrap; }
+  .genre-row .hint { margin: 6px 0 0; color: var(--fg-3); font-size: 12px; }
 
   /* fields */
   label.l { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-2);
@@ -827,6 +832,12 @@
                  <input type="text" id="watermark" name="watermark" autocomplete="off"
                         spellcheck="false" autocapitalize="off" placeholder="@yourchannel…"></div>
             <label class="check"><input type="checkbox" id="music" name="music" checked> Music Bed</label>
+            <div class="genre-row">
+              <span class="l" id="genre-l">Footage Style</span>
+              <input type="hidden" id="genre" name="genre" value="any">
+              <div class="seg" id="genre-buttons" role="radiogroup" aria-labelledby="genre-l"></div>
+              <p class="hint">Steers every stock search toward this look. The subject being narrated still comes first.</p>
+            </div>
           </div>
         </section>
       </form>
@@ -1059,7 +1070,43 @@ function fillProviders(providers, selected) {
 
 /* Settings are remembered because the interesting variable is the script, and
    retyping a watermark on every render is friction with no purpose. */
-const REMEMBERED = ["provider", "aspect", "theme", "mood", "watermark"];
+const REMEMBERED = ["provider", "genre", "aspect", "theme", "mood", "watermark"];
+
+/* One button per genre the server knows, labels included. The hidden #genre
+   input holds the choice so it is remembered and sent like every other setting. */
+function fillGenres(list, selected) {
+  const box = $("genre-buttons");
+  box.innerHTML = "";
+  const names = list.map((g) => g.name);
+  const pick = names.includes(selected) ? selected : (names[0] || "any");
+  const choose = (name, {focus = false} = {}) => {
+    $("genre").value = name;
+    for (const b of box.children) {
+      const on = b.dataset.genre === name;
+      b.setAttribute("aria-checked", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    }
+  };
+  for (const g of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.dataset.genre = g.name;
+    b.textContent = g.label;
+    b.addEventListener("click", () => { choose(g.name); saveSettings(); });
+    b.addEventListener("keydown", (e) => {
+      const step = {ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1}[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const i = (names.indexOf($("genre").value) + step + names.length) % names.length;
+      choose(names[i], {focus: true});
+      saveSettings();
+    });
+    box.appendChild(b);
+  }
+  choose(pick);
+}
 function saveSettings() {
   const s = {};
   for (const k of REMEMBERED) s[k] = $(k).value;
@@ -1160,6 +1207,7 @@ async function loadOptions() {
   fillSelect($("aspect"), o.aspects, saved.aspect || "16:9");
   fillSelect($("theme"), o.themes, saved.theme || "midnight");
   fillSelect($("mood"), o.moods, saved.mood || "calm");
+  fillGenres(o.genres || [{name: "any", label: "Any"}], saved.genre || "any");
   $("watermark").value = saved.watermark || "";
   if (saved.music === false) $("music").checked = false;
   previews();
@@ -2761,6 +2809,7 @@ $("form").addEventListener("submit", async (e) => {
   const body = {
     script: $("script").value,
     provider: $("provider").value,
+    genre: $("genre").value,
     aspect: $("aspect").value,
     theme: $("theme").value,
     mood: $("mood").value,

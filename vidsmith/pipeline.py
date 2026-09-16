@@ -356,7 +356,8 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     rec.enter("queries")
     # ---- b-roll queries -------------------------------------------------- #
     if cfg.visuals.provider in ("pexels", "pixabay") and keys["gemini"]:
-        filled = llm.suggest_queries(scenes, keys["gemini"], log=log)
+        filled = llm.suggest_queries(scenes, keys["gemini"], log=log,
+                                     genre=cfg.visuals.genre)
         if filled:
             log(f"queries  {filled} b-roll searches written by Gemini")
     if done("queries"):
@@ -1016,6 +1017,8 @@ def _apply_overrides(cfg: Config, ov: Dict[str, str]) -> None:
         cfg.visuals.orientation = "portrait" if ov["aspect"] in ("9:16", "4:5") else "landscape"
     if ov.get("provider"):
         cfg.visuals.provider = ov["provider"]
+    if ov.get("genre"):
+        cfg.visuals.genre = ov["genre"]
     if ov.get("voice"):
         cfg.voice.name = ov["voice"]
     if ov.get("music"):

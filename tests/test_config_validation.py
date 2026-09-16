@@ -53,6 +53,7 @@ def test_the_error_names_the_file_and_the_allowed_values(tmp_path):
     ("captions", "style", "bouncing"),
     ("visuals", "provider", "unsplash"),
     ("visuals", "card_text", "everything"),
+    ("visuals", "genre", "horror"),
     ("theme", "preset", "midnght"),
 ])
 def test_every_closed_set_is_checked(tmp_path, section, key, bad):
