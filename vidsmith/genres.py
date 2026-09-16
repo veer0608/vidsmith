@@ -24,7 +24,10 @@ class Genre(NamedTuple):
     # finishes the sentence "The footage for this video should be ..."
     direction: str
     # words a stock library answers to for this look, offered to the search
-    # writer as the style half of a search
+    # writer as the style half of a search. Each is ONE word, hyphenated if it
+    # has to be: `beat_queries` keeps six words, and "slow motion" and "close
+    # up" reached Pexels as "slow" and "close". No digits either, because the
+    # same clean-up strips them and "3D" arrives as "D".
     words: str = ""
     # Pixabay's `video_type`: all | film | animation
     pixabay_type: str = "all"
@@ -35,15 +38,15 @@ GENRES: Dict[str, Genre] = {
     "cinematic": Genre("Cinematic",
                        "cinematic: slow motion, shallow depth of field, dramatic "
                        "light and smooth camera moves",
-                       "cinematic, slow motion, close up, golden hour, moody light"),
+                       "cinematic, slow-motion, closeup, sunset, moody, dramatic"),
     "documentary": Genre("Documentary",
                          "documentary: real people in real places, handheld camera, "
                          "natural light",
-                         "real, candid, handheld, worker, local, natural light"),
+                         "real, candid, handheld, worker, local, daylight"),
     "business": Genre("Business",
                       "business: offices, meetings, professionals at work, clean "
                       "modern workplaces",
-                      "office, professional, meeting, modern workplace, team"),
+                      "office, professional, meeting, corporate, team"),
     # Its words used to be nouns - screen, laptop, data - and a style word that
     # is a noun becomes the subject: a delivery video turned into phone maps,
     # with "the box lands on your doorstep" shown as a hand holding a phone.
@@ -52,7 +55,7 @@ GENRES: Dict[str, Genre] = {
                         "technology: modern, high-tech and automated settings with "
                         "clean, cool lighting; screens and devices only where the "
                         "narration is about software or a device",
-                        "modern, high-tech, automated, sleek, cool blue light"),
+                        "modern, high-tech, automated, sleek, blue-lit"),
     "nature": Genre("Nature",
                     "nature: landscapes, wildlife, water, forests, sky and the "
                     "outdoors",
@@ -60,11 +63,11 @@ GENRES: Dict[str, Genre] = {
     "city": Genre("City",
                   "urban: streets, buildings, traffic, crowds and city life by day "
                   "and night",
-                  "city, street, urban, downtown, night lights, crowd"),
+                  "city, street, urban, downtown, nightlife, crowd"),
     "animation": Genre("Animation",
                        "animated: motion graphics, 3D renders and animated "
                        "illustrations rather than filmed footage",
-                       "animation, 3D render, motion graphics, cartoon, illustration",
+                       "animation, rendered, motion-graphics, cartoon, illustration",
                        "animation"),
 }
 
@@ -84,8 +87,11 @@ def prompt_block(name: str) -> str:
     if not genre.direction:
         return ""
     return (f"\nSTYLE: the footage for this video should be {genre.direction}. "
-            "Every search must carry that style, using words like: "
-            f"{genre.words}. The literal subject of the passage always comes first: "
+            "Every search must include one of these style words: "
+            f"{genre.words}. A search with no style word is wrong. Count the style "
+            "word inside the word limit, because a longer search is cut off at the "
+            "end: make room by dropping filler such as \"at\", \"the\" or \"a\", "
+            "never by leaving the style word out. The literal subject of the passage always comes first: "
             "never swap the subject for something that only fits the style, and never "
             "drop the subject to make room for a style word. Any place or setting the "
             "passage names is part of the subject too, so keep it and add the style "

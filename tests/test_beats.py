@@ -430,6 +430,29 @@ def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, 
     assert "never becomes its subject" in sent[0]
 
 
+def test_every_style_word_survives_the_search_clean_up():
+    """Searches are cut to six words and stripped of digits, so a two-word style
+    term lost its second half ("slow motion" reached Pexels as "slow") and "3D"
+    would arrive as "D"."""
+    import re
+
+    from vidsmith.genres import GENRES
+
+    for name, genre in GENRES.items():
+        for word in filter(None, (w.strip() for w in genre.words.split(","))):
+            assert " " not in word, f"{name}: {word!r} is two words"
+            assert re.fullmatch(r"[A-Za-z\-]+", word), f"{name}: {word!r} will be mangled"
+
+
+def test_the_style_asks_for_a_search_that_fits_the_limit():
+    from vidsmith.genres import prompt_block
+
+    block = prompt_block("cinematic")
+    # asked for "one or two words" that "fit the limit", two of three searches
+    # came back with no style word at all
+    assert "A search with no style word is wrong" in block and "cut off" in block
+
+
 def test_no_genre_offers_a_screen_as_a_style_word():
     """A noun offered as a style word is taken as a subject."""
     from vidsmith.genres import GENRES
