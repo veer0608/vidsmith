@@ -312,7 +312,7 @@ Rank the clips best-first for this line. Judge only what is visible:
   is useless no matter how attractive it is.
 - Is the subject clear and prominent rather than incidental?
 - Would it read at a glance, at speed, behind captions?
-
+{style}
 Then decide which are unusable. A clip is unusable when it shows the wrong
 subject - not merely a weaker version of the right one. A book is not a
 calendar; a laptop is not a card terminal. Be strict about subject and lenient
@@ -345,7 +345,8 @@ def _indices(values: Any, limit: int) -> List[int]:
 
 
 def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
-               model: str = DEFAULT_MODEL, log=None) -> Tuple[List[int], List[int], bool]:
+               model: str = DEFAULT_MODEL, log=None,
+               genre: str = "any") -> Tuple[List[int], List[int], bool]:
     """(order, rejected, filmable) over `images`.
 
     `filmable` is False when no camera can point at the idea - that is the cue to
@@ -354,7 +355,8 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
     if not images or len(images) < 2:
         return [], [], True
     prompt = RERANK_PROMPT.format(n=len(images), last=len(images) - 1,
-                                  line=line.strip(), query=query.strip())
+                                  line=line.strip(), query=query.strip(),
+                                  style=genres.rerank_block(genre))
     raw = generate_vision(prompt, images, api_key, model, log=log)
     verdict = _json_block(raw)
 

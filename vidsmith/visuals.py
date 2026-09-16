@@ -780,8 +780,11 @@ class VisualBuilder:
         order: List[str] = []
         reject: set = set()
         filmable, rounds = True, 0
+        genre = self.cfg.genre or "any"
+        # a verdict judged in another style ordered the clips for that style
         if (isinstance(cached, dict) and cached.get("order")
-                and cached.get("query", query) == query):
+                and cached.get("query", query) == query
+                and cached.get("genre", "any") == genre):
             order = [i for i in cached["order"] if i in by_id]
             reject = set(cached.get("reject") or [])
             filmable = cached.get("filmable", True)
@@ -815,7 +818,8 @@ class VisualBuilder:
                          f"judging {len(keep)} more")
 
             try:
-                verdict = llm.rank_clips(line, query, images, api_key, log=self.log)
+                verdict = llm.rank_clips(line, query, images, api_key, log=self.log,
+                                         genre=genre)
                 ranked, rejected, judged_filmable = verdict
             except Exception as exc:
                 self.log(f"    rerank skipped ({exc})")
@@ -844,6 +848,8 @@ class VisualBuilder:
             cache[slot] = {"order": order, "reject": sorted(reject),
                            "filmable": filmable, "rounds": rounds,
                            "query": query, "line": line}
+            if genre != "any":
+                cache[slot]["genre"] = genre
             self._rank_cache_path().write_text(json.dumps(cache, indent=2),
                                                encoding="utf-8")
 

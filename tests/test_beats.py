@@ -441,8 +441,8 @@ def test_a_reply_that_does_not_line_up_is_unavailable(monkeypatch, reply):
 def _judge(monkeypatch, builder):
     calls = []
 
-    def fake(line, query, images, key, log=None):
-        calls.append((line, query))
+    def fake(line, query, images, key, log=None, genre="any"):
+        calls.append((line, query) if genre == "any" else (line, query, genre))
         return list(range(len(images))), [], True
 
     monkeypatch.setattr(builder, "_preview", lambda url: b"jpg")
@@ -480,3 +480,58 @@ def test_a_verdict_for_another_search_is_not_reused(tmp_path, monkeypatch, scene
     builder._rerank(_stills(), scene, "hard drive close up", want=2, text="t", key="0.1")
 
     assert len(calls) == 1
+
+
+# --------------------------------------------------------------------------- #
+# a genre reaches the reranker
+# --------------------------------------------------------------------------- #
+def test_the_reranker_is_told_the_genre(tmp_path, monkeypatch, scene):
+    """A first nature build moved its searches by a word and its picks not at
+    all, because the reranker never heard a style had been chosen."""
+    builder = _builder(tmp_path, genre="nature")
+    calls = _judge(monkeypatch, builder)
+
+    builder._rerank(_stills(), scene, "coffee mug outdoors", want=2, text="t", key="0.1")
+
+    assert calls == [("t", "coffee mug outdoors", "nature")]
+    saved = json.loads((builder.workdir / "rerank.json").read_text())["0.1"]
+    assert saved["genre"] == "nature"
+
+
+def test_a_verdict_judged_in_another_style_is_not_reused(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path, genre="nature")
+    (builder.workdir / "rerank.json").write_text(json.dumps(
+        {"0.1": {"order": [str(i) for i in range(8)], "reject": [], "filmable": True,
+                 "rounds": 3, "query": "coffee mug"}}), encoding="utf-8")
+    calls = _judge(monkeypatch, builder)
+
+    builder._rerank(_stills(), scene, "coffee mug", want=2, text="t", key="0.1")
+
+    assert len(calls) == 1
+
+
+def test_a_verdict_with_no_genre_is_still_reused_by_a_default_build(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    (builder.workdir / "rerank.json").write_text(json.dumps(
+        {"0.1": {"order": [str(i) for i in range(8)], "reject": [], "filmable": True,
+                 "rounds": 3, "query": "coffee mug"}}), encoding="utf-8")
+    calls = _judge(monkeypatch, builder)
+
+    builder._rerank(_stills(), scene, "coffee mug", want=2, text="t", key="0.1")
+
+    assert calls == []
+
+
+@pytest.mark.parametrize("genre,present", [("nature", True), ("any", False)])
+def test_the_rerank_prompt_carries_the_style_only_when_chosen(monkeypatch, genre, present):
+    from vidsmith import llm
+
+    sent = []
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: sent.append(prompt) or
+                        '{"ranked": [1, 0], "reject": [], "filmable": true}')
+    llm.rank_clips("line", "query", [b"a", b"b"], "k", genre=genre)
+
+    assert ("STYLE: this video's footage should be nature" in sent[0]) is present
+    if present:
+        assert "never rejected for being off style" in sent[0]

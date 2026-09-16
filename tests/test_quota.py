@@ -237,7 +237,7 @@ def test_reranking_hands_the_build_log_down(monkeypatch, no_waiting):
     from vidsmith import visuals
 
     source = inspect.getsource(visuals)
-    assert "llm.rank_clips(line, query, images, api_key, log=self.log)" in source, \
+    assert "llm.rank_clips(line, query, images, api_key, log=self.log" in source, \
         "rank_clips is called without the build log, so a wait would be silent"
     assert "log" in inspect.signature(llm.rank_clips).parameters
 
@@ -277,7 +277,7 @@ def test_every_request_helper_can_announce_a_wait():
 @pytest.mark.parametrize("call_site", [
     # the two that run once per scene, so a wait can stack across one build
     ("vidsmith/visuals.py", "llm.design_diagram(scene.text, brief, key, log=self.log)"),
-    ("vidsmith/visuals.py", "llm.rank_clips(line, query, images, api_key, log=self.log)"),
+    ("vidsmith/visuals.py", "llm.rank_clips(line, query, images, api_key, log=self.log"),
 ])
 def test_the_per_scene_callers_hand_their_log_down(call_site):
     """Accepting a log is half of it; a caller that omits it is silent anyway."""
