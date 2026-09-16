@@ -850,6 +850,17 @@
           <hr class="sep">
           <p class="eyebrow num"><span>Words</span><span id="words-text">—</span></p>
           <div class="meter" id="words-bar" aria-hidden="true"><i id="words-fill"></i></div>
+          <!-- Both allowances run out in silence: no footage turns a video into
+               cards, no model turns searches into keywords. Said before Render. -->
+          <div id="allowance" class="hidden">
+            <hr class="sep">
+            <p class="eyebrow num" id="gemini-row"><span>Gemini today</span><span id="gemini-text">—</span></p>
+            <div class="meter" id="gemini-bar" aria-hidden="true"><i id="gemini-fill"></i></div>
+            <p class="eyebrow num" id="stock-row" style="margin-top:12px"><span id="stock-name">Pexels this month</span><span id="stock-text">—</span></p>
+            <div class="meter" id="stock-bar" aria-hidden="true"><i id="stock-fill"></i></div>
+            <ul class="warn-list" id="allowance-warn"></ul>
+            <p class="fine" id="allowance-note"></p>
+          </div>
           <hr class="sep">
           <button class="btn primary block" id="go" type="submit" form="form">Render</button>
           <p class="error" id="go-error" aria-live="polite"></p>
@@ -1141,7 +1152,7 @@ async function loadOptions() {
       tokenPill();
     });
     // the list is behind the token, so a token pasted in is the moment to fetch it
-    $("tokenfield").addEventListener("change", () => { loadPast(); loadYouTube(); });
+    $("tokenfield").addEventListener("change", () => { loadPast(); loadYouTube(); loadAllowance(); });
     tokenPill();
   }
   const saved = loadSettings();
@@ -1173,6 +1184,7 @@ async function loadOptions() {
   await reattach();
   watchBusy();
   loadPast();
+  loadAllowance();
 }
 
 /* What this instance still holds. A render used to be kept for an hour and lost
@@ -2420,6 +2432,66 @@ function finished() {
   updateMeter();
   watchBusy();
   loadPast();
+  loadAllowance();
+}
+
+/* ------------------------------------------------------------- Allowance
+   Pexels reports its monthly allowance on every response, so that number is
+   exact as of the last search. Gemini reports nothing until it refuses, so its
+   number is what this server has sent today, by Pacific day, which is when
+   Google resets it; another machine on the same key spends it unseen. */
+// the stock row follows the footage source picked, since each has its own allowance
+$("provider").addEventListener("change", () => loadAllowance());
+
+async function loadAllowance() {
+  if (needsAuth && !token()) { $("allowance").classList.add("hidden"); return; }
+  let u;
+  try {
+    const r = await fetch("/api/usage", {headers: authHeaders()});
+    if (!r.ok) { $("allowance").classList.add("hidden"); return; }
+    u = await r.json();
+  } catch { return; }
+  const warn = [];
+  const g = u.gemini || {};
+  const provider = $("provider").value;
+  const stock = provider === "pixabay" ? u.pixabay : u.pexels;
+  const showGemini = !!(u.keys && u.keys.gemini);
+  const showStock = (provider === "pexels" || provider === "pixabay") && u.keys && u.keys[provider];
+  $("allowance").classList.toggle("hidden", !showGemini && !showStock);
+
+  $("gemini-text").textContent = g.spent ? "Spent"
+    : `${whole.format(g.requests || 0)} of ${whole.format(g.limit || 0)}`;
+  $("gemini-fill").style.transform = `scaleX(${g.spent ? 1 : Math.min(1, (g.requests || 0) / (g.limit || 1))})`;
+  $("gemini-bar").classList.toggle("over", !!g.spent || (g.requests || 0) >= (g.limit || Infinity));
+  $("gemini-row").classList.toggle("hidden", !showGemini);
+  $("gemini-bar").classList.toggle("hidden", !showGemini);
+  const resets = Date.parse(g.resets || "");
+  if (showGemini && g.spent) {
+    warn.push(`Gemini is spent until ${Number.isFinite(resets) ? dayTime.format(new Date(resets)) : "midnight Pacific"}. ` +
+      "A render still works, but searches fall back to keywords, footage is not judged, and there is no description.");
+  } else if (showGemini && (g.requests || 0) > (g.limit || 0) * 0.8) {
+    warn.push("Gemini is over 80% of today's requests. A long render can use up the rest.");
+  }
+
+  const name = provider === "pixabay" ? "Pixabay" : "Pexels";
+  $("stock-row").classList.toggle("hidden", !showStock);
+  $("stock-bar").classList.toggle("hidden", !showStock);
+  $("stock-name").textContent = provider === "pixabay" ? "Pixabay this minute" : "Pexels this month";
+  if (showStock && stock) {
+    $("stock-text").textContent = `${whole.format(stock.remaining)} left of ${whole.format(stock.limit)}`;
+    $("stock-fill").style.transform = `scaleX(${stock.limit ? 1 - stock.remaining / stock.limit : 1})`;
+    $("stock-bar").classList.toggle("over", stock.remaining < 200);
+    if (stock.remaining <= 0) {
+      warn.push(`${name} is out of requests. Footage will fall back to generated cards until it resets.`);
+    } else if (stock.remaining < 200) {
+      warn.push(`${name} has ${whole.format(stock.remaining)} requests left. A long render can use a few hundred.`);
+    }
+  } else if (showStock) {
+    $("stock-text").textContent = "not searched yet";
+    $("stock-fill").style.transform = "scaleX(0)";
+  }
+  $("allowance-warn").innerHTML = warn.map((w) => `<li>${esc(w)}</li>`).join("");
+  $("allowance-note").textContent = showGemini ? "Gemini counts what this server sent today; another machine on the same key is not counted." : "";
 }
 
 /* A dropped connection is not the render failing. The job carries on on the

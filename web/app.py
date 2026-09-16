@@ -20,6 +20,7 @@ from vidsmith import cover
 from vidsmith import retake as retakes
 from vidsmith import rewrite
 from vidsmith import script_parser
+from vidsmith import usage
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
@@ -208,6 +209,19 @@ def options() -> Dict[str, Any]:
                        "lead_in": VoiceConfig.lead_in, "gap": VoiceConfig.gap,
                        "directives": list(script_parser.DIRECTIVE_KINDS),
                        "notes": list(script_parser.NOTE_PREFIXES)}}
+
+
+@app.get("/api/usage")
+def allowance(_: None = Depends(guard)) -> Dict[str, Any]:
+    """How much of the free Gemini and stock allowances this instance has used.
+
+    Behind the token: it says which services this box holds keys for and how
+    hard they are being used, which a stranger has no business reading.
+    """
+    keys = _keys()
+    body = usage.report(llm.DEFAULT_MODEL)
+    body["keys"] = {name: bool(keys.get(name)) for name in ("gemini", "pexels", "pixabay")}
+    return body
 
 
 @app.get("/api/busy")

@@ -33,6 +33,15 @@ def no_real_credentials(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def private_usage_ledger(monkeypatch, tmp_path_factory):
+    """Every stubbed model call and search is counted by `vidsmith.usage`, and
+    counting into the checkout's own ledger would show a developer a day's
+    budget spent by the test suite."""
+    monkeypatch.setenv("VIDSMITH_USAGE",
+                       str(tmp_path_factory.mktemp("usage") / "usage.json"))
+
+
 def make_scene(text: str, index: int = 0, wps: float = 2.6,
                duration: Optional[float] = None, gap: float = 0.35,
                lead_in: float = 0.25, **kwargs) -> Scene:
