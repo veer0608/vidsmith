@@ -34,6 +34,7 @@ import yaml
 from vidsmith import pipeline
 from vidsmith import cover
 from vidsmith import retake as retakes
+from vidsmith import cuts as cutting
 from vidsmith import rewrite, snapshot
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
@@ -135,6 +136,16 @@ class Job:
     # a thumbnail being composed, which a shot change must not start under
     retitling: bool = False
 
+    def cuts(self) -> List[Dict[str, str]]:
+        if self.status != "done" or self.root is None or not (self.root / "out").is_dir():
+            return []
+        main = self.options.get("aspect") or "16:9"
+        found = [{"aspect": aspect, "video": path.name,
+                  "thumbnail": path.with_suffix(".jpg").name
+                  if path.with_suffix(".jpg").exists() else ""}
+                 for aspect, path in delivered(self.root / "out")]
+        return sorted(found, key=lambda cut: cut["aspect"] != main)
+
     def expires(self) -> float:
         """When the sweep will take it; 0 while it is still queued or running."""
         if not self.finished:
@@ -158,6 +169,9 @@ class Job:
             "runtime": self.runtime,
             "youtube": self.youtube,
             "swap": self.swap,
+            # every delivered shape, main cut first, so the page never picks a
+            # video by sorting names: `a-9x16.mp4` sorts before `a.mp4`
+            "cuts": self.cuts(),
             # the stop was asked for but the current stage has not returned yet,
             # so the page can say "stopping" rather than appearing to ignore it
             "cancelling": self.cancel_requested and self.status == "running",
@@ -481,6 +495,18 @@ class Jobs:
         return self._queue_change(job, {"kind": "scene", "scene": scene,
                                         "text": text, "word_cap": word_cap})
 
+    def add_cut(self, job_id: str, aspect: str) -> Optional[Job]:
+        """Queue another shape of a finished render, such as a Shorts version.
+
+        The narration and timings are reused, so it costs footage and an encode,
+        which is still an encode: it waits in the render line like any render.
+        """
+        job = self._changeable(job_id)
+        if job is None:
+            return None
+        cutting.check(job.root, aspect)
+        return self._queue_change(job, {"kind": "cut", "aspect": aspect})
+
     def _changeable(self, job_id: str) -> Optional[Job]:
         """A finished render that may be changed, a refusal, or None if unknown."""
         job = self.get(job_id)
@@ -569,7 +595,7 @@ class Jobs:
         job.log.append(line)
         job.swap = ({"kind": before.get("kind", "shot"), "status": "failed",
                      "scene": before.get("scene"), "shot": before.get("shot"),
-                     "error": error} if error else {})
+                     "aspect": before.get("aspect"), "error": error} if error else {})
         job.outputs = self._collect(job)
         self.record(job)
 
@@ -670,7 +696,11 @@ class Jobs:
 
         retaking = dict(job.retake)
         try:
-            if retaking.get("kind") == "scene":
+            if retaking.get("kind") == "cut":
+                cutting.add(job.root, retaking["aspect"], log=log)
+                job.swap = {"kind": "cut", "status": "done", "aspect": retaking["aspect"]}
+                job.retake = {}
+            elif retaking.get("kind") == "scene":
                 rewrite.apply(job.root, retaking["scene"], retaking["text"],
                               word_cap=retaking.get("word_cap"), log=log)
                 job.swap = {"kind": "scene", "status": "done",

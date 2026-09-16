@@ -241,7 +241,7 @@ def find_keys(project_root: Path) -> Dict[str, str]:
 
 def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
           overrides: Optional[Dict[str, str]] = None, log=print,
-          retake: bool = False, edit: bool = False) -> Path:
+          retake: bool = False, edit: bool = False, cut: bool = False) -> Path:
     """Build the project, and write `build/manifest{tag}.json` however it ends.
 
     The manifest is written from here rather than at each return inside the
@@ -263,11 +263,18 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
     written again, because its chapter times moved with the narration; when the
     model cannot write it, the old one is kept without its chapters rather than
     with times that now point at the wrong moment.
+
+    `cut` adds another shape of a finished video, passed as the `aspect`
+    override: a Shorts version of a widescreen render. The narration, timings
+    and searches are shared, so it costs footage and an encode. The title,
+    description and chapters describe the same narration and are kept, so the
+    new cut's description is written from `youtube.json` with its own credits;
+    its thumbnail is chosen for its shape unless one is already there.
     """
     with manifest.recording() as rec:
         try:
             result = _build(project_root, force, stop_after, overrides, log, rec,
-                            retake, edit)
+                            retake, edit, cut)
         except BaseException as exc:
             rec.finish("failed" if isinstance(exc, Exception) else "cancelled", exc)
             rec.write()
@@ -280,7 +287,7 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
 
 def _build(project_root: Path, force: Sequence[str], stop_after: str,
            overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder,
-           retake: bool = False, edit: bool = False) -> Path:
+           retake: bool = False, edit: bool = False, cut: bool = False) -> Path:
     started = time.time()
     proj = Project(project_root)
     if not proj.script.exists():
@@ -430,6 +437,7 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
         log(f"  end      {end_len:.1f}s closing card")
 
     save_scenes(scenes, scenes_json)
+    write_shots(vis_dir, scenes)
     if done("visuals"):
         return proj.build / f"visuals{tag}"
 
@@ -491,7 +499,7 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     #
     # A retake keeps the thumbnail it has. Choosing again would spend a model
     # call and could land on a different photograph, and nobody asked for that.
-    keep_thumbnail = retake or edit
+    keep_thumbnail = retake or edit or (cut and (proj.out / f"{slug}{tag}.jpg").exists())
     thumb_lines = (kept_thumbnail_credit(proj.out / f"credits{tag}.txt")
                    if keep_thumbnail else "")
     if not keep_thumbnail:
@@ -554,14 +562,14 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
         rec.enter("meta")
         # ---- upload metadata --------------------------------------------- #
         meta_json = proj.out / "youtube.json"
-        if retake and meta_json.exists():
+        if (retake or cut) and meta_json.exists():
             # The title, chapters and tags describe narration that has not
             # moved, so only the credits under them change. Written the way
             # `thumbs --refresh` writes it, through the one writer.
             try:
                 write_metadata(proj.out, json.loads(meta_json.read_text(encoding="utf-8")),
                                source=cfg.source)
-                log("meta     description.txt now credits the clips in use")
+                log(f"meta     description{tag}.txt credits the clips in use")
             except (OSError, ValueError) as exc:
                 log(f"meta     skipped ({exc})")
         elif keys["gemini"]:
@@ -613,6 +621,34 @@ def thumbnail_credit_line(stock: Dict[str, Any]) -> str:
     """
     line = f"{THUMB_CREDIT}{stock['author']} - {stock.get('page', '')}"
     return line.rstrip(" -") + "\n"
+
+
+SHOTS = "shots.json"
+
+
+def write_shots(vis_dir: Path, scenes: Sequence[Scene]) -> Path:
+    """Record this cut's shots beside its clips.
+
+    `scenes.json` is shared by every cut and holds the shots of whichever was
+    built last, so once a video has two shapes it describes only one of them.
+    Anything that needs a particular cut's shots reads them from here.
+    """
+    path = Path(vis_dir) / SHOTS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({str(s.index): s.shots for s in scenes}, indent=2),
+                    encoding="utf-8")
+    return path
+
+
+def read_shots(vis_dir: Path, scenes: Sequence[Scene]) -> None:
+    """Put a cut's own shots onto scenes loaded from the shared `scenes.json`."""
+    try:
+        shots = json.loads((Path(vis_dir) / SHOTS).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return                       # a build from before this file; scenes.json is it
+    for scene in scenes:
+        if isinstance(shots, dict) and str(scene.index) in shots:
+            scene.shots = shots[str(scene.index)]
 
 
 def _without_chapters(proj: Project, cfg: Config, log=print) -> None:

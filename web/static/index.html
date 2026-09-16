@@ -513,6 +513,9 @@
                aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
           <!-- captions are burned into the picture, so the video carries its own -->
           <div class="player-wrap hidden" id="player-wrap">
+            <!-- one button per delivered shape, once there is more than one -->
+            <div class="seg hidden" id="cut-switch" role="group" aria-label="Which cut to play"
+                 style="margin-bottom:12px"></div>
             <video id="player" controls playsinline preload="metadata"></video>
           </div>
         </div>
@@ -700,6 +703,12 @@
             </div>
             <button class="btn block hidden" type="button" id="yt-connect">Connect YouTube</button>
             <p class="fine" id="yt-note" aria-live="polite"></p>
+          </div>
+          <div id="shorts-box" class="hidden">
+            <hr class="sep">
+            <p class="eyebrow"><span>Shorts</span><span id="shorts-state"></span></p>
+            <button class="btn block" type="button" id="shorts-make">Make a Shorts Version</button>
+            <p class="fine" id="shorts-note" aria-live="polite"></p>
           </div>
           <hr class="sep">
           <button class="btn block" type="button" id="again">New Video</button>
@@ -1142,6 +1151,7 @@ async function loadOptions() {
   // used to say 150 a minute while drafting said 155
   wordCap = o.word_cap || 0;
   maxQueue = o.max_queue || 0;
+  shortsSeconds = o.shorts_seconds || shortsSeconds;
   $("minutes").max = o.max_minutes;
   $("minutes").value = Math.min(2, o.max_minutes);
   $("limit-text").textContent = `Limit ${o.max_minutes}${NBSP}min`;
@@ -1690,14 +1700,20 @@ function render(job) {
   const expires = Date.parse(job.expires || "");
   $("kept").textContent = Number.isFinite(expires) ? dayTime.format(new Date(expires)) : "—";
 
-  const video = job.outputs.find((f) => f.kind === "mp4");
+  // The server lists the cuts main first. Finding the first mp4 in the file
+  // list played the Short, because `a-9x16.mp4` sorts before `a.mp4`.
+  const cuts = job.cuts || [];
+  if (!cuts.some((c) => c.aspect === playingCut)) playingCut = cuts.length ? cuts[0].aspect : "";
+  const video = cuts.find((c) => c.aspect === playingCut);
+  drawCutSwitch(job, cuts);
+  drawShorts(job, cuts);
   if (video) {
     const p = $("player");
     // versioned by when it finished: a changed shot rewrites the file under the
     // same name, and a cached copy would play the video from before the change
-    const src = withAuth(`/api/jobs/${job.id}/files/${encodeURIComponent(video.name)}`, {v: job.expires || ""});
+    const src = withAuth(`/api/jobs/${job.id}/files/${encodeURIComponent(video.video)}`, {v: job.expires || ""});
     if (p.getAttribute("src") !== src) p.src = src;
-    p.className = portrait ? "tall" : "";
+    p.className = ["9:16", "4:5"].includes(video.aspect) ? "tall" : "";
     p.setAttribute("aria-label", job.title || "The finished video");
     p.onloadedmetadata = () => {
       $("fact-length-label").textContent = "Length";
@@ -2011,6 +2027,77 @@ $("swap-use").onclick = async () => {
   window.scrollTo({top: 0});
 };
 
+/* ------------------------------------------------------------------ Cuts
+   A second shape reuses the narration and word timings, so a Shorts version
+   costs vertical footage and one encode. Which cuts exist, and which is the
+   main one, come from the server. */
+let playingCut = "", shortsSeconds = 180;
+
+function drawCutSwitch(job, cuts) {
+  const box = $("cut-switch");
+  box.classList.toggle("hidden", cuts.length < 2);
+  box.innerHTML = cuts.map((c, i) =>
+    `<button type="button" data-cut="${esc(c.aspect)}" aria-pressed="${c.aspect === playingCut}"` +
+    `${c.aspect === playingCut ? ' aria-selected="true"' : ""}>${esc(c.aspect)}` +
+    `${i === 0 ? " · Main" : c.aspect === "9:16" ? " · Short" : ""}</button>`).join("");
+}
+
+$("cut-switch").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-cut]");
+  if (!button || !shownJob) return;
+  playingCut = button.dataset.cut;
+  render(shownJob);
+});
+
+function drawShorts(job, cuts) {
+  const vertical = ["9:16", "4:5"].includes(cuts.length ? cuts[0].aspect : job.aspect);
+  const has = cuts.some((c) => c.aspect === "9:16");
+  const swap = job.swap || {};
+  const failed = swap.kind === "cut" && swap.status === "failed";
+  $("shorts-box").classList.toggle("hidden", vertical || (!has && !job.runtime));
+  const tooLong = job.runtime > shortsSeconds;
+  $("shorts-make").classList.toggle("hidden", has || tooLong);
+  $("shorts-state").textContent = has ? "Ready" : "";
+  $("shorts-note").textContent = has
+    ? "The 9:16 version is in the files above. Switch the player to watch it."
+    : tooLong
+      ? `A Short is at most ${fmt(shortsSeconds)}, and this video is ${fmt(job.runtime)}.`
+      : failed
+        ? `The Shorts version did not finish, so nothing changed: ${swap.error || "no reason given"}`
+        : "Reuses this video's narration and captions with vertical footage. Takes a few minutes.";
+}
+
+$("shorts-make").onclick = async () => {
+  if (!shownJob || running) return;
+  working($("shorts-make"), true);
+  let r, body;
+  try {
+    r = await fetch(`/api/jobs/${shownJob.id}/cuts`, {
+      method: "POST", headers: {...authHeaders(), "Content-Type": "application/json"},
+      body: JSON.stringify({aspect: "9:16"})});
+    body = await readBody(r);
+  } catch {
+    body = {detail: "Could not reach the server."};
+  }
+  working($("shorts-make"), false);
+  if (!r || !r.ok) {
+    if (r && r.status === 401) forgetToken();
+    $("shorts-note").textContent = detailText(body, "The Shorts version could not start.");
+    return;
+  }
+  playingCut = "9:16";
+  hideShots();
+  hideThumb();
+  hideScript();
+  store.drop("vidsmith_stage_clock");
+  running = body.id;
+  $("go").disabled = true;
+  $("log").classList.remove("err");
+  render(body);
+  follow(body.id);
+  window.scrollTo({top: 0});
+};
+
 /* ---------------------------------------------------------------- Script
    Rewording one line used to mean building the whole video again. The server
    compares the script against the scenes it last built, so a scene whose words
@@ -2136,7 +2223,9 @@ function hideThumb() {
 }
 
 function drawThumb(job) {
-  const jpg = (job.outputs || []).find((f) => f.kind === "jpg");
+  // the main cut's thumbnail, which is the one the server changes
+  const main = (job.cuts || [])[0];
+  const jpg = main && main.thumbnail ? {name: main.thumbnail} : null;
   if (!jpg) { $("thumb-card").classList.add("hidden"); return; }
   thumbJob = job;
   $("thumb-card").classList.toggle("tall-thumb", ["9:16", "4:5"].includes(job.aspect));
