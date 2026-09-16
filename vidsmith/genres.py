@@ -79,12 +79,15 @@ def prompt_block(name: str) -> str:
     if not genre.direction:
         return ""
     return (f"\nSTYLE: the footage for this video should be {genre.direction}. "
-            "Every search must carry that style: name the subject, then place it or "
-            f"describe it in the style, using words like: {genre.words}. "
-            "\"Coffee mug on desk\" in a nature video is \"coffee mug outdoors in "
-            "sunlight\", still within the word limit. But the literal subject of the passage always "
-            "comes first: never swap the subject for something that only fits the "
-            "style, and never drop the subject to make room for a style word.\n")
+            "Every search must carry that style, using words like: "
+            f"{genre.words}. The literal subject of the passage always comes first: "
+            "never swap the subject for something that only fits the style, and never "
+            "drop the subject to make room for a style word. Any place or setting the "
+            "passage names is part of the subject too, so keep it and add the style "
+            "as light, look or detail: \"the mug on your desk\" in a nature video is "
+            "\"coffee mug on sunlit desk\", never a mug outdoors, and \"shipped across "
+            "the ocean\" keeps its ship and its ocean. Only when the passage names no "
+            "place may the style choose one.\n")
 
 
 def rerank_block(name: str) -> str:

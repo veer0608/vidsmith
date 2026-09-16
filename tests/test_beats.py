@@ -423,6 +423,9 @@ def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, 
 
     assert "STYLE: the footage for this video should be nature" in sent[0]
     assert "subject of the passage always comes first" in sent[0]
+    # pushed harder, it moved "the mug on your desk" outdoors and lost the ship
+    assert "place or setting the passage names is part of the subject" in sent[0]
+    assert "Only when the passage names no place" in sent[0]
 
 
 @pytest.mark.parametrize("reply", ['["only one"]', "not json at all"])
