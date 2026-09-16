@@ -343,6 +343,41 @@ def test_an_edit_keeps_the_thumbnail_and_never_publishes_stale_chapter_times(
         assert "The old one." in description and "0:12" not in description
 
 
+def test_a_new_cut_keeps_the_videos_metadata_and_gets_its_own_description(
+        project, rendered, monkeypatch, tmp_path):
+    """The Short speaks the same narration, so its title and description are the
+    same; only its credits differ, and the first cut's files stay as they are."""
+    import json
+
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": "a-real-key", "pexels": "", "pixabay": ""})
+    monkeypatch.setattr(pl.llm, "suggest_queries", lambda *a, **k: 0)
+    monkeypatch.setattr(pl.llm, "upload_metadata",
+                        lambda *a, **k: pytest.fail("the video's metadata was written again"))
+    _stock_thumbnail(monkeypatch, tmp_path)
+    stubbed = pl.visuals.build_all
+
+    def vertical(scenes, cfg, size, fps, workdir, keys, **kwargs):
+        stubbed(scenes, cfg, size, fps, workdir, keys, **kwargs)
+        scenes[0].shots[0].update(credit="Vertical Creator", credit_url="https://pexels.com/v/9")
+
+    monkeypatch.setattr(pl.visuals, "build_all", vertical)
+    out = project / "out"
+    out.mkdir()
+    (out / "a-test-video.mp4").write_bytes(b"the widescreen cut")
+    (out / "credits.txt").write_text("Footage from Pexels\nWide Creator - x\n", encoding="utf-8")
+    (out / "youtube.json").write_text(json.dumps(
+        {"title": "A Test Video", "description": "Same words.", "tags": []}), encoding="utf-8")
+
+    pl.build(project, log=lambda *a: None, overrides={"aspect": "9:16"}, cut=True)
+
+    short = (out / "description-9x16.txt").read_text(encoding="utf-8")
+    assert "Same words." in short and "Vertical Creator" in short and "Wide Creator" not in short
+    assert "Wide Creator" in (out / "credits.txt").read_text(encoding="utf-8")
+    assert (out / "a-test-video-9x16.jpg").exists(), "the Short gets a thumbnail of its own"
+    assert json.loads((project / "build" / "visuals-9x16" / "shots.json").read_text())["0"]
+
+
 def test_kept_thumbnail_credit_reads_only_the_thumbnail_lines(tmp_path):
     path = tmp_path / "credits.txt"
     assert pl.kept_thumbnail_credit(path) == ""

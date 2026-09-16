@@ -54,6 +54,8 @@ class Build:
             raise RetakeRefused("this render kept no working files, so its shots "
                                 "cannot be changed; render the script again")
         self.scenes: List[Scene] = load_scenes(scenes_json)
+        # this cut's shots, which the shared file stops holding once there are two
+        pipeline.read_shots(self.vis, self.scenes)
         self.ledger: Dict[str, Dict[str, str]] = _read(self.vis / "credits.json")
         self.decided: Dict[str, Any] = _read(self.proj.build / "diagram_scenes.json")
 

@@ -1184,6 +1184,19 @@ failure and at startup. The page's inline script is parsed by `node --check` in
 `test_page_script.py`, because a duplicate `let` once took the whole page down
 while every text-reading page test passed.
 
+**A finished render can gain a Shorts version.** `vidsmith/cuts.py` runs
+`pipeline.build(overrides={"aspect": "9:16"}, cut=True)`: narration, timings and
+beat searches are shared, so it costs vertical footage and an encode. `cut`
+keeps `youtube.json` and writes `description-9x16.txt` from it with the Short's
+own credits, and picks a thumbnail for the new shape only when it has none.
+Two sharing traps came with it. `scenes.json` holds the shots of whichever cut
+was built last, so each cut now records its own in `visuals{tag}/shots.json`
+and `retake.Build` reads that. And the page used to play the first `mp4` in the
+file list, which is the Short, because `a-9x16.mp4` sorts before `a.mp4`, so
+`Job.public()` serves `cuts` main first and the page names the cut it plays. A
+scene edit rebuilds every other cut too, or the Short would keep the old words.
+`/api/jobs/{id}/cuts` refuses a 9:16 cut past `SHORTS_SECONDS` (180).
+
 **The thumbnail can be chosen by hand too, and it is not a render.**
 `vidsmith/cover.py` offers the photographs from the search the build used
 (recorded in `build/thumbnail{tag}.json`) or a typed one, and the middle frame of

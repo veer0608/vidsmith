@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from . import pipeline, snapshot
+from .check import delivered
+from .config import load_config
 from .retake import RetakeRefused
 from .script_parser import _clean, narration_words, parse_text, replace_scene_text
 
@@ -73,6 +75,11 @@ def check(root: Path, index: int, new_text: str,
     return new
 
 
+def _shapes(root: Path) -> List[str]:
+    out = Path(root) / "out"
+    return [aspect for aspect, _ in delivered(out)] if out.is_dir() else []
+
+
 def touched() -> List[str]:
     """What an edit can rewrite: the script, every artifact and the delivery."""
     return ["script.md", "build", "out"]
@@ -94,6 +101,12 @@ def apply(root: Path, index: int, new_text: str, word_cap: Optional[int] = None,
     try:
         (root / "script.md").write_text(new, encoding="utf-8")
         final = pipeline.build(root, log=log, edit=True)
+        # Every other cut speaks the same narration, so each is rebuilt too:
+        # left alone, a Shorts version would go on saying the old words.
+        main = load_config(root / "config.yaml").render.aspect
+        for aspect in [a for a in _shapes(root) if a != main]:
+            log(f"edit     rebuilding the {aspect} cut with the new words")
+            pipeline.build(root, log=log, overrides={"aspect": aspect}, cut=True)
     except BaseException:
         snapshot.restore(root)
         raise

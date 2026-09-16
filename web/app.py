@@ -190,6 +190,8 @@ def options() -> Dict[str, Any]:
             # the line. Without it the only safe assumption is that a busy box
             # refuses, which is what it used to do and is no longer true.
             "max_queue": MAX_QUEUE,
+            # how long a vertical cut may be and still be a Short
+            "shorts_seconds": SHORTS_SECONDS,
             "busy": jobs.busy(), "auth": bool(TOKEN),
             "stages": stage_sequence(),
             # `ready` says whether this instance holds the key that provider
@@ -381,6 +383,36 @@ def swap_shot(job_id: str, scene: int, shot: int, req: SwapRequest,
         raise HTTPException(429, str(exc))
     if job is None:
         raise HTTPException(404, "no such job")
+    return jobs.snapshot(job.id) or job.public()
+
+
+# YouTube treats a vertical video up to three minutes long as a Short.
+SHORTS_SECONDS = 180
+
+
+class CutRequest(BaseModel):
+    aspect: str = "9:16"
+
+
+@app.post("/api/jobs/{job_id}/cuts", status_code=202)
+def add_cut(job_id: str, req: CutRequest, _: None = Depends(guard)) -> Dict[str, Any]:
+    """Another shape of a finished render, from the same narration.
+
+    A vertical cut longer than a Short would be a vertical video nobody asked
+    for, so one past the limit is refused rather than built.
+    """
+    job = jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    if req.aspect == "9:16" and job.runtime > SHORTS_SECONDS:
+        raise HTTPException(409, f"this video is {job.runtime:.0f} seconds, and a Short "
+                                 f"is at most {SHORTS_SECONDS}")
+    try:
+        job = jobs.add_cut(job_id, req.aspect)
+    except retakes.RetakeRefused as exc:
+        raise HTTPException(409, str(exc))
+    except Busy as exc:
+        raise HTTPException(429, str(exc))
     return jobs.snapshot(job.id) or job.public()
 
 
