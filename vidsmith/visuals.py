@@ -58,6 +58,24 @@ MULTI_SHOT_PROVIDERS = ("pexels", "pixabay", "local")
 # calls over thirty results is room for a scene that long.
 SEARCH_RESULTS = 30
 RERANK_ROUNDS = 3
+# A still with under DARK_LIT of its pixels brighter than DARK_LUMA is footage
+# nobody can read behind captions. "Night highway drive following a truck" was
+# picked for two styles in a row and played as a black frame with two dots:
+# 5% lit. Night streets with their lights on measured 15 to 40%, daylight 60 to
+# 100%, so the cut sits clear of footage that is dark on purpose and readable.
+DARK_LUMA = 60
+DARK_LIT = 0.10
+
+
+def too_dark(still: bytes) -> bool:
+    """Whether a preview still is too dark to read. Unreadable bytes are not."""
+    try:
+        img = Image.open(BytesIO(still)).convert("L")
+    except Exception:
+        return False
+    hist = img.histogram()
+    total = sum(hist)
+    return bool(total) and sum(hist[DARK_LUMA + 1:]) / total < DARK_LIT
 
 
 # --------------------------------------------------------------------------- #
@@ -793,6 +811,8 @@ class VisualBuilder:
                 rounds = 0
 
         blocked = {a for a in self._scene_creators | {self._last_creator} if a}
+        # too dark to read: never shown to the model and never picked
+        dark: set = set()
 
         while rounds < RERANK_ROUNDS:
             # usable means a clip a pick could actually take: not rejected, not
@@ -804,13 +824,18 @@ class VisualBuilder:
                 break
             images: List[bytes] = []
             keep: List[Dict] = []
-            for hit in [h for h in hits if h["id"] not in order]:
+            before = len(dark)
+            for hit in [h for h in hits if h["id"] not in order and h["id"] not in dark]:
                 if len(keep) >= max(2, self.cfg.rerank_pool):
                     break
                 blob = self._preview(hit.get("preview", "")) if hit.get("preview") else None
-                if blob:
+                if blob and too_dark(blob):
+                    dark.add(hit["id"])
+                elif blob:
                     images.append(blob)
                     keep.append(hit)
+            if len(dark) > before:
+                self.log(f"    rerank: passed over {len(dark) - before} too dark to read")
             if len(images) < 2:
                 break
             if order:
@@ -854,7 +879,7 @@ class VisualBuilder:
                                                encoding="utf-8")
 
         if not order:
-            return hits
+            return [h for h in hits if h["id"] not in dark] or hits
         self._reject_ratio = len(reject) / len(order)
         self._filmable = filmable
         keepers = [by_id[i] for i in order if i not in reject]

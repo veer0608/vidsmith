@@ -764,6 +764,16 @@ competing with the voice.
   nine-minute build's credits approach YouTube's 5000-character description
   limit on their own, `description_box()` trims the prose rather than the
   credits and `check` reports a description over the limit.
+- **A black clip passed the reranker twice, because it showed the right
+  subject.** "Night highway drive following a truck" is a truck, so City and
+  Documentary both kept it, and it played as a black frame with two headlights
+  behind the captions. Nothing judged whether a still could be read at all.
+  `too_dark()` measures it in code rather than asking the model: a still with
+  under 10% of pixels above luma 60 is never shown to the model and never
+  picked. Measured on 90 night-traffic candidates before choosing the cut: the
+  offender was 5% lit, streets with their lights on 15 to 40%, daylight 60 to
+  100%. It runs only where reranking runs, so a build with no Gemini key can
+  still pick one, and verdicts cached before it existed are not re-judged.
 - **Karaoke highlights overlapped whenever a word was very short.** Each word's
   event was floored at 60ms, and edge-tts reports words like "a" at 30 to 40ms,
   so the floor carried it past the next word's start. libass stacks any two
