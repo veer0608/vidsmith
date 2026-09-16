@@ -197,6 +197,10 @@ def test_footage_and_thumbnail_creators_are_both_named(project, rendered,
 
     text = next(iter((project / "out").glob("credits*.txt"))).read_text(encoding="utf-8")
     assert "Ada Lovelace" in text and "Jane Doe" in text
+    # the search is kept, so the page can offer its other photographs later
+    import json
+    choice = json.loads((project / "build" / "thumbnail.json").read_text(encoding="utf-8"))
+    assert choice["kind"] == "photo" and choice["query"] == "q"
 
 
 def test_nothing_is_written_when_nobody_is_owed_a_credit(project, rendered):

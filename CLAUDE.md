@@ -1161,6 +1161,16 @@ Four rules hold it together:
   build. A render already on YouTube is refused: a changed video would be a second
   upload.
 
+**The thumbnail can be chosen by hand too, and it is not a render.**
+`vidsmith/cover.py` offers the photographs from the search the build used
+(recorded in `build/thumbnail{tag}.json`) or a typed one, and the middle frame of
+any shot. It titles the pick with `thumbs.titled` exactly as the build does,
+then corrects the thumbnail credit line - a photograph owes its photographer, a
+frame of the footage owes nothing extra - and rewrites the description from
+`youtube.json` through `write_metadata`. It runs in the request, because there is
+no encode, but `Job.retitling` keeps it and a shot change from overlapping: a
+failed change restores its copy of `out/`, which would put the old thumbnail back.
+
 `VIDSMITH_JOBS` moves the job directory, and `VIDSMITH_MAX_MINUTES` (default 4)
 caps how long a submitted script may run. Both exist because the host, not the
 code, is usually the constraint.

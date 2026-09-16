@@ -32,6 +32,7 @@ from typing import Any, Deque, Dict, List, Optional
 import yaml
 
 from vidsmith import pipeline
+from vidsmith import cover
 from vidsmith import retake as retakes
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
@@ -129,6 +130,8 @@ class Job:
     retake: Dict[str, Any] = field(default_factory=dict)
     # how the last shot change ended, for the page: status, scene, shot, error
     swap: Dict[str, Any] = field(default_factory=dict)
+    # a thumbnail being composed, which a shot change must not start under
+    retitling: bool = False
 
     def expires(self) -> float:
         """When the sweep will take it; 0 while it is still queued or running."""
@@ -469,7 +472,7 @@ class Jobs:
         retakes.check(job.root, scene, shot, clip, query or None, keys)
 
         with self._lock:
-            if job.status != "done":
+            if job.status != "done" or job.retitling:
                 raise retakes.RetakeRefused("this render is already being changed")
             if self._full_locked():
                 raise Busy(self._full_message_locked())
@@ -490,6 +493,44 @@ class Jobs:
                 self._waiting.append(job.id)
         if start_now:
             self._spawn(job)
+        return job
+
+    def set_thumbnail(self, job_id: str, photo: Optional[str] = None,
+                      scene: Optional[int] = None, shot: Optional[int] = None,
+                      query: str = "", keys: Optional[Dict[str, str]] = None) -> Optional[Job]:
+        """Replace a finished render's thumbnail with a photograph or a shot's frame.
+
+        Done in the request rather than in the render line: it is one download
+        and a Pillow composite, a second or two, and no encode. It still may not
+        overlap a shot change, whose backup of `out/` would put the old thumbnail
+        back over this one if the change failed.
+        """
+        job = self.get(job_id)
+        if job is None:
+            return None
+        if (photo is None) == (scene is None or shot is None):
+            raise retakes.RetakeRefused("choose either a photograph or a shot")
+        state = job.youtube.get("status")
+        if state in ("uploading", "done"):
+            raise retakes.RetakeRefused(
+                "this render is on YouTube already; change its thumbnail in YouTube Studio"
+                if state == "done" else "this render is uploading to YouTube; wait for it to finish")
+        with self._lock:
+            if job.status != "done" or job.root is None:
+                raise retakes.RetakeRefused("only a finished render can have its thumbnail changed")
+            if job.retitling:
+                raise retakes.RetakeRefused("this thumbnail is already being changed")
+            job.retitling = True
+        try:
+            if photo is not None:
+                cover.use_photo(job.root, photo, keys=keys, query=query or None,
+                                log=job.log.append)
+            else:
+                cover.use_frame(job.root, scene, shot, log=job.log.append)
+        finally:
+            job.retitling = False
+            job.outputs = self._collect(job)
+        self.record(job)
         return job
 
     def _undo(self, job: Job, line: str, error: str = "") -> None:

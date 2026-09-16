@@ -250,8 +250,8 @@ def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
     except Exception as exc:
         log(f"         stock thumbnail download failed ({exc})")
         return None
-    return {"path": dest, "query": query, "author": chosen["author"],
-            "page": chosen["page"]}
+    return {"path": dest, "query": query, "id": chosen["id"],
+            "author": chosen["author"], "page": chosen["page"]}
 
 
 def choose(video: Path, workdir: Path, title: str, hook: str = "",
