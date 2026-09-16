@@ -34,6 +34,7 @@ from . import captions as cap
 from . import diagram
 from . import llm
 from . import manifest
+from . import usage
 from . import ffmpeg_util as ff
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
@@ -474,6 +475,8 @@ def _pexels_video_fetch(query: str, key: str, orientation: str,
         headers={"Authorization": key},
         timeout=TIMEOUT,
     )
+    # the monthly allowance comes back on every response, spent or not
+    usage.stock_headers("pexels", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
     results = []
     for v in r.json().get("videos", []):
@@ -525,6 +528,8 @@ def _pexels_photo_fetch(query: str, key: str, orientation: str,
         headers={"Authorization": key},
         timeout=TIMEOUT,
     )
+    # the monthly allowance comes back on every response, spent or not
+    usage.stock_headers("pexels", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
     out = []
     for p in r.json().get("photos", []):
@@ -553,6 +558,7 @@ def _pixabay_fetch(query: str, key: str) -> List[Dict]:
         params={"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"},
         timeout=TIMEOUT,
     )
+    usage.stock_headers("pixabay", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
     results = []
     for hit in r.json().get("hits", []):

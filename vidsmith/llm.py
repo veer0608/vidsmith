@@ -18,6 +18,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 import requests
 
 from . import manifest
+from . import usage
 from .config import VoiceConfig
 from .script_parser import DIRECTIVE, HEADING, NOTE, WPS, Scene
 
@@ -190,6 +191,8 @@ def _generate(prompt: str, api_key: str, model: str, temperature: float,
     last = ""
     for attempt in range(retries):
         manifest.note("model", _CALLER.get(), requests=1)
+        # every attempt spends the day's budget, so every attempt is counted
+        usage.gemini_request(model)
         try:
             r = requests.post(
                 ENDPOINT.format(model=model),
@@ -203,7 +206,11 @@ def _generate(prompt: str, api_key: str, model: str, temperature: float,
             manifest.note("model", _CALLER.get(), retries=1, waited_seconds=2 ** attempt)
             time.sleep(2 ** attempt)
             continue
-        pause = _refuse_if_spent(r)
+        try:
+            pause = _refuse_if_spent(r)
+        except QuotaExhausted as exc:
+            usage.gemini_spent(model, str(exc), _quota_violation(r).get("quotaValue"))
+            raise
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
             wait = max(pause, 2 ** attempt)
@@ -254,6 +261,8 @@ def _generate_vision(prompt: str, images: Sequence[bytes], api_key: str, model: 
     last = ""
     for attempt in range(retries):
         manifest.note("model", _CALLER.get(), requests=1)
+        # every attempt spends the day's budget, so every attempt is counted
+        usage.gemini_request(model)
         try:
             r = requests.post(ENDPOINT.format(model=model), params={"key": api_key},
                               json=body, timeout=180)
@@ -263,7 +272,11 @@ def _generate_vision(prompt: str, images: Sequence[bytes], api_key: str, model: 
             manifest.note("model", _CALLER.get(), retries=1, waited_seconds=2 ** attempt)
             time.sleep(2 ** attempt)
             continue
-        pause = _refuse_if_spent(r)
+        try:
+            pause = _refuse_if_spent(r)
+        except QuotaExhausted as exc:
+            usage.gemini_spent(model, str(exc), _quota_violation(r).get("quotaValue"))
+            raise
         if r.status_code in RETRY_STATUS:
             last = f"HTTP {r.status_code}: {r.text[:180]}"
             wait = max(pause, 2 ** attempt)

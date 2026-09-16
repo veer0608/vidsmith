@@ -1007,6 +1007,18 @@ parent and repo root, then two sibling projects' `.env` files. Nothing key-drive
 is required: with no keys at all the build still produces narrated, captioned
 video over generated cards.
 
+**The page shows what is left before a render spends it.** `vidsmith/usage.py`
+keeps `.cache/usage.json` (`VIDSMITH_USAGE` moves it; `conftest` points every
+test at its own). The two services report differently, so they are recorded
+differently. Pexels sends `X-Ratelimit-Limit`, `-Remaining` and `-Reset` for the
+monthly allowance on every response, so the last one is kept as fact. Gemini
+sends nothing until it refuses, so each request attempt, retries included, is
+counted per model per **Pacific** day, and a daily refusal is recorded with the
+limit it names. That count is this server's only: the laptop spending the same
+key is invisible to it. Windows Python has no tz data, so `usage.pacific()`
+applies the US daylight-saving rule itself rather than calling `zoneinfo`.
+`/api/usage` is behind the token.
+
 **Unsetting `GEMINI_API_KEY` in the shell does not stop a build calling Gemini.**
 The sibling `.env` files still resolve, so a build "with the key unset" spent a
 `pick_thumbnail` request anyway, which nothing reported until the build manifest
