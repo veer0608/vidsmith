@@ -224,7 +224,7 @@ def _judge(monkeypatch, builder, keep=2):
     """A reranker that keeps the first `keep` stills of every batch."""
     calls = []
 
-    def fake(text, query, images, key, log=None):
+    def fake(text, query, images, key, log=None, **k):
         calls.append(len(images))
         return list(range(len(images))), list(range(keep, len(images))), True
 
