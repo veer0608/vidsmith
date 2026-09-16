@@ -8,6 +8,7 @@ all carry it; a machine without it skips rather than failing.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -31,6 +32,50 @@ def test_the_inline_script_parses(tmp_path):
                             text=True, timeout=60)
 
     assert result.returncode == 0, result.stderr
+
+
+def _function(source: str, name: str) -> str:
+    """One top-level function's source, by counting braces from its signature."""
+    start = source.index(f"function {name}(")
+    depth, i = 0, source.index("{", start)
+    while True:
+        depth += {"{": 1, "}": -1}.get(source[i], 0)
+        i += 1
+        if depth == 0:
+            return source[start:i]
+
+
+def test_the_finished_notification_says_what_actually_finished(tmp_path):
+    """A change that did not happen is not "ready", and a Short is not the video."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    page = PAGE.read_text(encoding="utf-8")
+    cases = {
+        "render": {"title": "Racks", "status": "done", "runtime": 75, "swap": {}},
+        "short": {"title": "Racks", "status": "done", "swap": {"kind": "cut", "status": "done"}},
+        "scene": {"title": "Racks", "status": "done", "swap": {"kind": "scene", "status": "done", "scene": 1}},
+        "undone": {"title": "Racks", "status": "done",
+                   "swap": {"kind": "shot", "status": "failed", "error": "no clip"}},
+        "failed": {"title": "Racks", "status": "failed", "swap": {}},
+    }
+    harness = tmp_path / "notify.js"
+    harness.write_text(
+        _function(page, "fmt") + "\n" + _function(page, "finishedMessage") + "\n"
+        + f"const cases = {json.dumps(cases)};\n"
+        + "console.log(JSON.stringify(Object.fromEntries(Object.entries(cases)"
+          ".map(([k, job]) => [k, finishedMessage(job)]))));\n", encoding="utf-8")
+
+    result = subprocess.run([node, str(harness)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    said = json.loads(result.stdout)
+
+    assert said["render"] == ["Racks is ready", "1m 15s of video, ready to watch and download."]
+    assert "Shorts version ready" in said["short"][0]
+    assert "scene 2 rebuilt" in said["scene"][0]
+    assert "did not finish" in said["undone"][0] and "ready" not in said["undone"][0]
+    assert "no clip" in said["undone"][1]
+    assert said["failed"][0] == "Racks failed"
 
 
 def test_the_check_can_fail(tmp_path):
