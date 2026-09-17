@@ -130,3 +130,38 @@ def test_the_command_is_on_the_cli():
     from vidsmith import cli
 
     assert cli.cmd_deploy.__doc__
+
+
+def test_a_dropped_connection_after_the_restart_is_retried_not_a_failure():
+    """A slow connection timed out on /api/busy seconds after /healthz had
+    confirmed the new commit, and a deploy that had worked reported failure."""
+    box = Box()
+    misses = {"n": 2}
+    honest = box.get
+
+    def flaky(url, timeout=0):
+        if url.endswith("/api/busy") and misses["n"]:
+            misses["n"] -= 1
+            raise deploy.requests.ConnectionError("read timed out")
+        return honest(url, timeout=timeout)
+
+    box.get = flaky
+
+    assert box.go() == TARGET[:7]
+    assert misses["n"] == 0, "the retries never happened"
+    assert any("live:" in line for line in box.log)
+
+
+def test_an_endpoint_that_never_answers_is_still_a_failure():
+    box = Box()
+    honest = box.get
+
+    def dead(url, timeout=0):
+        if url.endswith("/api/busy"):
+            raise deploy.requests.ConnectionError("read timed out")
+        return honest(url, timeout=timeout)
+
+    box.get = dead
+
+    with pytest.raises(deploy.DeployFailed, match="did not answer with a waiting count"):
+        box.go()

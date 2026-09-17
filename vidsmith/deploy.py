@@ -67,6 +67,25 @@ def _json(get: Get, url: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _json_settled(get: Get, url: str, sleep: Callable[[float], None],
+                  tries: int = 4, pause: float = 5.0) -> Optional[Dict[str, Any]]:
+    """Read a public endpoint, allowing for a connection that drops.
+
+    Only for the checks that run *after* the restart, where a miss is read as a
+    broken deploy. A slow home connection timed out on `/api/busy` seconds
+    after `/healthz` had confirmed the new commit, and a deploy that had
+    entirely worked reported failure. The earlier probes stay single-shot:
+    there a miss means "not live yet", which the loops already handle.
+    """
+    for attempt in range(tries):
+        body = _json(get, url)
+        if body is not None:
+            return body
+        if attempt < tries - 1:
+            sleep(pause)
+    return None
+
+
 def _current_ip(get: Get) -> str:
     try:
         return get(CHECK_IP, timeout=10).text.strip()
@@ -148,7 +167,7 @@ def deploy(host: str = HOST, user: str = USER, key: str = KEY,
             raise DeployFailed(f"the service restarted but {base}/healthz reports "
                                f"{health.get('commit') or 'nothing'}, not {target}")
         sleep(3)
-    busy = _json(get, f"{base}/api/busy") or {}
+    busy = _json_settled(get, f"{base}/api/busy", sleep) or {}
     problems = []
     if not health.get("ok"):
         problems.append(f"healthz is not ok: {health.get('ffmpeg', 'no reason given')}")
