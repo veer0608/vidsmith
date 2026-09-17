@@ -62,6 +62,22 @@ def shot_times(scenes: Sequence[Scene], offset: float = 0.0,
     return rows
 
 
+def recorded_by(scenes: Sequence[Scene]) -> str:
+    """Which cut wrote the shots in `scenes.json`, read off a clip's folder.
+
+    `visuals-9x16/scene_000_00.mp4` says the 9:16 build recorded them, so a
+    sheet for another shape can say so instead of hedging.
+    """
+    for scene in scenes:
+        for shot in scene.shots or []:
+            if isinstance(shot, dict) and shot.get("path"):
+                folder = Path(shot["path"]).parent.name
+                if folder.startswith("visuals"):
+                    tail = folder[len("visuals"):].lstrip("-")
+                    return f"the {tail.replace('x', ':')} cut" if tail else "the 16:9 cut"
+    return ""
+
+
 SRT_LINE = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)")
 BLOCK_SECONDS = 6.0
 
@@ -190,8 +206,11 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
             # `scenes.json` holds the shots of whichever cut was built last, so
             # on a project from before per-cut shots the frame times can belong
             # to the other shape. Silence here would be the empty-tag family.
-            log(f"sheet    warning: no {vis_dir.name}/shots.json, so these times "
-                f"come from whichever cut was built last, not necessarily {aspect}")
+            # Each shot records the folder its clip came from, so the warning
+            # names that cut rather than guessing at one.
+            log(f"sheet    warning: no {vis_dir.name}/shots.json, so these times come "
+                f"from {recorded_by(scenes) or 'whichever cut was built last'}, "
+                f"not necessarily {aspect}")
         offset = cfg.theme.title_seconds if cfg.theme.title_card else 0.0
         rows = shot_times(scenes, offset, cfg.voice.lead_in)
         noun = "shots"
