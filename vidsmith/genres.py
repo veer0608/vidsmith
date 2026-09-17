@@ -3,8 +3,15 @@
 Pexels has no genre filter, so a genre works through the two model calls that
 decide the footage. The search writer puts a style word into every search, and
 the reranker, looking at the stills, puts the clips in that style first among
-those showing the right subject. Pixabay does filter one thing, animation
-against film, and that is passed through as a real API parameter.
+those showing the right subject.
+
+There is no Animation style, deliberately. It was built and tested on a
+delivery script: Pexels has no animation filter and returned five filmed shots
+and one cartoon; Pixabay's `video_type=animation` filter worked, but its
+animated library held a SUBSCRIBE title, a FREE advert and a hot dog under a
+parcel line, and after the reranker was taught to reject those, 40 of 48
+candidates were rejected and most of the 8 kept were still unrelated. A stock
+library cannot supply animation about a concrete subject, so it was removed.
 
 A first nature build on a coffee script moved its searches by one word at most
 ("coffee cherries on branch" became "on hillside bush", the mug on the desk did
@@ -16,7 +23,7 @@ that never chose a genre searches and ranks exactly as it did before genres.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple
 
 
 class Genre(NamedTuple):
@@ -29,13 +36,6 @@ class Genre(NamedTuple):
     # up" reached Pexels as "slow" and "close". No digits either, because the
     # same clean-up strips them and "3D" arrives as "D".
     words: str = ""
-    # Pixabay's `video_type`: all | film | animation
-    pixabay_type: str = "all"
-    # providers this style cannot be delivered from, refused rather than
-    # quietly rendered as something else
-    not_on: Tuple[str, ...] = ()
-    # said to the reranker as well as the style paragraph
-    rerank_note: str = ""
 
 
 GENRES: Dict[str, Genre] = {
@@ -69,22 +69,6 @@ GENRES: Dict[str, Genre] = {
                   "urban: streets, buildings, traffic, crowds and city life by day "
                   "and night",
                   "city, street, urban, downtown, nightlife, crowd"),
-    # Pexels has no animation filter and little animation: a test build came
-    # back as five filmed shots and one cartoon. Pixabay filters for it, but its
-    # animated library is mostly title cards and adverts, so the reranker is
-    # told what an animated candidate that is not a picture of anything is.
-    "animation": Genre("Animation",
-                       "animated: motion graphics, 3D renders and animated "
-                       "illustrations rather than filmed footage",
-                       "animation, rendered, motion-graphics, cartoon, illustration",
-                       "animation", not_on=("pexels",),
-                       rerank_note=(
-                           "These candidates are animations, so no camera is involved: "
-                           "judge whether the animation depicts the subject, and answer "
-                           "filmable true unless no drawing could show it. An animation "
-                           "of a different object is the wrong subject, however well "
-                           "drawn: a hot dog is not a parcel. Abstract streaks, shapes "
-                           "or backgrounds with no subject in them are unusable too.")),
 }
 
 
@@ -129,22 +113,11 @@ def rerank_block(name: str) -> str:
     genre = get(name)
     if not genre.direction:
         return ""
-    note = f" {genre.rerank_note}" if genre.rerank_note else ""
     return (f"\nSTYLE: this video's footage should be {genre.direction}. Among the "
             "clips that show the right subject, rank the ones in that style above "
             "the ones that are not. Style never makes up for the wrong subject, and "
-            f"a clip is never rejected for being off style.{note}\n")
+            "a clip is never rejected for being off style.\n")
 
 
-def unavailable(name: str, provider: str) -> str:
-    """Why this style cannot come from this provider, or "" when it can."""
-    genre = get(name)
-    if provider in genre.not_on:
-        return (f"the {genre.label} footage style is not available from {provider}; "
-                f"choose another footage source or style")
-    return ""
-
-
-def options() -> List[Dict[str, Any]]:
-    return [{"name": name, "label": g.label, "not_on": list(g.not_on)}
-            for name, g in GENRES.items()]
+def options() -> List[Dict[str, str]]:
+    return [{"name": name, "label": g.label} for name, g in GENRES.items()]
