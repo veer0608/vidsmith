@@ -778,3 +778,45 @@ def test_no_style_offers_a_place_or_a_crowd_as_a_style_word():
     for name in ("cinematic", "documentary", "nature", "city", "technology"):
         words = {w.strip() for w in GENRES[name].words.split(",")}
         assert not words & nouns, f"{name}: {sorted(words & nouns)}"
+
+
+# --------------------------------------------------------------------------- #
+# the build log says what the rules changed
+# --------------------------------------------------------------------------- #
+def test_the_log_says_when_a_device_word_is_dropped(monkeypatch):
+    """Silent, these rules are invisible: a build log showed the finished
+    search and nothing about what the code had taken out of it."""
+    from vidsmith import llm
+
+    lines = []
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["delivery van gps screen"]')
+    llm.beat_queries([{"text": "The van stops every few minutes."}], "k",
+                     genre="technology", log=lines.append)
+
+    dropped = [l for l in lines if "dropped" in l]
+    assert len(dropped) == 1
+    assert "'gps'" in dropped[0] and "'screen'" in dropped[0]
+    assert "names no device" in dropped[0]
+
+
+def test_the_log_says_when_a_style_word_is_added(monkeypatch):
+    from vidsmith import llm
+
+    lines = []
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["delivery trucks at a depot"]')
+    llm.beat_queries([{"text": "Trucks carry thousands of boxes."}], "k",
+                     genre="technology", log=lines.append)
+
+    added = [l for l in lines if "carried no technology style word" in l]
+    assert len(added) == 1 and "'modern delivery trucks at a depot'" in added[0]
+
+
+def test_a_search_the_rules_leave_alone_says_nothing(monkeypatch):
+    from vidsmith import llm
+
+    lines = []
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["automated sorting line"]')
+    llm.beat_queries([{"text": "Trucks carry thousands of boxes."}], "k",
+                     genre="technology", log=lines.append)
+
+    assert not [l for l in lines if "style:" in l]
