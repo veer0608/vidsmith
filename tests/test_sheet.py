@@ -158,3 +158,59 @@ def test_a_build_that_records_its_own_shots_warns_about_nothing(tmp_path):
     sheet_mod.build_sheet(root, log=lines.append, run=_runs([]))
 
     assert not any("warning" in line for line in lines)
+
+
+# --------------------------------------------------------------------------- #
+# a published project keeps out/ and loses build/
+# --------------------------------------------------------------------------- #
+SRT = """1
+00:00:00,354 --> 00:00:01,677
+You likely picture the fall of
+
+2
+00:00:01,697 --> 00:00:03,381
+the Roman Empire as a sudden,
+
+3
+00:00:09,000 --> 00:00:11,200
+Rome did not vanish in a single afternoon.
+"""
+
+
+def test_captions_become_blocks_of_a_few_seconds():
+    rows = sheet_mod.caption_rows(SRT, block_seconds=6.0)
+
+    assert len(rows) == 2, "two cues close together are one block"
+    assert rows[0]["words"] == "You likely picture the fall of the Roman Empire as a sudden,"
+    assert rows[0]["start"] == pytest.approx(0.354)
+    assert rows[0]["seconds"] == pytest.approx(3.381 - 0.354)
+    assert rows[1]["start"] == pytest.approx(9.0)
+    assert rows[0]["middle"] < rows[1]["middle"]
+
+
+def test_a_delivered_project_with_no_build_uses_its_captions(tmp_path):
+    """rome kept out/ and lost build/, so there are no shots to cut on."""
+    root, _ = _project(tmp_path)
+    for path in (root / "build").rglob("*"):
+        if path.is_file():
+            path.unlink()
+    (root / "out" / "rome.mp4").write_bytes(b"mp4")
+    (root / "out" / "captions.srt").write_text(SRT, encoding="utf-8")
+    lines, calls = [], []
+
+    page = sheet_mod.build_sheet(root, log=lines.append, run=_runs(calls))
+
+    body = page.read_text(encoding="utf-8")
+    assert "caption block 1" in body and "scene 0.0" not in body
+    assert "cut by caption rather than by shot" in " ".join(lines)
+    assert len(calls) == 2 and all("rome.mp4" in " ".join(c) for c in calls)
+
+
+def test_a_project_with_neither_a_build_nor_captions_says_both(tmp_path):
+    root, _ = _project(tmp_path)
+    (root / "build" / "scenes.json").unlink()
+    (root / "build" / "picture.mp4").unlink()
+    (root / "out" / "rome.mp4").write_bytes(b"mp4")
+
+    with pytest.raises(sheet_mod.SheetFailed, match="no captions.srt beside"):
+        sheet_mod.build_sheet(root, log=lambda *a: None, run=_runs([]))

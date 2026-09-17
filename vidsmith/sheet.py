@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -61,6 +62,54 @@ def shot_times(scenes: Sequence[Scene], offset: float = 0.0,
     return rows
 
 
+SRT_LINE = re.compile(r"(\d+:\d+:\d+[,.]\d+)\s*-->\s*(\d+:\d+:\d+[,.]\d+)")
+BLOCK_SECONDS = 6.0
+
+
+def _stamp_seconds(stamp: str) -> float:
+    hours, minutes, rest = stamp.split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(rest.replace(",", "."))
+
+
+def caption_rows(srt: str, block_seconds: float = BLOCK_SECONDS) -> List[Dict[str, Any]]:
+    """Rows from a delivered `captions.srt`, for a project whose build is gone.
+
+    A published video keeps its `out/` and loses `build/`, so there are no shots
+    to cut on and no searches to show: the sheet falls back to the captions,
+    grouped into blocks of about `block_seconds` so a three-minute video is
+    thirty rows rather than a hundred and twenty.
+    """
+    cues: List[Dict[str, Any]] = []
+    stamps: Optional[Dict[str, float]] = None
+    words: List[str] = []
+    for line in srt.splitlines():
+        found = SRT_LINE.search(line)
+        if found:
+            if stamps and words:
+                cues.append({**stamps, "text": " ".join(words)})
+            stamps = {"start": _stamp_seconds(found.group(1)),
+                      "end": _stamp_seconds(found.group(2))}
+            words = []
+        elif stamps is not None and line.strip() and not line.strip().isdigit():
+            words.append(line.strip())
+    if stamps and words:
+        cues.append({**stamps, "text": " ".join(words)})
+
+    rows: List[Dict[str, Any]] = []
+    for cue in cues:
+        if rows and cue["end"] - rows[-1]["start"] <= block_seconds:
+            rows[-1]["words"] += " " + cue["text"]
+            rows[-1]["seconds"] = cue["end"] - rows[-1]["start"]
+        else:
+            rows.append({"scene": len(rows), "shot": 0, "start": cue["start"],
+                         "label": f"caption block {len(rows) + 1}",
+                         "seconds": cue["end"] - cue["start"], "words": cue["text"],
+                         "heading": "", "query": "", "credit": ""})
+    for row in rows:
+        row["middle"] = row["start"] + row["seconds"] / 2
+    return rows
+
+
 def _credits(vis_dir: Path) -> Dict[str, Dict[str, str]]:
     try:
         data = json.loads((vis_dir / "credits.json").read_text(encoding="utf-8"))
@@ -69,7 +118,8 @@ def _credits(vis_dir: Path) -> Dict[str, Dict[str, str]]:
     return data if isinstance(data, dict) else {}
 
 
-def _page(title: str, video: Path, rows: Sequence[Dict[str, Any]]) -> str:
+def _page(title: str, video: Path, rows: Sequence[Dict[str, Any]],
+          noun: str = "shots") -> str:
     cells = []
     for row in rows:
         credit = row.get("credit") or ""
@@ -78,7 +128,8 @@ def _page(title: str, video: Path, rows: Sequence[Dict[str, Any]]) -> str:
     <img src="{html.escape(row['frame'])}" alt="scene {row['scene']} shot {row['shot']}">
     <figcaption>
       <p class="at">{row['start']:.1f}s &middot; {row['seconds']:.1f}s &middot;
-         scene {row['scene']}.{row['shot']} &middot; {html.escape(row['heading'])}</p>
+         {html.escape(row.get('label') or f"scene {row['scene']}.{row['shot']}")}
+         &middot; {html.escape(row['heading'])}</p>
       <p class="said">{html.escape(row['words']) or '<em>no words over this shot</em>'}</p>
       <p class="meta">searched: {html.escape(row['query']) or '-'}</p>
       <p class="meta">{html.escape(credit) or ''}</p>
@@ -97,7 +148,7 @@ def _page(title: str, video: Path, rows: Sequence[Dict[str, Any]]) -> str:
  .said {{ margin: 0 0 6px; }}
  .meta {{ color: #999; margin: 0; font-size: 13px; }}
 </style>
-<h1>{html.escape(title)} &mdash; {len(rows)} shots &mdash; {html.escape(video.name)}</h1>
+<h1>{html.escape(title)} &mdash; {len(rows)} {noun} &mdash; {html.escape(video.name)}</h1>
 {''.join(cells)}
 """
 
@@ -115,19 +166,6 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
     aspect = aspect or cfg.render.aspect
     tag = aspect_tag(aspect)
 
-    scenes_json = proj.build / "scenes.json"
-    if not scenes_json.exists():
-        raise SheetFailed(f"no build at {proj.build}; run vidsmith build first")
-    scenes = load_scenes(scenes_json)
-    vis_dir = proj.build / f"visuals{tag}"
-    read_shots(vis_dir, scenes)
-    if not (vis_dir / "shots.json").exists():
-        # `scenes.json` holds the shots of whichever cut was built last, so on a
-        # project from before per-cut shots the frame times can belong to the
-        # other shape. Silence here would be the empty-tag family all over again.
-        log(f"sheet    warning: no {vis_dir.name}/shots.json, so these times come "
-            f"from whichever cut was built last, not necessarily {aspect}")
-
     # the picture track has no captions or watermark burned in, so it shows what
     # was actually chosen; the delivered cut is the fallback once it is swept
     video = proj.build / f"picture{tag}.mp4"
@@ -142,10 +180,37 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
             raise SheetFailed(f"no {aspect} video in {proj.build} or {proj.out}")
         video = delivered[0]
 
-    offset = cfg.theme.title_seconds if cfg.theme.title_card else 0.0
-    rows = shot_times(scenes, offset, cfg.voice.lead_in)
-    credits = _credits(proj.build / f"visuals{tag}")
-    out = Path(out_dir) if out_dir else proj.build / f"sheet{tag}"
+    scenes_json = proj.build / "scenes.json"
+    credits: Dict[str, Dict[str, str]] = {}
+    if scenes_json.exists():
+        scenes = load_scenes(scenes_json)
+        vis_dir = proj.build / f"visuals{tag}"
+        read_shots(vis_dir, scenes)
+        if not (vis_dir / "shots.json").exists():
+            # `scenes.json` holds the shots of whichever cut was built last, so
+            # on a project from before per-cut shots the frame times can belong
+            # to the other shape. Silence here would be the empty-tag family.
+            log(f"sheet    warning: no {vis_dir.name}/shots.json, so these times "
+                f"come from whichever cut was built last, not necessarily {aspect}")
+        offset = cfg.theme.title_seconds if cfg.theme.title_card else 0.0
+        rows = shot_times(scenes, offset, cfg.voice.lead_in)
+        noun = "shots"
+        credits = _credits(vis_dir)
+    else:
+        # A published project keeps `out/` and loses `build/`, so there are no
+        # shots to cut on. Its captions are still exact, being the timings the
+        # whole pipeline exists to produce, so the sheet reads those instead.
+        srt = proj.out / f"captions{tag}.srt"
+        if not srt.exists():
+            raise SheetFailed(f"no build at {proj.build} and no {srt.name} beside "
+                              f"the delivered cut; run vidsmith build first")
+        log(f"sheet    no build here, so this is {srt.name}, cut by caption rather "
+            f"than by shot: no searches and no credits")
+        rows = caption_rows(srt.read_text(encoding="utf-8"))
+        noun = "caption blocks"
+
+    out = Path(out_dir) if out_dir else (proj.build if proj.build.exists()
+                                         else proj.root) / f"sheet{tag}"
     out.mkdir(parents=True, exist_ok=True)
 
     for row in rows:
@@ -158,6 +223,6 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
             row["credit"] = f"{entry['credit']} - {entry.get('url', '')}".rstrip(" -")
 
     page = out / "sheet.html"
-    page.write_text(_page(cfg.title, video, rows), encoding="utf-8")
-    log(f"sheet    {len(rows)} shots from {video.name} -> {page}")
+    page.write_text(_page(cfg.title, video, rows, noun), encoding="utf-8")
+    log(f"sheet    {len(rows)} {noun} from {video.name} -> {page}")
     return page
