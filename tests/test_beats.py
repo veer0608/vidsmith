@@ -617,3 +617,19 @@ def test_a_dark_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
 
     assert shown == [7], "the dark still was shown to the model"
     assert "0" not in {h["id"] for h in kept}
+
+
+def test_every_rerank_rejects_words_and_adverts():
+    """Pixabay's animated picks put a SUBSCRIBE title and a FREE advert under
+    the narration; a clip that is mainly text is somebody else's message."""
+    from vidsmith.llm import RERANK_PROMPT
+
+    assert '"subscribe"' in RERANK_PROMPT and "an advert" in RERANK_PROMPT
+
+
+def test_there_is_no_animation_style():
+    """Built, rendered from Pexels and Pixabay, and removed: neither library
+    holds animation about a concrete subject. See genres.py before re-adding."""
+    from vidsmith.genres import GENRES
+
+    assert "animation" not in GENRES

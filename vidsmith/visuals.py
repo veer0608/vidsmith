@@ -32,7 +32,6 @@ from .theme import Theme, resolve as resolve_theme
 from . import cards
 from . import captions as cap
 from . import diagram
-from . import genres
 from . import llm
 from . import manifest
 from . import usage
@@ -566,19 +565,13 @@ def _pexels_photo_fetch(query: str, key: str, orientation: str,
     return out
 
 
-def pixabay_search(query: str, key: str, want_h: int,
-                   video_type: str = "all") -> List[Dict]:
-    # `all` keeps the key it always had, so the searches already cached and the
-    # ones bench/rank_clips looks up by name are still found
-    parts = (query, want_h) if video_type == "all" else (query, want_h, video_type)
-    return _cached_search("pixabay", parts,
-                          lambda: _pixabay_fetch(query, key, video_type))
+def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
+    return _cached_search("pixabay", (query, want_h),
+                          lambda: _pixabay_fetch(query, key))
 
 
-def _pixabay_fetch(query: str, key: str, video_type: str = "all") -> List[Dict]:
+def _pixabay_fetch(query: str, key: str) -> List[Dict]:
     params = {"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"}
-    if video_type != "all":
-        params["video_type"] = video_type
     r = requests.get("https://pixabay.com/api/videos/", params=params, timeout=TIMEOUT)
     usage.stock_headers("pixabay", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
@@ -916,8 +909,7 @@ class VisualBuilder:
                 hits = pexels_search(query, self.keys.get("pexels", ""),
                                      self.cfg.orientation, want_h)
             else:
-                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h,
-                                      genres.get(self.cfg.genre).pixabay_type)
+                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h)
         except Exception as exc:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []

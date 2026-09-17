@@ -319,6 +319,9 @@ calendar; a laptop is not a card terminal. Be strict about subject and lenient
 about style: an unremarkable shot of the right thing beats a beautiful shot of
 the wrong thing. A screen that is plain green or blue, left blank for a picture
 to be keyed in later, is unusable too: it looks unfinished behind captions.
+So is a clip whose main content is words or a logo - a title card, a "subscribe"
+or "free" graphic, an advert - because it puts somebody else's message on
+screen under the narration.
 
 Finally, judge whether stock footage can depict this line at all. Some ideas
 have no footage anywhere - a B-tree, a hash collision, an API contract. A

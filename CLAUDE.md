@@ -449,17 +449,23 @@ the plan collapses. Variety comes from equally named variants
 **`visuals.genre` steers the searches, it does not filter the results.**
 Pexels has no genre parameter, so `genres.py` hands a style direction to the
 two prompts that write stock searches, `beat_queries` and `suggest_queries`,
-with the passage's subject still ranked above the style. Only Pixabay's
-`video_type=animation` is a real filter. The reranker is told the genre too and
+with the passage's subject still ranked above the style. The reranker is told the genre too and
 puts on-style clips first among the right subjects; its verdicts record the
 genre and one judged in another style is not reused. The first version only
 told the search writer to add a style word "where it helps" and moved a nature
 build by one word; demanding it in every search moved it visibly, and also
 started trading away a passage's setting ("the mug on your desk" became a mug
-held up outdoors). It needs a Gemini key to do anything
-on Pexels. The genre is part of the beat cache key and of the Pixabay search
-key, except `any`, which adds nothing, so caches written before genres existed
-are still found.
+held up outdoors). It needs a Gemini key to do anything. The genre is part of
+the beat cache key, except `any`, which adds nothing, so caches written before
+genres existed are still found.
+
+**Do not add an Animation style back.** It was built, rendered from both
+providers and removed. Pexels has no animation filter and returned filmed
+footage; Pixabay's `video_type=animation` filter works, but its animated library
+has almost nothing about concrete subjects - a SUBSCRIBE title, a FREE advert, a
+hot dog under a parcel line - and once the reranker rejected text and adverts,
+40 of 48 candidates were rejected and most of the 8 kept were still unrelated.
+`genres.py` records the same.
 
 The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
 sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at

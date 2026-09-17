@@ -3,8 +3,15 @@
 Pexels has no genre filter, so a genre works through the two model calls that
 decide the footage. The search writer puts a style word into every search, and
 the reranker, looking at the stills, puts the clips in that style first among
-those showing the right subject. Pixabay does filter one thing, animation
-against film, and that is passed through as a real API parameter.
+those showing the right subject.
+
+There is no Animation style, deliberately. It was built and tested on a
+delivery script: Pexels has no animation filter and returned five filmed shots
+and one cartoon; Pixabay's `video_type=animation` filter worked, but its
+animated library held a SUBSCRIBE title, a FREE advert and a hot dog under a
+parcel line, and after the reranker was taught to reject those, 40 of 48
+candidates were rejected and most of the 8 kept were still unrelated. A stock
+library cannot supply animation about a concrete subject, so it was removed.
 
 A first nature build on a coffee script moved its searches by one word at most
 ("coffee cherries on branch" became "on hillside bush", the mug on the desk did
@@ -29,8 +36,6 @@ class Genre(NamedTuple):
     # up" reached Pexels as "slow" and "close". No digits either, because the
     # same clean-up strips them and "3D" arrives as "D".
     words: str = ""
-    # Pixabay's `video_type`: all | film | animation
-    pixabay_type: str = "all"
 
 
 GENRES: Dict[str, Genre] = {
@@ -64,11 +69,6 @@ GENRES: Dict[str, Genre] = {
                   "urban: streets, buildings, traffic, crowds and city life by day "
                   "and night",
                   "city, street, urban, downtown, nightlife, crowd"),
-    "animation": Genre("Animation",
-                       "animated: motion graphics, 3D renders and animated "
-                       "illustrations rather than filmed footage",
-                       "animation, rendered, motion-graphics, cartoon, illustration",
-                       "animation"),
 }
 
 
@@ -91,8 +91,8 @@ def prompt_block(name: str) -> str:
             f"{genre.words}. A search with no style word is wrong. Count the style "
             "word inside the word limit, because a longer search is cut off at the "
             "end: make room by dropping filler such as \"at\", \"the\" or \"a\", "
-            "never by leaving the style word out. The literal subject of the passage always comes first: "
-            "never swap the subject for something that only fits the style, and never "
+            "never by leaving the style word out. The literal subject of the passage "
+            "always comes first: never swap the subject for something that only fits the style, and never "
             "drop the subject to make room for a style word. Any place or setting the "
             "passage names is part of the subject too, so keep it and add the style "
             "as light, look or detail: \"the mug on your desk\" in a nature video is "
