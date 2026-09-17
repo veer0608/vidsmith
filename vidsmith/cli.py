@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import List
 
 from . import llm, music, pipeline, thumbs, voice
 from .config import ASPECTS, aspect_tag, load_config, write_default_config
@@ -371,6 +372,29 @@ def cmd_deploy(args) -> int:
     return 0
 
 
+def cmd_fetch(args) -> int:
+    """Download a finished render off the live instance, retrying a bad line."""
+    from . import deploy, fetch as fetch_mod
+    from .config import env
+
+    host = args.host or deploy.HOST
+    token = fetch_mod.job_token(args.token, lambda name: env(name, *_dotenvs()))
+    out = Path(args.out) if args.out else fetch_mod.default_out(args.job)
+    print(f"fetch    {args.job} from {host}")
+    try:
+        written = fetch_mod.fetch(args.job, host, token, out, wait=not args.no_wait)
+    except fetch_mod.FetchFailed as exc:
+        print(f"\nnot fetched: {exc}", file=sys.stderr)
+        return 1
+    print(f"\ndone     {len(written)} files in {out}")
+    return 0
+
+
+def _dotenvs() -> List[Path]:
+    here = Path.cwd()
+    return [here / ".env", here.parent / ".env", Path(__file__).resolve().parent.parent / ".env"]
+
+
 def cmd_doctor(args) -> int:
     ok = True
     from . import build_info
@@ -552,6 +576,16 @@ def main(argv=None) -> int:
     dp.add_argument("--force", action="store_true",
                     help="deploy even when the box already runs main")
     dp.set_defaults(func=cmd_deploy)
+
+    fp = sub.add_parser("fetch", help="download a finished render off the live box")
+    fp.add_argument("job", help="the job id the page shows")
+    fp.add_argument("--host", default=None, help="default: VIDSMITH_HOST or vidsmith.duckdns.org")
+    fp.add_argument("--token", default=None,
+                    help="the INSTANCE's token; default $VIDSMITH_TOKEN. Not a local .env one")
+    fp.add_argument("--out", default=None, help="where to write; default jobs/<id>")
+    fp.add_argument("--no-wait", action="store_true",
+                    help="refuse a render still in progress instead of waiting for it")
+    fp.set_defaults(func=cmd_fetch)
 
     args = p.parse_args(argv)
     try:
