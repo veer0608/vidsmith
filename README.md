@@ -121,6 +121,7 @@ Or have Gemini draft one:
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 | `vidsmith deploy` | put `main` on the live instance, refusing during a render and proving the new commit is live |
+| `vidsmith fetch JOB` | download a finished render off the live instance, retrying a connection that drops |
 
 Useful `build` flags:
 
