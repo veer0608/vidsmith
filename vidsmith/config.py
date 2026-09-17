@@ -225,6 +225,19 @@ def _check(cfg: "Config", path: Path) -> None:
             )
 
 
+def check_genre(cfg: "Config", where: Any) -> None:
+    """Refuse a footage style its provider cannot deliver.
+
+    Checked by the build after command-line overrides rather than on load, so
+    `--provider pixabay` can rescue an animation config that says pexels.
+    """
+    from .genres import unavailable
+
+    reason = unavailable(cfg.visuals.genre, cfg.visuals.provider)
+    if reason:
+        raise ValueError(f"{where}: {reason}")
+
+
 def load_config(path: Path) -> Config:
     cfg = Config()
     if not path.exists():

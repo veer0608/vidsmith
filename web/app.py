@@ -112,6 +112,8 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(400, f"provider must be one of {list(PROVIDERS)}")
     if req.genre not in GENRES:
         raise HTTPException(400, f"genre must be one of {list(GENRES)}")
+    if genres_mod.unavailable(req.genre, req.provider):
+        raise HTTPException(400, genres_mod.unavailable(req.genre, req.provider))
     if req.mood not in music_mod.moods():
         raise HTTPException(400, f"mood must be one of {music_mod.moods()}")
     words = script_parser.narration_words(req.script)

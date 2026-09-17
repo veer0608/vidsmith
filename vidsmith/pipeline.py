@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 from . import captions as cap
 from . import ffmpeg_util as ff
 from . import cards, llm, manifest, music, render, thumbs, visuals, voice
-from .config import Config, aspect_tag, load_config
+from .config import Config, aspect_tag, check_genre, load_config
 from .theme import resolve as resolve_theme
 from .script_parser import Scene, load_scenes, parse_script, save_scenes
 
@@ -298,6 +298,7 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
 
     cfg = load_config(proj.config_path)
     _apply_overrides(cfg, overrides or {})
+    check_genre(cfg, proj.config_path)
     # Picture, captions and the delivery file all depend on frame size, so each
     # aspect gets its own artifacts. Narration is shape-independent and shared.
     tag = aspect_tag(cfg.render.aspect)

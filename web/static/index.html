@@ -154,6 +154,7 @@
   /* footage style: a full settings row, wrapping rather than scrolling on a phone */
   .genre-row { grid-column: 1 / -1; }
   .genre-row .seg { display: flex; flex-wrap: wrap; }
+  .genre-row .seg button:disabled { opacity: .4; cursor: not-allowed; }
   .genre-row .hint { margin: 6px 0 0; color: var(--fg-3); font-size: 12px; }
 
   /* fields */
@@ -1073,40 +1074,60 @@ function fillProviders(providers, selected) {
 const REMEMBERED = ["provider", "genre", "aspect", "theme", "mood", "watermark"];
 
 /* One button per genre the server knows, labels included. The hidden #genre
-   input holds the choice so it is remembered and sent like every other setting. */
+   input holds the choice so it is remembered and sent like every other setting.
+   A style the chosen footage source cannot deliver is disabled, and the server
+   says which: Animation from Pexels came back as filmed footage. */
+let genreList = [];
+function chooseGenre(name, {focus = false} = {}) {
+  $("genre").value = name;
+  for (const b of $("genre-buttons").children) {
+    const on = b.dataset.genre === name;
+    b.setAttribute("aria-checked", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1;
+    if (on && focus) b.focus();
+  }
+}
+function genreAllowed(name) {
+  const g = genreList.find((x) => x.name === name);
+  return !!g && !(g.not_on || []).includes($("provider").value);
+}
+function syncGenres() {
+  const box = $("genre-buttons");
+  for (const b of box.children) {
+    const g = genreList.find((x) => x.name === b.dataset.genre);
+    const off = !genreAllowed(b.dataset.genre);
+    b.disabled = off;
+    b.title = off ? `${g.label} is not available from ${$("provider").value}` : "";
+  }
+  if (!genreAllowed($("genre").value)) chooseGenre("any");
+}
 function fillGenres(list, selected) {
+  genreList = list;
   const box = $("genre-buttons");
   box.innerHTML = "";
-  const names = list.map((g) => g.name);
-  const pick = names.includes(selected) ? selected : (names[0] || "any");
-  const choose = (name, {focus = false} = {}) => {
-    $("genre").value = name;
-    for (const b of box.children) {
-      const on = b.dataset.genre === name;
-      b.setAttribute("aria-checked", on ? "true" : "false");
-      b.tabIndex = on ? 0 : -1;
-      if (on && focus) b.focus();
-    }
-  };
   for (const g of list) {
     const b = document.createElement("button");
     b.type = "button";
     b.setAttribute("role", "radio");
     b.dataset.genre = g.name;
     b.textContent = g.label;
-    b.addEventListener("click", () => { choose(g.name); saveSettings(); });
+    b.addEventListener("click", () => { chooseGenre(g.name); saveSettings(); });
     b.addEventListener("keydown", (e) => {
       const step = {ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1}[e.key];
       if (!step) return;
       e.preventDefault();
+      // arrows skip styles the footage source cannot deliver
+      const names = genreList.map((x) => x.name).filter(genreAllowed);
       const i = (names.indexOf($("genre").value) + step + names.length) % names.length;
-      choose(names[i], {focus: true});
+      chooseGenre(names[i], {focus: true});
       saveSettings();
     });
     box.appendChild(b);
   }
-  choose(pick);
+  chooseGenre(list.some((g) => g.name === selected) ? selected : (list[0]?.name || "any"));
+  syncGenres();
 }
+$("provider").addEventListener("change", () => { syncGenres(); saveSettings(); });
 function saveSettings() {
   const s = {};
   for (const k of REMEMBERED) s[k] = $(k).value;

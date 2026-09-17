@@ -84,8 +84,18 @@ def test_options_lists_what_the_form_needs(client):
     assert "16:9" in body["aspects"] and "9:16" in body["aspects"]
     assert "midnight" in body["themes"]
     assert "calm" in body["moods"]
-    assert body["genres"][0] == {"name": "any", "label": "Any"}
-    assert {"name": "cinematic", "label": "Cinematic"} in body["genres"]
+    assert body["genres"][0] == {"name": "any", "label": "Any", "not_on": []}
+    genres = {g["name"]: g for g in body["genres"]}
+    assert genres["cinematic"]["label"] == "Cinematic"
+    assert genres["animation"]["not_on"] == ["pexels"], "the page disables it from this"
+
+
+def test_animation_from_pexels_is_refused(client):
+    """A test build came back as five filmed shots and one cartoon."""
+    r = client.post("/api/jobs", json={"script": SCRIPT, "genre": "animation",
+                                       "provider": "pexels"})
+    assert r.status_code == 400
+    assert "not available from pexels" in r.json()["detail"]
 
 
 def test_options_carries_the_stage_order_for_the_stepper(client):

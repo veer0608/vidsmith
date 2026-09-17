@@ -617,3 +617,51 @@ def test_a_dark_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
 
     assert shown == [7], "the dark still was shown to the model"
     assert "0" not in {h["id"] for h in kept}
+
+
+# --------------------------------------------------------------------------- #
+# animation
+# --------------------------------------------------------------------------- #
+def test_a_build_refuses_a_style_its_provider_cannot_deliver(tmp_path):
+    from vidsmith import pipeline
+    from vidsmith.config import write_default_config
+
+    root = tmp_path / "anim"
+    root.mkdir()
+    (root / "script.md").write_text("# T\n\nA parcel arrives.\n", encoding="utf-8")
+    write_default_config(root / "config.yaml", "T")
+
+    with pytest.raises(ValueError, match="not available from pexels"):
+        pipeline.build(root, overrides={"genre": "animation", "provider": "pexels"})
+
+
+def test_the_provider_override_can_rescue_an_animation_config(tmp_path):
+    from vidsmith.config import Config, check_genre
+
+    cfg = Config()
+    cfg.visuals.genre, cfg.visuals.provider = "animation", "pixabay"
+    check_genre(cfg, "config.yaml")                     # does not raise
+
+
+def test_the_reranker_knows_what_a_useless_animation_is(monkeypatch):
+    """Pixabay's animated picks included a hot dog under a parcel line, a
+    SUBSCRIBE title and abstract streaks, and the model twice called an
+    animated delivery unfilmable."""
+    from vidsmith import llm
+
+    sent = []
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: sent.append(prompt) or
+                        '{"ranked": [0, 1], "reject": [], "filmable": true}')
+    llm.rank_clips("A parcel arrives.", "parcel animation", [b"a", b"b"], "k",
+                   genre="animation")
+
+    assert "a hot dog is not a parcel" in sent[0]
+    assert "answer filmable true unless no drawing could show it" in sent[0]
+    assert "Abstract streaks" in sent[0]
+
+
+def test_every_rerank_rejects_words_and_adverts():
+    from vidsmith.llm import RERANK_PROMPT
+
+    assert '"subscribe"' in RERANK_PROMPT and "an advert" in RERANK_PROMPT

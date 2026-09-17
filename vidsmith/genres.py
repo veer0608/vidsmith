@@ -16,7 +16,7 @@ that never chose a genre searches and ranks exactly as it did before genres.
 """
 from __future__ import annotations
 
-from typing import Dict, List, NamedTuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 
 class Genre(NamedTuple):
@@ -31,6 +31,11 @@ class Genre(NamedTuple):
     words: str = ""
     # Pixabay's `video_type`: all | film | animation
     pixabay_type: str = "all"
+    # providers this style cannot be delivered from, refused rather than
+    # quietly rendered as something else
+    not_on: Tuple[str, ...] = ()
+    # said to the reranker as well as the style paragraph
+    rerank_note: str = ""
 
 
 GENRES: Dict[str, Genre] = {
@@ -64,11 +69,22 @@ GENRES: Dict[str, Genre] = {
                   "urban: streets, buildings, traffic, crowds and city life by day "
                   "and night",
                   "city, street, urban, downtown, nightlife, crowd"),
+    # Pexels has no animation filter and little animation: a test build came
+    # back as five filmed shots and one cartoon. Pixabay filters for it, but its
+    # animated library is mostly title cards and adverts, so the reranker is
+    # told what an animated candidate that is not a picture of anything is.
     "animation": Genre("Animation",
                        "animated: motion graphics, 3D renders and animated "
                        "illustrations rather than filmed footage",
                        "animation, rendered, motion-graphics, cartoon, illustration",
-                       "animation"),
+                       "animation", not_on=("pexels",),
+                       rerank_note=(
+                           "These candidates are animations, so no camera is involved: "
+                           "judge whether the animation depicts the subject, and answer "
+                           "filmable true unless no drawing could show it. An animation "
+                           "of a different object is the wrong subject, however well "
+                           "drawn: a hot dog is not a parcel. Abstract streaks, shapes "
+                           "or backgrounds with no subject in them are unusable too.")),
 }
 
 
@@ -91,8 +107,8 @@ def prompt_block(name: str) -> str:
             f"{genre.words}. A search with no style word is wrong. Count the style "
             "word inside the word limit, because a longer search is cut off at the "
             "end: make room by dropping filler such as \"at\", \"the\" or \"a\", "
-            "never by leaving the style word out. The literal subject of the passage always comes first: "
-            "never swap the subject for something that only fits the style, and never "
+            "never by leaving the style word out. The literal subject of the passage "
+            "always comes first: never swap the subject for something that only fits the style, and never "
             "drop the subject to make room for a style word. Any place or setting the "
             "passage names is part of the subject too, so keep it and add the style "
             "as light, look or detail: \"the mug on your desk\" in a nature video is "
@@ -113,11 +129,22 @@ def rerank_block(name: str) -> str:
     genre = get(name)
     if not genre.direction:
         return ""
+    note = f" {genre.rerank_note}" if genre.rerank_note else ""
     return (f"\nSTYLE: this video's footage should be {genre.direction}. Among the "
             "clips that show the right subject, rank the ones in that style above "
             "the ones that are not. Style never makes up for the wrong subject, and "
-            "a clip is never rejected for being off style.\n")
+            f"a clip is never rejected for being off style.{note}\n")
 
 
-def options() -> List[Dict[str, str]]:
-    return [{"name": name, "label": g.label} for name, g in GENRES.items()]
+def unavailable(name: str, provider: str) -> str:
+    """Why this style cannot come from this provider, or "" when it can."""
+    genre = get(name)
+    if provider in genre.not_on:
+        return (f"the {genre.label} footage style is not available from {provider}; "
+                f"choose another footage source or style")
+    return ""
+
+
+def options() -> List[Dict[str, Any]]:
+    return [{"name": name, "label": g.label, "not_on": list(g.not_on)}
+            for name, g in GENRES.items()]
