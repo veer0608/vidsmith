@@ -32,7 +32,6 @@ from .theme import Theme, resolve as resolve_theme
 from . import cards
 from . import captions as cap
 from . import diagram
-from . import genres
 from . import llm
 from . import manifest
 from . import usage
@@ -58,6 +57,24 @@ MULTI_SHOT_PROVIDERS = ("pexels", "pixabay", "local")
 # calls over thirty results is room for a scene that long.
 SEARCH_RESULTS = 30
 RERANK_ROUNDS = 3
+# A still with under DARK_LIT of its pixels brighter than DARK_LUMA is footage
+# nobody can read behind captions. "Night highway drive following a truck" was
+# picked for two styles in a row and played as a black frame with two dots:
+# 5% lit. Night streets with their lights on measured 15 to 40%, daylight 60 to
+# 100%, so the cut sits clear of footage that is dark on purpose and readable.
+DARK_LUMA = 60
+DARK_LIT = 0.10
+
+
+def too_dark(still: bytes) -> bool:
+    """Whether a preview still is too dark to read. Unreadable bytes are not."""
+    try:
+        img = Image.open(BytesIO(still)).convert("L")
+    except Exception:
+        return False
+    hist = img.histogram()
+    total = sum(hist)
+    return bool(total) and sum(hist[DARK_LUMA + 1:]) / total < DARK_LIT
 
 
 # --------------------------------------------------------------------------- #
@@ -548,19 +565,13 @@ def _pexels_photo_fetch(query: str, key: str, orientation: str,
     return out
 
 
-def pixabay_search(query: str, key: str, want_h: int,
-                   video_type: str = "all") -> List[Dict]:
-    # `all` keeps the key it always had, so the searches already cached and the
-    # ones bench/rank_clips looks up by name are still found
-    parts = (query, want_h) if video_type == "all" else (query, want_h, video_type)
-    return _cached_search("pixabay", parts,
-                          lambda: _pixabay_fetch(query, key, video_type))
+def pixabay_search(query: str, key: str, want_h: int) -> List[Dict]:
+    return _cached_search("pixabay", (query, want_h),
+                          lambda: _pixabay_fetch(query, key))
 
 
-def _pixabay_fetch(query: str, key: str, video_type: str = "all") -> List[Dict]:
+def _pixabay_fetch(query: str, key: str) -> List[Dict]:
     params = {"key": key, "q": query, "per_page": SEARCH_RESULTS, "safesearch": "true"}
-    if video_type != "all":
-        params["video_type"] = video_type
     r = requests.get("https://pixabay.com/api/videos/", params=params, timeout=TIMEOUT)
     usage.stock_headers("pixabay", getattr(r, "headers", None), getattr(r, "status_code", 0))
     r.raise_for_status()
@@ -793,6 +804,8 @@ class VisualBuilder:
                 rounds = 0
 
         blocked = {a for a in self._scene_creators | {self._last_creator} if a}
+        # too dark to read: never shown to the model and never picked
+        dark: set = set()
 
         while rounds < RERANK_ROUNDS:
             # usable means a clip a pick could actually take: not rejected, not
@@ -804,13 +817,18 @@ class VisualBuilder:
                 break
             images: List[bytes] = []
             keep: List[Dict] = []
-            for hit in [h for h in hits if h["id"] not in order]:
+            before = len(dark)
+            for hit in [h for h in hits if h["id"] not in order and h["id"] not in dark]:
                 if len(keep) >= max(2, self.cfg.rerank_pool):
                     break
                 blob = self._preview(hit.get("preview", "")) if hit.get("preview") else None
-                if blob:
+                if blob and too_dark(blob):
+                    dark.add(hit["id"])
+                elif blob:
                     images.append(blob)
                     keep.append(hit)
+            if len(dark) > before:
+                self.log(f"    rerank: passed over {len(dark) - before} too dark to read")
             if len(images) < 2:
                 break
             if order:
@@ -854,7 +872,7 @@ class VisualBuilder:
                                                encoding="utf-8")
 
         if not order:
-            return hits
+            return [h for h in hits if h["id"] not in dark] or hits
         self._reject_ratio = len(reject) / len(order)
         self._filmable = filmable
         keepers = [by_id[i] for i in order if i not in reject]
@@ -891,8 +909,7 @@ class VisualBuilder:
                 hits = pexels_search(query, self.keys.get("pexels", ""),
                                      self.cfg.orientation, want_h)
             else:
-                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h,
-                                      genres.get(self.cfg.genre).pixabay_type)
+                hits = pixabay_search(query, self.keys.get("pixabay", ""), want_h)
         except Exception as exc:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []

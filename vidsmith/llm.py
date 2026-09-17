@@ -319,6 +319,9 @@ calendar; a laptop is not a card terminal. Be strict about subject and lenient
 about style: an unremarkable shot of the right thing beats a beautiful shot of
 the wrong thing. A screen that is plain green or blue, left blank for a picture
 to be keyed in later, is unusable too: it looks unfinished behind captions.
+So is a clip whose main content is words or a logo - a title card, a "subscribe"
+or "free" graphic, an advert - because it puts somebody else's message on
+screen under the narration.
 
 Finally, judge whether stock footage can depict this line at all. Some ideas
 have no footage anywhere - a B-tree, a hash collision, an API contract. A
@@ -356,7 +359,7 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
         return [], [], True
     prompt = RERANK_PROMPT.format(n=len(images), last=len(images) - 1,
                                   line=line.strip(), query=query.strip(),
-                                  style=genres.rerank_block(genre))
+                                  style=genres.rerank_block(genre, line))
     raw = generate_vision(prompt, images, api_key, model, log=log)
     verdict = _json_block(raw)
 
@@ -610,8 +613,10 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
 
     filled = 0
     for scene, q in zip(pending, queries):
-        if isinstance(q, str) and q.strip():
-            scene.query = q.strip()
+        q = (genres.ensure_style(genre, genres.scrub(genre, q.strip(), scene.text))
+             if isinstance(q, str) else "")
+        if q:
+            scene.query = q
             filled += 1
     return filled
 
@@ -686,9 +691,10 @@ def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
         raise LLMUnavailable(f"asked for {len(passages)} searches and got "
                              f"{len(queries) if isinstance(queries, list) else 'none'}")
     out = []
-    for q in queries:
+    for q, p in zip(queries, passages):
         words = re.sub(r"[^A-Za-z' \-]", " ", str(q)).split()
-        out.append(" ".join(words[:6]))
+        out.append(genres.ensure_style(
+            genre, genres.scrub(genre, " ".join(words[:6]), p["text"])))
     return out
 
 

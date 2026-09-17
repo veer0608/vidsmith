@@ -449,17 +449,23 @@ the plan collapses. Variety comes from equally named variants
 **`visuals.genre` steers the searches, it does not filter the results.**
 Pexels has no genre parameter, so `genres.py` hands a style direction to the
 two prompts that write stock searches, `beat_queries` and `suggest_queries`,
-with the passage's subject still ranked above the style. Only Pixabay's
-`video_type=animation` is a real filter. The reranker is told the genre too and
+with the passage's subject still ranked above the style. The reranker is told the genre too and
 puts on-style clips first among the right subjects; its verdicts record the
 genre and one judged in another style is not reused. The first version only
 told the search writer to add a style word "where it helps" and moved a nature
 build by one word; demanding it in every search moved it visibly, and also
 started trading away a passage's setting ("the mug on your desk" became a mug
-held up outdoors). It needs a Gemini key to do anything
-on Pexels. The genre is part of the beat cache key and of the Pixabay search
-key, except `any`, which adds nothing, so caches written before genres existed
-are still found.
+held up outdoors). It needs a Gemini key to do anything. The genre is part of
+the beat cache key, except `any`, which adds nothing, so caches written before
+genres existed are still found.
+
+**Do not add an Animation style back.** It was built, rendered from both
+providers and removed. Pexels has no animation filter and returned filmed
+footage; Pixabay's `video_type=animation` filter works, but its animated library
+has almost nothing about concrete subjects - a SUBSCRIBE title, a FREE advert, a
+hot dog under a parcel line - and once the reranker rejected text and adverts,
+40 of 48 candidates were rejected and most of the 8 kept were still unrelated.
+`genres.py` records the same.
 
 The loudness chain is deliberate: narration normalises to `-14` LUFS, the bed
 sits `-18` dB under it at roughly `-32` LUFS, and `loudnorm` finishes the mix at
@@ -764,6 +770,16 @@ competing with the voice.
   nine-minute build's credits approach YouTube's 5000-character description
   limit on their own, `description_box()` trims the prose rather than the
   credits and `check` reports a description over the limit.
+- **A black clip passed the reranker twice, because it showed the right
+  subject.** "Night highway drive following a truck" is a truck, so City and
+  Documentary both kept it, and it played as a black frame with two headlights
+  behind the captions. Nothing judged whether a still could be read at all.
+  `too_dark()` measures it in code rather than asking the model: a still with
+  under 10% of pixels above luma 60 is never shown to the model and never
+  picked. Measured on 90 night-traffic candidates before choosing the cut: the
+  offender was 5% lit, streets with their lights on 15 to 40%, daylight 60 to
+  100%. It runs only where reranking runs, so a build with no Gemini key can
+  still pick one, and verdicts cached before it existed are not re-judged.
 - **Karaoke highlights overlapped whenever a word was very short.** Each word's
   event was floored at 60ms, and edge-tts reports words like "a" at 30 to 40ms,
   so the floor carried it past the next word's start. libass stacks any two

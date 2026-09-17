@@ -430,6 +430,29 @@ def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, 
     assert "never becomes its subject" in sent[0]
 
 
+def test_every_style_word_survives_the_search_clean_up():
+    """Searches are cut to six words and stripped of digits, so a two-word style
+    term lost its second half ("slow motion" reached Pexels as "slow") and "3D"
+    would arrive as "D"."""
+    import re
+
+    from vidsmith.genres import GENRES
+
+    for name, genre in GENRES.items():
+        for word in filter(None, (w.strip() for w in genre.words.split(","))):
+            assert " " not in word, f"{name}: {word!r} is two words"
+            assert re.fullmatch(r"[A-Za-z\-]+", word), f"{name}: {word!r} will be mangled"
+
+
+def test_the_style_asks_for_a_search_that_fits_the_limit():
+    from vidsmith.genres import prompt_block
+
+    block = prompt_block("cinematic")
+    # asked for "one or two words" that "fit the limit", two of three searches
+    # came back with no style word at all
+    assert "A search with no style word is wrong" in block and "cut off" in block
+
+
 def test_no_genre_offers_a_screen_as_a_style_word():
     """A noun offered as a style word is taken as a subject."""
     from vidsmith.genres import GENRES
@@ -549,3 +572,209 @@ def test_the_rerank_prompt_carries_the_style_only_when_chosen(monkeypatch, genre
     assert ("STYLE: this video's footage should be nature" in sent[0]) is present
     if present:
         assert "never rejected for being off style" in sent[0]
+
+
+# --------------------------------------------------------------------------- #
+# footage too dark to read
+# --------------------------------------------------------------------------- #
+def _still(lit_fraction, bright=200, dim=20):
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("L", (100, 100), dim)
+    lit = int(100 * lit_fraction)
+    if lit:
+        img.paste(bright, (0, 0, lit, 100))
+    buf = BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("lit,dark", [(0.05, True), (0.0, True), (0.2, False), (0.9, False)])
+def test_a_still_is_too_dark_when_almost_nothing_is_lit(lit, dark):
+    """The night-highway truck measured 5% lit; night streets 15 to 40%."""
+    assert visuals.too_dark(_still(lit)) is dark
+
+
+def test_bytes_that_are_not_an_image_are_not_called_dark():
+    assert visuals.too_dark(b"jpg") is False
+
+
+def test_a_dark_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    shown = []
+
+    def fake(line, query, images, key, log=None, genre="any"):
+        shown.append(len(images))
+        return list(range(len(images))), [], True
+
+    stills = {f"s{i}": _still(0.02 if i == 0 else 0.8) for i in range(8)}
+    monkeypatch.setattr(builder, "_preview", lambda url: stills[url])
+    monkeypatch.setattr(visuals.llm, "rank_clips", fake)
+
+    kept = builder._rerank(_stills(), scene, "truck at night", want=2, text="t", key="0.1")
+
+    assert shown == [7], "the dark still was shown to the model"
+    assert "0" not in {h["id"] for h in kept}
+
+
+def test_every_rerank_rejects_words_and_adverts():
+    """Pixabay's animated picks put a SUBSCRIBE title and a FREE advert under
+    the narration; a clip that is mainly text is somebody else's message."""
+    from vidsmith.llm import RERANK_PROMPT
+
+    assert '"subscribe"' in RERANK_PROMPT and "an advert" in RERANK_PROMPT
+
+
+def test_there_is_no_animation_style():
+    """Built, rendered from Pexels and Pixabay, and removed: neither library
+    holds animation about a concrete subject. See genres.py before re-adding."""
+    from vidsmith.genres import GENRES
+
+    assert "animation" not in GENRES
+
+
+# --------------------------------------------------------------------------- #
+# technology never invents a screen
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("query,narration,expected", [
+    # the live search that put a phone on a dashboard under the doorstep line
+    ("modern delivery driver handheld gps",
+     "The driver plans a route that stops every few minutes.",
+     "modern delivery driver handheld"),
+    ("delivery truck GPS routing screen", "Trucks carry thousands of boxes.",
+     "delivery truck routing"),
+    # the narration names the device, so the screen is the literal subject
+    ("phone checkout screen closeup", "You tap buy on your phone.",
+     "phone checkout screen closeup"),
+    ("code on a monitor", "The software checks every order.", "code on a monitor"),
+])
+def test_technology_drops_a_device_the_narration_never_named(query, narration, expected):
+    from vidsmith.genres import scrub
+
+    assert scrub("technology", query, narration) == expected
+
+
+def test_other_styles_leave_device_words_alone():
+    from vidsmith.genres import scrub
+
+    assert scrub("city", "courier with phone map", "The box arrives.") == \
+        "courier with phone map"
+    assert scrub("any", "phone screen", "Nothing here.") == "phone screen"
+
+
+def test_beat_searches_are_scrubbed_against_their_own_passage(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k:
+                        '["phone showing checkout", "delivery van gps screen"]')
+    got = llm.beat_queries([{"text": "You tap buy."},
+                            {"text": "The van stops every few minutes."}],
+                           "k", genre="technology")
+
+    assert got == ["modern phone showing checkout", "modern delivery van"]
+
+
+def test_a_scene_search_left_empty_keeps_the_scene_fallback(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["gps screen"]')
+    scene = make_scene("The van stops every few minutes.", heading="Van")
+    filled = llm.suggest_queries([scene], "k", genre="technology", log=lambda *a: None)
+
+    assert filled == 0 and scene.query != "gps screen"
+
+
+def test_the_technology_reranker_rejects_a_screen_the_narration_never_named(monkeypatch):
+    """After "gps" was scrubbed the search read "sleek van navigation", and the
+    pick was a phone map on a dashboard under the doorstep line."""
+    from vidsmith import llm
+
+    sent = []
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: sent.append(prompt) or
+                        '{"ranked": [0, 1], "reject": [], "filmable": true}')
+    llm.rank_clips("The box lands on your doorstep.", "sleek van navigation",
+                   [b"a", b"b"], "k", genre="technology")
+    llm.rank_clips("You tap buy on your phone.", "phone checkout",
+                   [b"a", b"b"], "k", genre="technology")
+    llm.rank_clips("The box lands on your doorstep.", "van",
+                   [b"a", b"b"], "k", genre="city")
+
+    rule = "names no phone, screen or computer"
+    assert rule in sent[0]
+    assert rule not in sent[1], "the narration names the phone, so it is the subject"
+    assert rule not in sent[2], "only Technology has the rule"
+
+
+def test_navigation_is_a_device_word():
+    from vidsmith.genres import scrub
+
+    assert scrub("technology", "sleek van navigation", "The van stops.") == "sleek van"
+
+
+# --------------------------------------------------------------------------- #
+# every styled search carries its style
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("genre,query,expected", [
+    # the three live Technology searches that came back with no style word
+    ("technology", "delivery trucks loaded overnight", "modern delivery trucks loaded overnight"),
+    ("technology", "warehouse worker scanning barcode", "modern warehouse worker scanning barcode"),
+    # already styled: untouched
+    ("technology", "automated warehouse parcel scanning", "automated warehouse parcel scanning"),
+    ("nature", "coffee mug on sunlit desk", "coffee mug on sunlit desk"),
+    # at the limit: filler makes the room
+    ("city", "driver walking to the front door", "urban driver walking to front door"),
+    # at the limit with no filler: the subject wins
+    ("city", "delivery driver carrying heavy cardboard boxes",
+     "delivery driver carrying heavy cardboard boxes"),
+    # no style chosen, or nothing left to style
+    ("any", "delivery van", "delivery van"),
+    ("technology", "", ""),
+])
+def test_a_search_with_no_style_word_gets_the_looks(genre, query, expected):
+    from vidsmith.genres import ensure_style
+
+    assert ensure_style(genre, query) == expected
+
+
+def test_every_style_has_a_look_that_is_not_a_place():
+    """"outdoors" or "office" in front of a search would move its subject."""
+    from vidsmith.genres import GENRES
+
+    for name, genre in GENRES.items():
+        if name == "any":
+            continue
+        assert genre.look and " " not in genre.look, name
+        assert genre.look not in {"outdoors", "office", "street", "city", "forest",
+                                  "field", "mountain", "river", "downtown"}, name
+
+
+def test_beat_searches_are_styled_after_they_are_scrubbed(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["delivery van gps screen"]')
+    got = llm.beat_queries([{"text": "The van stops every few minutes."}], "k",
+                           genre="technology")
+
+    assert got == ["modern delivery van"]
+
+
+def test_no_style_offers_a_place_or_a_crowd_as_a_style_word():
+    """A style word that names a place or a thing becomes what gets filmed:
+    "delivery driver street crowd" put a crowd at a crossing under "the box
+    lands on your doorstep", the way "screen" put phones in Technology."""
+    from vidsmith.genres import GENRES
+
+    nouns = {"outdoors", "field", "forest", "mountain", "river", "city", "street",
+             "downtown", "crowd", "nightlife", "sunlight", "sunset", "worker",
+             "office", "meeting", "team",
+             # a time of day contradicts narration that names another one:
+             # "cargo truck driving overnight daylight"
+             "daylight", "daytime", "night", "nighttime", "dawn", "dusk", "morning",
+             "evening"}
+    # Business is left out on purpose: its subject is the office itself
+    for name in ("cinematic", "documentary", "nature", "city", "technology"):
+        words = {w.strip() for w in GENRES[name].words.split(",")}
+        assert not words & nouns, f"{name}: {sorted(words & nouns)}"
