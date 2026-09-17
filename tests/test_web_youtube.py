@@ -10,6 +10,7 @@ state, and an upload that refuses before anything leaves the box.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.parse
 from pathlib import Path
@@ -187,11 +188,15 @@ def test_every_youtube_route_but_the_callback_needs_the_token(api, monkeypatch):
 # --------------------------------------------------------------------------- #
 # uploading
 # --------------------------------------------------------------------------- #
-def _publish(monkeypatch, calls, fail_after_video=False):
+def _publish(monkeypatch, calls, fail_after_video=False, gate=None):
+    """`gate`, when given, holds the upload until the test sets it, so what the
+    POST answered can be asserted before the worker thread gets to change it."""
     monkeypatch.setattr(upload, "access_token", lambda *a, **k: "tok")
 
     def fake(cut, meta, description, token, thumbnail=None, captions=None,
              category="28", privacy="private", log=print):
+        if gate is not None and not gate.wait(timeout=10):
+            raise AssertionError("the test never released the upload")
         calls.append({"cut": cut.name, "title": meta["title"], "privacy": privacy,
                       "description": description, "thumbnail": thumbnail,
                       "captions": captions})
@@ -204,16 +209,27 @@ def _publish(monkeypatch, calls, fail_after_video=False):
     monkeypatch.setattr(upload, "publish", fake)
 
 
-def test_a_finished_render_uploads_with_everything_the_build_wrote(api, tmp_path, monkeypatch):
+@pytest.fixture
+def gate():
+    """Released on the way out too, so a failing test never leaves a worker
+    thread waiting on it into the next test."""
+    event = threading.Event()
+    yield event
+    event.set()
+
+
+def test_a_finished_render_uploads_with_everything_the_build_wrote(api, tmp_path, monkeypatch, gate):
     calls = []
-    _publish(monkeypatch, calls)
+    _publish(monkeypatch, calls, gate=gate)
     _connect(tmp_path)
     job = _finished(api)
 
     started = api.post(f"/api/jobs/{job.id}/youtube", json={"privacy": "unlisted"})
+    assert started.status_code == 202 and started.json()["status"] == "uploading"
+    assert job.youtube["status"] == "uploading" and calls == []
+    gate.set()
     _wait_upload(job)
 
-    assert started.status_code == 202 and started.json()["status"] == "uploading"
     [call] = calls
     assert call["cut"] == "a-title.mp4" and call["title"] == "A Title"
     assert call["privacy"] == "unlisted" and "Footage from Pexels" in call["description"]
