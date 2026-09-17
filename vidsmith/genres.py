@@ -39,6 +39,15 @@ class Genre(NamedTuple):
     words: str = ""
     # strip device words from a search whose narration names no device
     devices_only_if_said: bool = False
+    # the word `ensure_style()` puts in front of a search the model wrote with no
+    # style word at all. An adjective, never a place: "outdoors" or "office" in
+    # front of a search would move the subject, which the named-place rule forbids
+    look: str = ""
+
+
+# dropped first when a style word needs room inside the word limit
+ARTICLES = frozenset("a an the".split())
+FILLER = ARTICLES | frozenset("at on in of with to for by from into onto".split())
 
 
 # Words that put a screen in the shot. The second set is narration that makes a
@@ -58,15 +67,18 @@ GENRES: Dict[str, Genre] = {
     "cinematic": Genre("Cinematic",
                        "cinematic: slow motion, shallow depth of field, dramatic "
                        "light and smooth camera moves",
-                       "cinematic, slow-motion, closeup, sunset, moody, dramatic"),
+                       "cinematic, slow-motion, closeup, sunset, moody, dramatic",
+                       look="cinematic"),
     "documentary": Genre("Documentary",
                          "documentary: real people in real places, handheld camera, "
                          "natural light",
-                         "real, candid, handheld, worker, local, daylight"),
+                         "real, candid, handheld, worker, local, daylight",
+                         look="candid"),
     "business": Genre("Business",
                       "business: offices, meetings, professionals at work, clean "
                       "modern workplaces",
-                      "office, professional, meeting, corporate, team"),
+                      "office, professional, meeting, corporate, team",
+                      look="professional"),
     # Its words used to be nouns - screen, laptop, data - and a style word that
     # is a noun becomes the subject: a delivery video turned into phone maps,
     # with "the box lands on your doorstep" shown as a hand holding a phone.
@@ -79,15 +91,17 @@ GENRES: Dict[str, Genre] = {
                         "clean, cool lighting; screens and devices only where the "
                         "narration is about software or a device",
                         "modern, high-tech, automated, sleek, blue-lit",
-                        devices_only_if_said=True),
+                        devices_only_if_said=True, look="modern"),
     "nature": Genre("Nature",
                     "nature: landscapes, wildlife, water, forests, sky and the "
                     "outdoors",
-                    "outdoors, sunlight, field, forest, mountain, river, green"),
+                    "outdoors, sunlight, field, forest, mountain, river, green",
+                    look="sunlit"),
     "city": Genre("City",
                   "urban: streets, buildings, traffic, crowds and city life by day "
                   "and night",
-                  "city, street, urban, downtown, nightlife, crowd"),
+                  "city, street, urban, downtown, nightlife, crowd",
+                  look="urban"),
 }
 
 
@@ -135,6 +149,33 @@ def scrub(name: str, query: str, narration: str) -> str:
         return query
     return " ".join(w for w in query.split()
                     if not set(re.findall(r"[a-z]+", w.lower())) & DEVICE_WORDS)
+
+
+def ensure_style(name: str, query: str, limit: int = 6) -> str:
+    """Put the genre's `look` in front of a search that carries no style word.
+
+    The prompt says a search with no style word is wrong, and on the live site
+    all three Technology searches came back without one ("delivery trucks
+    loaded overnight"), so the video was the same footage Documentary finds. A
+    word goes in only where there is room: filler is dropped to make it, and a
+    search already at the limit with nothing to drop is left alone, because the
+    subject outranks the style. An empty search stays empty for the fallback.
+    """
+    genre = get(name)
+    words = query.split()
+    if not genre.look or not words:
+        return query
+    styled = {w.strip().lower() for w in genre.words.split(",")} | {genre.look}
+    if any(w.lower() in styled for w in words):
+        return query
+    while len(words) >= limit:
+        # an article goes before a preposition: "walking the door" reads worse
+        filler = next((i for i, w in enumerate(words) if w.lower() in ARTICLES),
+                      next((i for i, w in enumerate(words) if w.lower() in FILLER), None))
+        if filler is None:
+            return query
+        del words[filler]
+    return " ".join([genre.look] + words)
 
 
 def names_a_device(narration: str) -> bool:
