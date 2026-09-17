@@ -239,3 +239,28 @@ def test_shots_with_no_paths_still_warn_without_naming_a_cut(tmp_path):
     sheet_mod.build_sheet(root, log=lines.append, run=_runs([]))
 
     assert any("whichever cut was built last" in line for line in lines)
+
+
+def test_shots_recorded_by_the_cut_being_read_are_not_warned_about(tmp_path):
+    """"these times come from the 16:9 cut, not necessarily 16:9" is noise."""
+    root, scene = _project(tmp_path)
+    scene.shots = [{"duration": 4.0,
+                    "path": str(root / "build" / "visuals" / "scene_000_00.mp4")},
+                   {"duration": 4.0,
+                    "path": str(root / "build" / "visuals" / "scene_000_01.mp4")}]
+    save_scenes([scene], root / "build" / "scenes.json")
+    lines = []
+
+    sheet_mod.build_sheet(root, log=lines.append, run=_runs([]))
+
+    assert not any("warning" in line for line in lines)
+
+
+def test_a_project_rendered_only_as_a_short_says_which_shape_it_has(tmp_path):
+    """promo-short has no 16:9 anything, and 16:9 is only the config default."""
+    root, _ = _project(tmp_path)
+    (root / "build" / "picture.mp4").unlink()
+    (root / "build" / "picture-9x16.mp4").write_bytes(b"mp4")
+
+    with pytest.raises(sheet_mod.SheetFailed, match=r"has 9:16 - pass --aspect 9:16"):
+        sheet_mod.build_sheet(root, log=lambda *a: None, run=_runs([]))
