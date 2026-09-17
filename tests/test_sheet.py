@@ -214,3 +214,28 @@ def test_a_project_with_neither_a_build_nor_captions_says_both(tmp_path):
 
     with pytest.raises(sheet_mod.SheetFailed, match="no captions.srt beside"):
         sheet_mod.build_sheet(root, log=lambda *a: None, run=_runs([]))
+
+
+def test_the_warning_names_the_cut_that_recorded_the_shots(tmp_path):
+    """promo held the 9:16 cut's shots while the sheet sampled the 16:9
+    picture; the clip folder says which cut wrote them."""
+    root, scene = _project(tmp_path)
+    scene.shots = [{"duration": 4.0,
+                    "path": str(root / "build" / "visuals-9x16" / "scene_000_00.mp4")},
+                   {"duration": 4.0,
+                    "path": str(root / "build" / "visuals-9x16" / "scene_000_01.mp4")}]
+    save_scenes([scene], root / "build" / "scenes.json")
+    lines = []
+
+    sheet_mod.build_sheet(root, log=lines.append, run=_runs([]))
+
+    assert any("from the 9:16 cut" in line for line in lines)
+
+
+def test_shots_with_no_paths_still_warn_without_naming_a_cut(tmp_path):
+    root, _ = _project(tmp_path)
+    lines = []
+
+    sheet_mod.build_sheet(root, log=lines.append, run=_runs([]))
+
+    assert any("whichever cut was built last" in line for line in lines)
