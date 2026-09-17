@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from . import ffmpeg_util as ff
-from .config import Config, aspect_tag
+from .config import ASPECTS, Config, aspect_tag
 from .script_parser import Scene
 
 FRAME_WIDTH = 420
@@ -193,7 +193,14 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
                          if not any(p.stem.endswith(aspect_tag(a)) for a in
                                     ("9:16", "1:1", "4:5"))]
         if not delivered:
-            raise SheetFailed(f"no {aspect} video in {proj.build} or {proj.out}")
+            # a project rendered only as a Short has no 16:9 anything, and the
+            # aspect asked for is the config's default rather than one typed
+            others = sorted({a for a in ASPECTS
+                             for f in list(proj.build.glob("picture*.mp4")) + list(proj.out.glob("*.mp4"))
+                             if aspect_tag(a) and f.stem.endswith(aspect_tag(a))})
+            hint = (f"; this project has {', '.join(others)} - pass --aspect {others[0]}"
+                    if others else "")
+            raise SheetFailed(f"no {aspect} video in {proj.build} or {proj.out}{hint}")
         video = delivered[0]
 
     scenes_json = proj.build / "scenes.json"
@@ -202,14 +209,15 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
         scenes = load_scenes(scenes_json)
         vis_dir = proj.build / f"visuals{tag}"
         read_shots(vis_dir, scenes)
-        if not (vis_dir / "shots.json").exists():
+        recorded = recorded_by(scenes)
+        if not (vis_dir / "shots.json").exists() and recorded != f"the {aspect} cut":
             # `scenes.json` holds the shots of whichever cut was built last, so
             # on a project from before per-cut shots the frame times can belong
             # to the other shape. Silence here would be the empty-tag family.
             # Each shot records the folder its clip came from, so the warning
             # names that cut rather than guessing at one.
             log(f"sheet    warning: no {vis_dir.name}/shots.json, so these times come "
-                f"from {recorded_by(scenes) or 'whichever cut was built last'}, "
+                f"from {recorded or 'whichever cut was built last'}, "
                 f"not necessarily {aspect}")
         offset = cfg.theme.title_seconds if cfg.theme.title_card else 0.0
         rows = shot_times(scenes, offset, cfg.voice.lead_in)
