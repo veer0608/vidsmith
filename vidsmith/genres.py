@@ -23,6 +23,7 @@ that never chose a genre searches and ranks exactly as it did before genres.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, NamedTuple
 
 
@@ -36,6 +37,19 @@ class Genre(NamedTuple):
     # up" reached Pexels as "slow" and "close". No digits either, because the
     # same clean-up strips them and "3D" arrives as "D".
     words: str = ""
+    # strip device words from a search whose narration names no device
+    devices_only_if_said: bool = False
+
+
+# Words that put a screen in the shot. The second set is narration that makes a
+# screen the literal subject: "you tap buy" is a phone, "the app" is a screen.
+DEVICE_WORDS = frozenset(
+    "screen screens phone phones smartphone smartphones gps app apps laptop laptops "
+    "tablet tablets monitor monitors computer computers digital data display "
+    "displays dashboard interface map maps software code website online".split())
+DEVICE_CUES = DEVICE_WORDS | frozenset(
+    "tap taps tapped click clicks clicked type typed typing email emails "
+    "internet web browser keyboard device devices".split())
 
 
 GENRES: Dict[str, Genre] = {
@@ -55,12 +69,16 @@ GENRES: Dict[str, Genre] = {
     # Its words used to be nouns - screen, laptop, data - and a style word that
     # is a noun becomes the subject: a delivery video turned into phone maps,
     # with "the box lands on your doorstep" shown as a hand holding a phone.
-    # They describe a look now, and screens only come from the narration.
+    # They describe a look now, and screens only come from the narration. The
+    # prompt alone did not hold: on the live site it wrote "modern delivery
+    # driver handheld gps" and the doorstep line was a phone on a dashboard
+    # again, so `scrub()` removes a device word the narration never said.
     "technology": Genre("Technology",
                         "technology: modern, high-tech and automated settings with "
                         "clean, cool lighting; screens and devices only where the "
                         "narration is about software or a device",
-                        "modern, high-tech, automated, sleek, blue-lit"),
+                        "modern, high-tech, automated, sleek, blue-lit",
+                        devices_only_if_said=True),
     "nature": Genre("Nature",
                     "nature: landscapes, wildlife, water, forests, sky and the "
                     "outdoors",
@@ -101,6 +119,22 @@ def prompt_block(name: str) -> str:
             "place may the style choose one. A style word describes the shot and never "
             "becomes its subject: a passage about a truck is still a truck, not a "
             "screen or a phone in one.\n")
+
+
+def scrub(name: str, query: str, narration: str) -> str:
+    """Take device words out of a search when the narration names no device.
+
+    Enforced in code because the prompt already forbids it and the model did it
+    anyway. A search left with nothing is returned empty, and the callers keep
+    the scene's own search instead.
+    """
+    if not get(name).devices_only_if_said:
+        return query
+    said = set(re.findall(r"[a-z]+", narration.lower()))
+    if said & DEVICE_CUES:
+        return query
+    return " ".join(w for w in query.split()
+                    if not set(re.findall(r"[a-z]+", w.lower())) & DEVICE_WORDS)
 
 
 def rerank_block(name: str) -> str:

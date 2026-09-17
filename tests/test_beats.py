@@ -633,3 +633,54 @@ def test_there_is_no_animation_style():
     from vidsmith.genres import GENRES
 
     assert "animation" not in GENRES
+
+
+# --------------------------------------------------------------------------- #
+# technology never invents a screen
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("query,narration,expected", [
+    # the live search that put a phone on a dashboard under the doorstep line
+    ("modern delivery driver handheld gps",
+     "The driver plans a route that stops every few minutes.",
+     "modern delivery driver handheld"),
+    ("delivery truck GPS routing screen", "Trucks carry thousands of boxes.",
+     "delivery truck routing"),
+    # the narration names the device, so the screen is the literal subject
+    ("phone checkout screen closeup", "You tap buy on your phone.",
+     "phone checkout screen closeup"),
+    ("code on a monitor", "The software checks every order.", "code on a monitor"),
+])
+def test_technology_drops_a_device_the_narration_never_named(query, narration, expected):
+    from vidsmith.genres import scrub
+
+    assert scrub("technology", query, narration) == expected
+
+
+def test_other_styles_leave_device_words_alone():
+    from vidsmith.genres import scrub
+
+    assert scrub("city", "courier with phone map", "The box arrives.") == \
+        "courier with phone map"
+    assert scrub("any", "phone screen", "Nothing here.") == "phone screen"
+
+
+def test_beat_searches_are_scrubbed_against_their_own_passage(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k:
+                        '["phone showing checkout", "delivery van gps screen"]')
+    got = llm.beat_queries([{"text": "You tap buy."},
+                            {"text": "The van stops every few minutes."}],
+                           "k", genre="technology")
+
+    assert got == ["phone showing checkout", "delivery van"]
+
+
+def test_a_scene_search_left_empty_keeps_the_scene_fallback(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["gps screen"]')
+    scene = make_scene("The van stops every few minutes.", heading="Van")
+    filled = llm.suggest_queries([scene], "k", genre="technology", log=lambda *a: None)
+
+    assert filled == 0 and scene.query != "gps screen"

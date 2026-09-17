@@ -613,8 +613,9 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
 
     filled = 0
     for scene, q in zip(pending, queries):
-        if isinstance(q, str) and q.strip():
-            scene.query = q.strip()
+        q = genres.scrub(genre, q.strip(), scene.text) if isinstance(q, str) else ""
+        if q:
+            scene.query = q
             filled += 1
     return filled
 
@@ -689,9 +690,9 @@ def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
         raise LLMUnavailable(f"asked for {len(passages)} searches and got "
                              f"{len(queries) if isinstance(queries, list) else 'none'}")
     out = []
-    for q in queries:
+    for q, p in zip(queries, passages):
         words = re.sub(r"[^A-Za-z' \-]", " ", str(q)).split()
-        out.append(" ".join(words[:6]))
+        out.append(genres.scrub(genre, " ".join(words[:6]), p["text"]))
     return out
 
 
