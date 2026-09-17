@@ -118,6 +118,7 @@ Or have Gemini draft one:
 | `vidsmith thumbs NAME [--count 6]` | rank thumbnail frames, compose a titled one |
 | `vidsmith thumbs NAME --refresh` | redo the delivery thumbnails from stock, no re-render |
 | `vidsmith check NAME` | read a finished build for faults before publishing it |
+| `vidsmith sheet NAME` | a frame per shot beside the words spoken over it, as an html page |
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 | `vidsmith deploy` | put `main` on the live instance, refusing during a render and proving the new commit is live |

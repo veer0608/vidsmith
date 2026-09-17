@@ -372,6 +372,20 @@ def cmd_deploy(args) -> int:
     return 0
 
 
+def cmd_sheet(args) -> int:
+    """A frame per shot beside the words spoken over it."""
+    from . import sheet as sheet_mod
+
+    root = _project_dir(args.name)
+    try:
+        page = sheet_mod.build_sheet(root, aspect=args.aspect or "")
+    except sheet_mod.SheetFailed as exc:
+        print(f"\nno sheet: {exc}", file=sys.stderr)
+        return 1
+    print(f"\nopen     {page}")
+    return 0
+
+
 def cmd_fetch(args) -> int:
     """Download a finished render off the live instance, retrying a bad line."""
     from . import deploy, fetch as fetch_mod
@@ -576,6 +590,12 @@ def main(argv=None) -> int:
     dp.add_argument("--force", action="store_true",
                     help="deploy even when the box already runs main")
     dp.set_defaults(func=cmd_deploy)
+
+    sp = sub.add_parser("sheet", help="a frame per shot beside the words spoken over it")
+    sp.add_argument("name")
+    sp.add_argument("--aspect", choices=sorted(ASPECTS), default=None,
+                    help="which cut to read; default the project's own")
+    sp.set_defaults(func=cmd_sheet)
 
     fp = sub.add_parser("fetch", help="download a finished render off the live box")
     fp.add_argument("job", help="the job id the page shows")
