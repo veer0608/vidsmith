@@ -186,6 +186,25 @@ def ensure_style(name: str, query: str, limit: int = 6) -> str:
     return " ".join([genre.look] + words)
 
 
+def style_search(name: str, query: str, narration: str, log=None) -> str:
+    """Both rules over one search, saying through `log` what they changed.
+
+    Silent, these two are invisible: a build log showed the finished search and
+    nothing about the device word taken out of it or the style word put in, so
+    reading a build could not tell whether either rule had fired at all.
+    """
+    scrubbed = scrub(name, query, narration)
+    if log and scrubbed != query:
+        gone = [w for w in query.split() if w not in scrubbed.split()]
+        log(f"    style: dropped {', '.join(repr(w) for w in gone)} from "
+            f"{query!r}; the narration names no device")
+    styled = ensure_style(name, scrubbed)
+    if log and styled != scrubbed:
+        log(f"    style: {scrubbed!r} carried no {name} style word, "
+            f"so it is {styled!r}")
+    return styled
+
+
 def names_a_device(narration: str) -> bool:
     return bool(set(re.findall(r"[a-z]+", narration.lower())) & DEVICE_CUES)
 
