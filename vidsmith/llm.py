@@ -359,7 +359,7 @@ def rank_clips(line: str, query: str, images: Sequence[bytes], api_key: str,
         return [], [], True
     prompt = RERANK_PROMPT.format(n=len(images), last=len(images) - 1,
                                   line=line.strip(), query=query.strip(),
-                                  style=genres.rerank_block(genre))
+                                  style=genres.rerank_block(genre, line))
     raw = generate_vision(prompt, images, api_key, model, log=log)
     verdict = _json_block(raw)
 

@@ -684,3 +684,31 @@ def test_a_scene_search_left_empty_keeps_the_scene_fallback(monkeypatch):
     filled = llm.suggest_queries([scene], "k", genre="technology", log=lambda *a: None)
 
     assert filled == 0 and scene.query != "gps screen"
+
+
+def test_the_technology_reranker_rejects_a_screen_the_narration_never_named(monkeypatch):
+    """After "gps" was scrubbed the search read "sleek van navigation", and the
+    pick was a phone map on a dashboard under the doorstep line."""
+    from vidsmith import llm
+
+    sent = []
+    monkeypatch.setattr(llm, "generate_vision",
+                        lambda prompt, *a, **k: sent.append(prompt) or
+                        '{"ranked": [0, 1], "reject": [], "filmable": true}')
+    llm.rank_clips("The box lands on your doorstep.", "sleek van navigation",
+                   [b"a", b"b"], "k", genre="technology")
+    llm.rank_clips("You tap buy on your phone.", "phone checkout",
+                   [b"a", b"b"], "k", genre="technology")
+    llm.rank_clips("The box lands on your doorstep.", "van",
+                   [b"a", b"b"], "k", genre="city")
+
+    rule = "names no phone, screen or computer"
+    assert rule in sent[0]
+    assert rule not in sent[1], "the narration names the phone, so it is the subject"
+    assert rule not in sent[2], "only Technology has the rule"
+
+
+def test_navigation_is_a_device_word():
+    from vidsmith.genres import scrub
+
+    assert scrub("technology", "sleek van navigation", "The van stops.") == "sleek van"
