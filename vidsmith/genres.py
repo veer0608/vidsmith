@@ -67,12 +67,16 @@ GENRES: Dict[str, Genre] = {
     "cinematic": Genre("Cinematic",
                        "cinematic: slow motion, shallow depth of field, dramatic "
                        "light and smooth camera moves",
-                       "cinematic, slow-motion, closeup, sunset, moody, dramatic",
+                       "cinematic, slow-motion, closeup, atmospheric, moody, dramatic",
                        look="cinematic"),
+    # A time of day is part of the subject the way a place is: Documentary
+    # offered "daylight" and wrote "cargo truck driving overnight daylight",
+    # putting daytime trucks under a line about the night. "worker" was a noun
+    # that could become the subject, the same fault as screen and crowd.
     "documentary": Genre("Documentary",
                          "documentary: real people in real places, handheld camera, "
                          "natural light",
-                         "real, candid, handheld, worker, local, daylight",
+                         "real, candid, handheld, unscripted, local, natural-light",
                          look="candid"),
     "business": Genre("Business",
                       "business: offices, meetings, professionals at work, clean "

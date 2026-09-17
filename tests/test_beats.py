@@ -769,7 +769,12 @@ def test_no_style_offers_a_place_or_a_crowd_as_a_style_word():
 
     nouns = {"outdoors", "field", "forest", "mountain", "river", "city", "street",
              "downtown", "crowd", "nightlife", "sunlight", "sunset", "worker",
-             "office", "meeting", "team"}
-    for name in ("nature", "city", "technology"):
+             "office", "meeting", "team",
+             # a time of day contradicts narration that names another one:
+             # "cargo truck driving overnight daylight"
+             "daylight", "daytime", "night", "nighttime", "dawn", "dusk", "morning",
+             "evening"}
+    # Business is left out on purpose: its subject is the office itself
+    for name in ("cinematic", "documentary", "nature", "city", "technology"):
         words = {w.strip() for w in GENRES[name].words.split(",")}
         assert not words & nouns, f"{name}: {sorted(words & nouns)}"
