@@ -46,7 +46,8 @@ class Genre(NamedTuple):
 DEVICE_WORDS = frozenset(
     "screen screens phone phones smartphone smartphones gps app apps laptop laptops "
     "tablet tablets monitor monitors computer computers digital data display "
-    "displays dashboard interface map maps software code website online".split())
+    "displays dashboard interface map maps software code website online "
+    "navigation navigator directions satnav".split())
 DEVICE_CUES = DEVICE_WORDS | frozenset(
     "tap taps tapped click clicks clicked type typed typing email emails "
     "internet web browser keyboard device devices".split())
@@ -130,27 +131,42 @@ def scrub(name: str, query: str, narration: str) -> str:
     """
     if not get(name).devices_only_if_said:
         return query
-    said = set(re.findall(r"[a-z]+", narration.lower()))
-    if said & DEVICE_CUES:
+    if names_a_device(narration):
         return query
     return " ".join(w for w in query.split()
                     if not set(re.findall(r"[a-z]+", w.lower())) & DEVICE_WORDS)
 
 
-def rerank_block(name: str) -> str:
+def names_a_device(narration: str) -> bool:
+    return bool(set(re.findall(r"[a-z]+", narration.lower())) & DEVICE_CUES)
+
+
+def rerank_block(name: str, line: str = "") -> str:
     """The style paragraph for the clip reranker, or nothing for `any`.
 
     Style orders the clips that already show the right subject. It never
     rescues a wrong one and is never a reason to reject, or a scene short of
     on-style footage would lose the right footage too.
+
+    The one exception is a device under narration that names none. `scrub()`
+    works on words, and after it removed "gps" the search came back "sleek van
+    navigation" and Pexels answered with a phone map on a dashboard, under "the
+    box lands on your doorstep". The reranker sees the picture, so it catches a
+    screen whatever word fetched it.
     """
     genre = get(name)
     if not genre.direction:
         return ""
+    devices = ""
+    if genre.devices_only_if_said and not names_a_device(line):
+        devices = (" This narration names no phone, screen or computer, so a clip "
+                   "whose main subject is a phone, a screen, a map or navigation "
+                   "display, a tablet, a monitor or a laptop shows the wrong subject: "
+                   "reject it.")
     return (f"\nSTYLE: this video's footage should be {genre.direction}. Among the "
             "clips that show the right subject, rank the ones in that style above "
             "the ones that are not. Style never makes up for the wrong subject, and "
-            "a clip is never rejected for being off style.\n")
+            f"a clip is never rejected for being off style.{devices}\n")
 
 
 def options() -> List[Dict[str, str]]:
