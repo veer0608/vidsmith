@@ -613,7 +613,8 @@ def suggest_queries(scenes: Sequence[Scene], api_key: str,
 
     filled = 0
     for scene, q in zip(pending, queries):
-        q = genres.scrub(genre, q.strip(), scene.text) if isinstance(q, str) else ""
+        q = (genres.ensure_style(genre, genres.scrub(genre, q.strip(), scene.text))
+             if isinstance(q, str) else "")
         if q:
             scene.query = q
             filled += 1
@@ -692,7 +693,8 @@ def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
     out = []
     for q, p in zip(queries, passages):
         words = re.sub(r"[^A-Za-z' \-]", " ", str(q)).split()
-        out.append(genres.scrub(genre, " ".join(words[:6]), p["text"]))
+        out.append(genres.ensure_style(
+            genre, genres.scrub(genre, " ".join(words[:6]), p["text"])))
     return out
 
 

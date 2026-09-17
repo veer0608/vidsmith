@@ -673,7 +673,7 @@ def test_beat_searches_are_scrubbed_against_their_own_passage(monkeypatch):
                             {"text": "The van stops every few minutes."}],
                            "k", genre="technology")
 
-    assert got == ["phone showing checkout", "delivery van"]
+    assert got == ["modern phone showing checkout", "modern delivery van"]
 
 
 def test_a_scene_search_left_empty_keeps_the_scene_fallback(monkeypatch):
@@ -712,3 +712,50 @@ def test_navigation_is_a_device_word():
     from vidsmith.genres import scrub
 
     assert scrub("technology", "sleek van navigation", "The van stops.") == "sleek van"
+
+
+# --------------------------------------------------------------------------- #
+# every styled search carries its style
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("genre,query,expected", [
+    # the three live Technology searches that came back with no style word
+    ("technology", "delivery trucks loaded overnight", "modern delivery trucks loaded overnight"),
+    ("technology", "warehouse worker scanning barcode", "modern warehouse worker scanning barcode"),
+    # already styled: untouched
+    ("technology", "automated warehouse parcel scanning", "automated warehouse parcel scanning"),
+    ("nature", "coffee mug on sunlit desk", "coffee mug on sunlit desk"),
+    # at the limit: filler makes the room
+    ("city", "driver walking to the front door", "urban driver walking to front door"),
+    # at the limit with no filler: the subject wins
+    ("city", "delivery driver carrying heavy cardboard boxes",
+     "delivery driver carrying heavy cardboard boxes"),
+    # no style chosen, or nothing left to style
+    ("any", "delivery van", "delivery van"),
+    ("technology", "", ""),
+])
+def test_a_search_with_no_style_word_gets_the_looks(genre, query, expected):
+    from vidsmith.genres import ensure_style
+
+    assert ensure_style(genre, query) == expected
+
+
+def test_every_style_has_a_look_that_is_not_a_place():
+    """"outdoors" or "office" in front of a search would move its subject."""
+    from vidsmith.genres import GENRES
+
+    for name, genre in GENRES.items():
+        if name == "any":
+            continue
+        assert genre.look and " " not in genre.look, name
+        assert genre.look not in {"outdoors", "office", "street", "city", "forest",
+                                  "field", "mountain", "river", "downtown"}, name
+
+
+def test_beat_searches_are_styled_after_they_are_scrubbed(monkeypatch):
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["delivery van gps screen"]')
+    got = llm.beat_queries([{"text": "The van stops every few minutes."}], "k",
+                           genre="technology")
+
+    assert got == ["modern delivery van"]
