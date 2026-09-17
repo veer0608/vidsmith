@@ -92,15 +92,19 @@ GENRES: Dict[str, Genre] = {
                         "narration is about software or a device",
                         "modern, high-tech, automated, sleek, blue-lit",
                         devices_only_if_said=True, look="modern"),
+    # City and Nature offered places and crowds as style words too, and they did
+    # to a delivery video what screen did to Technology: "delivery driver street
+    # crowd" put a crowd at a crossing under "the box lands on your doorstep".
+    # Their words describe a look now; a place only comes from the narration.
     "nature": Genre("Nature",
-                    "nature: landscapes, wildlife, water, forests, sky and the "
-                    "outdoors",
-                    "outdoors, sunlight, field, forest, mountain, river, green",
+                    "nature: natural light, greenery, water and open sky wherever "
+                    "the narration allows it",
+                    "sunlit, lush, green, natural, golden-hour",
                     look="sunlit"),
     "city": Genre("City",
-                  "urban: streets, buildings, traffic, crowds and city life by day "
-                  "and night",
-                  "city, street, urban, downtown, nightlife, crowd",
+                  "urban: the energy, lights and bustle of city life, by day and "
+                  "by night",
+                  "urban, bustling, metropolitan, neon-lit, busy",
                   look="urban"),
 }
 

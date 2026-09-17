@@ -759,3 +759,17 @@ def test_beat_searches_are_styled_after_they_are_scrubbed(monkeypatch):
                            genre="technology")
 
     assert got == ["modern delivery van"]
+
+
+def test_no_style_offers_a_place_or_a_crowd_as_a_style_word():
+    """A style word that names a place or a thing becomes what gets filmed:
+    "delivery driver street crowd" put a crowd at a crossing under "the box
+    lands on your doorstep", the way "screen" put phones in Technology."""
+    from vidsmith.genres import GENRES
+
+    nouns = {"outdoors", "field", "forest", "mountain", "river", "city", "street",
+             "downtown", "crowd", "nightlife", "sunlight", "sunset", "worker",
+             "office", "meeting", "team"}
+    for name in ("nature", "city", "technology"):
+        words = {w.strip() for w in GENRES[name].words.split(",")}
+        assert not words & nouns, f"{name}: {sorted(words & nouns)}"
