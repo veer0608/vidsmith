@@ -109,7 +109,9 @@ Two habits this repo keeps punishing:
   binary what it can do.
 
 When a new trap is learned, write the story into the right `docs/claude/` file
-and add a row or a one-line rule here. Do not grow this file back into the docs.
+and add a row or a one-line rule here. Do not grow this file back into the docs:
+`test_claude_md.py` holds it to 200 lines and fails on any `docs/claude/` file
+the docs map below does not link.
 
 ## Commands
 
