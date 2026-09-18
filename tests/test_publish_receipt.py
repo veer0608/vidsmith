@@ -123,4 +123,66 @@ def test_check_reports_it_alongside_the_offline_faults(out, tmp_path):
     (out / "credits.txt").write_text("Different.\n", encoding="utf-8")
     problems = check_mod.check(out)
 
-    assert any("probably stale" in p for p in problems), problems
+    assert any("changed since this delivery was checked" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- #
+# a stale description and a new cut get opposite advice
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def delivered(out):
+    (out / "a-video.mp4").write_bytes(b"the published cut")
+    (out / "a-video-9x16.mp4").write_bytes(b"the short")
+    return out
+
+
+def test_the_receipt_records_the_cut(delivered):
+    record(delivered, "0PkBP0dk4Lw")
+
+    body = json.loads((delivered / RECEIPT).read_text(encoding="utf-8"))
+    assert body["cut"] == {"name": "a-video.mp4",
+                           "digest": digest(delivered / "a-video.mp4")}
+
+
+def test_a_short_receipt_records_the_short(delivered):
+    record(delivered, "0PkBP0dk4Lw", tag="-9x16")
+
+    body = json.loads((delivered / RECEIPT).read_text(encoding="utf-8"))
+    assert body["cut"]["name"] == "a-video-9x16.mp4"
+
+
+def test_a_rebuilt_cut_is_a_new_cut_not_a_stale_description(delivered):
+    """howto was rebuilt and deliberately not uploaded; check told a person to
+    re-paste the new description onto the old video, which would have credited
+    eighteen photographers whose footage is not in it."""
+    record(delivered, "eNhDPX7s_Xs")
+    (delivered / "a-video.mp4").write_bytes(b"a rebuilt cut")
+    (delivered / "credits.txt").write_text("New footage, new people.\n", encoding="utf-8")
+
+    [problem] = publish_drift(delivered)
+    assert "this is a new cut" in problem
+    assert "nothing public is wrong" in problem
+    assert "never paste this description onto the old video" in problem
+    assert "re-paste it" not in problem
+
+
+def test_a_description_rebuilt_over_the_same_cut_says_re_paste(delivered):
+    record(delivered, "0PkBP0dk4Lw")
+    (delivered / "description.txt").write_text("Rewritten.\n", encoding="utf-8")
+
+    [problem] = publish_drift(delivered)
+    assert "is stale; re-paste it" in problem
+    assert "new cut" not in problem
+
+
+def test_an_old_receipt_with_no_cut_gives_both_answers(out):
+    """Receipts written before the cut was recorded cannot tell which it is,
+    so they say so rather than guessing the dangerous one."""
+    (out / RECEIPT).write_text(json.dumps({
+        "video_id": "eNhDPX7s_Xs", "checked": "2026-09-04T08:13:35+00:00",
+        "files": {"description.txt": digest(out / "description.txt"),
+                  "credits.txt": "0" * 12}}), encoding="utf-8")
+
+    [problem] = publish_drift(out)
+    assert "cannot tell" in problem
+    assert "never paste this description onto the old video" in problem

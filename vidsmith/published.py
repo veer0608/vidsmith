@@ -288,6 +288,23 @@ def witnessed(tag: str = "") -> tuple:
     return (f"description{tag}.txt", f"credits{tag}.txt")
 
 
+def cut_file(out: Path, tag: str = "") -> Optional[Path]:
+    """The delivered mp4 for this aspect, or None.
+
+    16:9 is unsuffixed, so its cut is the mp4 that carries no other aspect's
+    suffix - never simply the first `*.mp4`, which sorts `a-9x16.mp4` first.
+    """
+    from .config import ASPECTS, aspect_tag
+
+    suffixes = [aspect_tag(a) for a in ASPECTS if aspect_tag(a)]
+    for path in sorted(Path(out).glob("*.mp4")):
+        if tag and path.stem.endswith(tag):
+            return path
+        if not tag and not any(path.stem.endswith(s) for s in suffixes):
+            return path
+    return None
+
+
 def digest(path: Path) -> str:
     """Twelve hex characters of the file, or "" when it is not there."""
     if not path.is_file():
@@ -309,6 +326,12 @@ def record(out_dir: Path, vid: str, tag: str = "") -> Path:
         "checked": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "files": {name: digest(out / name) for name in witnessed(tag)},
     }
+    # the video too, so drift can tell a stale description from a new cut: the
+    # advice for the two is opposite, and without this `check` gave the one
+    # that breaks attribution
+    video = cut_file(out, tag)
+    if video is not None:
+        body["cut"] = {"name": video.name, "digest": digest(video)}
     path = out / RECEIPT
     path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     return path

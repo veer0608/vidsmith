@@ -34,7 +34,7 @@ before writing anything. The traps are the reason this file exists.
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
 | Upload anything | `vidsmith upload`, Uploading | Resolve every file by the same aspect tag; a caption track is not optional |
-| Rebuild anything already uploaded | `check` reports publish drift | A clean `--published` leaves a receipt; changing the files after it means the pasted description is stale |
+| Rebuild anything already uploaded | `check` reports publish drift | A new description over the same cut means re-paste; a new *cut* means the public pair still match, and pasting its description onto the old video breaks attribution |
 | Debug an ffmpeg filter error | Things that have actually broken here, a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | Things that have actually broken here, PowerShell unrolling | An `if` that returns an array hands back a string |
 | Handle a model 429 | Architecture, `LLMUnavailable` | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |

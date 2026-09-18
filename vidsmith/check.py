@@ -267,12 +267,35 @@ def publish_drift(out: Path) -> List[str]:
         elif was and not now:
             moved.append(f"{name} (now missing)")
 
-    if not moved:
+    # The advice for a stale description and for a new cut is opposite. With
+    # the same video on YouTube, re-pasting fixes it. With a rebuilt video,
+    # the published video still matches its published description, and pasting
+    # the new one onto it credits footage it does not contain - which this check
+    # once recommended, after a rebuild that was deliberately never uploaded.
+    cut = body.get("cut") if isinstance(body.get("cut"), dict) else None
+    new_cut = bool(cut and cut.get("digest")
+                   and digest(out / cut.get("name", "")) != cut["digest"])
+    if not moved and not new_cut:
         return []
+    where = f"https://youtu.be/{vid}{' on ' + when if when else ''}"
+    if new_cut:
+        changed = ", ".join([cut["name"]] + moved)
+        return [f"{changed} changed since this delivery was checked against {where}: "
+                f"this is a new cut. The video there is still the old one and its "
+                f"description still matches it, so nothing public is wrong. Upload "
+                f"this cut with its own description, or leave both - never paste this "
+                f"description onto the old video, which would credit footage it does "
+                f"not contain"]
+    if cut:
+        return [f"{', '.join(moved)} changed since this delivery was checked against "
+                f"{where}, and the video did not, so the description published there "
+                f"is stale; re-paste it and run check --published {vid}"]
     return [f"{', '.join(moved)} changed since this delivery was checked against "
-            f"https://youtu.be/{vid}{' on ' + when if when else ''}, so the "
-            f"description published there is probably stale; re-paste it and run "
-            f"check --published {vid}"]
+            f"{where}. This receipt predates recording the video, so it cannot tell a "
+            f"new description from a new cut: if only the description was rebuilt, "
+            f"re-paste it and run check --published {vid}; if the video was rebuilt "
+            f"too, upload it with its description instead, and never paste this "
+            f"description onto the old video"]
 
 
 def check(out_dir: Path) -> List[str]:
