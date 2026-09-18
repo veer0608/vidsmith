@@ -35,6 +35,15 @@ REMOTE = ("hostname; cd vidsmith; git fetch origin; git checkout main; "
           "sudo systemctl daemon-reload; sudo systemctl restart vidsmith; "
           "systemctl is-active vidsmith")
 CHECK_IP = "https://checkip.amazonaws.com"
+# The box is in Mumbai. A console opened on "Global" shows no security groups at
+# all, and the IAM page is where a search for "security" lands: both happened
+# while the port 22 rule was waiting to be changed.
+REGION = os.environ.get("VIDSMITH_AWS_REGION", "ap-south-1")
+
+
+def security_groups_url(region: str = REGION) -> str:
+    return (f"https://{region}.console.aws.amazon.com/ec2/home"
+            f"?region={region}#SecurityGroups:")
 
 
 class DeployFailed(RuntimeError):
@@ -100,8 +109,10 @@ def ssh_failure(stderr: str, get: Get, host: str, key: str) -> str:
         ip = _current_ip(get)
         return ("ssh timed out, which is the security group rather than a dead box: "
                 "port 22 only admits one address, and yours has probably changed. "
-                "In the EC2 console set the inbound rule for port 22 to My IP"
-                + (f" (you are {ip} now)" if ip else "") + ", then run this again.")
+                "Open the EC2 security groups (not IAM) in "
+                f"{REGION}:\n\n  {security_groups_url()}\n\n"
+                "and set the SSH inbound rule's source to My IP"
+                + (f" ({ip}/32)" if ip else "") + ", then run this again.")
     if "connection refused" in text:
         return f"{host} refused the connection: the firewall let you in and sshd is not running."
     if "permission denied" in text:

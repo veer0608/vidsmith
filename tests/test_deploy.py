@@ -104,7 +104,25 @@ def test_an_ssh_timeout_names_the_firewall_and_the_current_address():
         box.go()
 
     message = str(caught.value)
-    assert "security group" in message and "203.0.113.9" in message
+    assert "security group" in message and "203.0.113.9/32" in message
+
+
+def test_an_ssh_timeout_links_the_security_groups_in_the_right_region():
+    """The console opened on Global shows no security groups, and a search for
+    "security" lands on IAM; both happened while the rule waited."""
+    box = Box(ssh_code=255, ssh_err="ssh: connect to host box.example port 22: Connection timed out")
+
+    with pytest.raises(deploy.DeployFailed) as caught:
+        box.go()
+
+    message = str(caught.value)
+    assert ("https://ap-south-1.console.aws.amazon.com/ec2/home"
+            "?region=ap-south-1#SecurityGroups:") in message
+    assert "not IAM" in message
+
+
+def test_the_region_can_be_moved_with_the_box():
+    assert "region=eu-west-1" in deploy.security_groups_url("eu-west-1")
 
 
 @pytest.mark.parametrize("stderr, says", [
