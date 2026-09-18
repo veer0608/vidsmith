@@ -125,7 +125,12 @@ launched with, and the app is at `/home/ubuntu/vidsmith`, which is the `APP_DIR`
 is why this box is on dynamic DNS in the first place. The symptom is an
 instance that still answers on 443 and refuses to let you in. Fix it in the
 console: EC2, the instance, Security, the security group, inbound rules, port
-22, source **My IP**. Your current address:
+22, source **My IP**. The box is in **Mumbai (`ap-south-1`)**, and the console
+opened on "Global" shows no security groups at all, so go straight to
+`https://ap-south-1.console.aws.amazon.com/ec2/home?region=ap-south-1#SecurityGroups:`
+- a search for "security" lands on IAM instead, which is the wrong service.
+`vidsmith deploy` prints this link when ssh times out; `VIDSMITH_AWS_REGION`
+moves it if the box moves. Your current address:
 
 ```bash
 curl -s https://checkip.amazonaws.com
