@@ -45,6 +45,7 @@ before writing anything. The traps are the reason this file exists.
 | Rebuild anything already uploaded | `check` reports publish drift | A new description over the same cut means re-paste; a new *cut* means the public pair still match, and pasting its description onto the old video breaks attribution |
 | Debug an ffmpeg filter error | [incidents.md](docs/claude/incidents.md), a missing filter | "No option name near" can mean the filter does not exist |
 | Touch `serve-public.ps1` | [incidents.md](docs/claude/incidents.md), PowerShell unrolling | An `if` that returns an array hands back a string |
+| Change the default model | `test_docs_model_id.py` | Every Gemini id the docs name must be `llm.DEFAULT_MODEL`, or listed in `HISTORICAL` with a reason |
 | Handle a model 429 | [incidents.md](docs/claude/incidents.md), quota entries | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
 | Resolve a key, or read what a build spent | [keys.md](docs/claude/keys.md) | Unsetting a key in the shell does not stop a build finding one in a sibling `.env` |
 | Deploy or update the live box | [deploying.md](docs/claude/deploying.md) | `ssh host "commands"`, never a session; check which machine it ran on |
