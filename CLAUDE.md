@@ -32,6 +32,9 @@ before writing anything. The traps are the reason this file exists.
 | Show it to someone | Deploying | The tunnel beats both hosts |
 | Commit anything | Working in this repo | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
+| Judge the footage a build chose | `vidsmith sheet <name>`, Configuration, reading the footage | Read the frames beside the words, never the log; with no `visuals{tag}/shots.json` the times are another cut's |
+| Add or change a footage style | Configuration, `visuals.genre` | A style word that is a noun, a place or a time becomes the subject; a rule the prompt states and the model can break is enforced in code |
+| Bring a live render down | `vidsmith fetch <job>` | The token is the instance's own, not the one in a local `.env` |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
 | Upload anything | `vidsmith upload`, Uploading | Resolve every file by the same aspect tag; a caption track is not optional |
 | Rebuild anything already uploaded | `check` reports publish drift | A new description over the same cut means re-paste; a new *cut* means the public pair still match, and pasting its description onto the old video breaks attribution |
@@ -458,6 +461,40 @@ started trading away a passage's setting ("the mug on your desk" became a mug
 held up outdoors). It needs a Gemini key to do anything. The genre is part of
 the beat cache key, except `any`, which adds nothing, so caches written before
 genres existed are still found.
+
+**A style word that names a thing becomes the thing that gets filmed.** Six PRs
+(#122 to #132) went into learning that on live renders of one delivery script:
+Technology's "screen" put phone maps under "the box lands on your doorstep",
+City's "crowd" put a crowd at a crossing there, Documentary's "daylight" put
+daytime trucks under "overnight". So every style's `words` are adjectives - one
+word each, hyphenated if needed, no digits, because `beat_queries` keeps six
+words and strips digits ("slow motion" reached Pexels as "slow") - and a place
+or time the narration names outranks the style. Business is the one exception
+and is excluded from the test, since its subject really is the office.
+**Every rule here that held is enforced in code, because the prompt already
+stated each one and the model broke each one anyway.** `genres.scrub()` removes
+device words from a Technology search when the narration names no device;
+`genres.ensure_style()` puts the style's `look` in front of a search that came
+back with no style word; the reranker is told for Technology to reject a clip
+whose subject is a screen the narration never named. `style_search()` runs both
+and logs what it changed (`style: dropped 'gps' ...`, `style: ... carried no
+technology style word, so it is ...`), because silent rewrites left no way to
+tell from a build whether either had fired. What is left after all of it is
+Pexels lacking a clip, or the reranker choosing differently between two runs
+of identical code - two renders an hour apart put a ship and then a sack under
+the same line. More rules will not fix those; compare frame sheets, never one run.
+
+**Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
+`build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no
+captions burned in), its timing, the words spoken over it, the search that
+found it and its creator. Every footage fault above was found this way and
+none from a log, and the sheet was rebuilt by hand about fifteen times before it
+was a command. Two traps it names rather than hides: `scenes.json` holds the
+shots of whichever cut was built last, so a build with no
+`visuals{tag}/shots.json` warns that its times belong to another cut (it names
+which, from the clip folder), and a published project with no `build/` falls
+back to `captions<tag>.srt` in blocks of about six seconds, labelled as caption
+blocks with no searches and no credits.
 
 **Do not add an Animation style back.** It was built, rendered from both
 providers and removed. Pexels has no animation filter and returned filmed
@@ -1310,9 +1347,20 @@ reported success and had changed nothing.
 first so the output names the machine, and does not return until the public
 `/healthz` reports the new commit with ffmpeg and both fonts and `/api/busy`
 answers. An ssh timeout comes back as the security group, with your current
-address from checkip, rather than as a dead box; refused, a bad key and a missing
-key file are each named. `VIDSMITH_HOST` and `VIDSMITH_SSH_KEY` override the
-defaults.
+address from checkip as the `/32` the rule wants and a link straight to the EC2
+security groups in `ap-south-1` - the console opened on "Global" shows none, and
+a search for "security" lands on IAM, both of which happened; refused, a bad key
+and a missing key file are each named. The checks after the restart retry four
+times, because on a connection that drops a deploy that had worked reported
+failure twice in one evening. `VIDSMITH_HOST`, `VIDSMITH_SSH_KEY` and
+`VIDSMITH_AWS_REGION` override the defaults.
+
+**Bring a finished render down with `vidsmith fetch <job>`.** It waits for a
+render still in progress, retries each file, and writes through a `.part` file
+so a dropped line never leaves half an mp4 that looks finished; three downloads
+died mid-file in one evening while the server held a good mp4 each time. The
+token is **the instance's**, read from `/home/ubuntu/vidsmith/.env`, not the one
+in a local `.env`, and a 401 says so.
 
 The line it runs, for when it cannot. The restart is what sweeps orphaned job
 directories, so it cleans up on the way in. Finished renders survive it, but a
