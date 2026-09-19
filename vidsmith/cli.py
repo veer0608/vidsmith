@@ -254,12 +254,14 @@ def cmd_check(args) -> int:
 
     # --published is the one part of check that touches the network, and it is
     # opt-in so the offline guarantee above still holds by default.
+    compared = False
     if getattr(args, "published", None):
         from .published import Unreachable, check_published, record
 
         try:
             found = check_published(proj.out, args.published)
             problems.extend(found)
+            compared = True
             if not found:
                 # only a clean check is worth remembering: a receipt written
                 # over a failing one would claim the published copy is good
@@ -268,8 +270,11 @@ def cmd_check(args) -> int:
             print(f"warn     could not read the published video: {exc}")
 
     if not problems:
-        where = " and matches what is published" if getattr(args, "published", None) else ""
-        print(f"ok       {proj.out} is consistent{where} and ready to upload")
+        # never claim a match with a copy that could not be read
+        where = " and matches what is published" if compared else ""
+        unread = ("; the published copy was not checked"
+                  if getattr(args, "published", None) and not compared else "")
+        print(f"ok       {proj.out} is consistent{where} and ready to upload{unread}")
         return 0
     print(f"\n{len(problems)} problem(s) in {proj.out}:\n")
     for line in problems:

@@ -95,7 +95,18 @@ def fetch(vid: str, timeout: float = 25.0) -> Dict:
     except ValueError as exc:
         raise Unreachable(f"the player data for {vid} did not parse: {exc}")
 
-    details = data.get("videoDetails") or {}
+    details = data.get("videoDetails")
+    if not details:
+        # A private video still serves player data, with no videoDetails and
+        # playabilityStatus LOGIN_REQUIRED / "Private video". Read as blank
+        # fields, it was reported as "the published video has no description"
+        # on a video whose description was correct.
+        status = data.get("playabilityStatus") or {}
+        reason = status.get("reason") or status.get("status") or "unavailable"
+        raise Unreachable(
+            f"YouTube shows {vid} to a logged-out reader as '{reason}', so "
+            "nothing about it can be checked from the public page; a private "
+            "video has to be unlisted or public first")
     tracks = ((data.get("captions") or {})
               .get("playerCaptionsTracklistRenderer") or {}).get("captionTracks") or []
     return {

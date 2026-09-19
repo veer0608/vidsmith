@@ -245,3 +245,60 @@ def test_an_unreadable_page_is_not_a_finding_about_the_video(out, monkeypatch):
                         lambda *a, **k: (_ for _ in ()).throw(Unreachable("blocked")))
     with pytest.raises(Unreachable):
         check_published(out, "0PkBP0dk4Lw")
+
+
+class _Page:
+    def __init__(self, player: dict):
+        self.text = ("<script>var ytInitialPlayerResponse = "
+                     + json.dumps(player) + ";</script>")
+
+    def raise_for_status(self):
+        pass
+
+
+def test_a_private_video_is_unreadable_not_undescribed(monkeypatch):
+    """A private video's page serves player data with no videoDetails. Read as
+    blank fields it was reported as 'no description' on 3NuA_RVbO10, whose
+    description the API showed was exactly description.txt."""
+    import requests
+    from vidsmith.published import fetch
+
+    private = {"playabilityStatus": {"status": "LOGIN_REQUIRED",
+                                     "reason": "Private video"}}
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Page(private))
+    with pytest.raises(Unreachable, match="Private video"):
+        fetch("3NuA_RVbO10")
+
+
+def test_a_public_video_still_reads(monkeypatch):
+    import requests
+    from vidsmith.published import fetch
+
+    public = {"playabilityStatus": {"status": "OK"},
+              "videoDetails": {"title": "T", "shortDescription": "D",
+                               "keywords": ["k"]}}
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Page(public))
+    live = fetch("3NuA_RVbO10")
+    assert (live["title"], live["description"], live["tags"]) == ("T", "D", ["k"])
+
+
+def test_check_never_claims_a_match_it_could_not_read(tmp_path, monkeypatch, capsys):
+    """An unreadable published copy used to end in 'matches what is published'."""
+    import argparse
+    import vidsmith.check as check_mod
+    import vidsmith.cli as cli
+    import vidsmith.published as pub
+
+    monkeypatch.setattr(cli, "_project_dir", lambda name: tmp_path)
+    monkeypatch.setattr(check_mod, "check", lambda out: [])
+    monkeypatch.setattr(pub, "check_published", lambda *a, **k: (_ for _ in ()).throw(
+        Unreachable("YouTube shows it as 'Private video'")))
+    recorded = []
+    monkeypatch.setattr(pub, "record", lambda *a, **k: recorded.append(a))
+
+    code = cli.cmd_check(argparse.Namespace(name="demo", published="3NuA_RVbO10"))
+    said = capsys.readouterr().out
+    assert code == 0
+    assert "matches what is published" not in said
+    assert "the published copy was not checked" in said
+    assert not recorded, "a receipt was written for a copy nobody read"

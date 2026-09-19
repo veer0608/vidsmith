@@ -344,6 +344,15 @@
   descriptions. Run against the live `rome` video the hour it was written, it
   found a real one: the thumbnail's Pexels photographer was not in the published
   description.
+- **A private video looks like an empty one to the public page.** The first
+  real `vidsmith upload` went up private, as it should, and `check --published`
+  reported "the published video has no description at all". The API, read with
+  the upload's own token, showed the description was exactly `description.txt`.
+  A private watch page still carries `ytInitialPlayerResponse`, with no
+  `videoDetails` and `playabilityStatus` `LOGIN_REQUIRED` / "Private video", and
+  `fetch()` read that as a video with blank fields. It now raises `Unreachable`
+  naming the reason, and the CLI no longer ends an unread check with "matches
+  what is published", which it had been printing for any unreadable page.
 - **Replacing a thumbnail invalidates `description.txt`, which is the file that
   gets published.** `description.txt` and `youtube.txt` are composed from the
   `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the
