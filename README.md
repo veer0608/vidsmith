@@ -120,6 +120,7 @@ Or have Gemini draft one:
 | `vidsmith check NAME` | read a finished build for faults before publishing it |
 | `vidsmith sheet NAME` | a frame per shot beside the words spoken over it, as an html page |
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
+| `vidsmith publish NAME` | make the uploaded video public, then check the public copy |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 | `vidsmith deploy` | put `main` on the live instance, refusing during a render and proving the new commit is live |
 | `vidsmith fetch JOB` | download a finished render off the live instance, retrying a connection that drops |
@@ -399,12 +400,18 @@ the vertical cut with the vertical cut's description. Publishing the widescreen
 description under a Shorts cut names photographers whose clips are not in it,
 which is a licence problem rather than a cosmetic one.
 
-Uploads are `private` by default. Read the listing, then flip it to public
-yourself and verify what is actually live:
+Uploads are `private` by default. Read the listing, then make it public and
+verify what is actually live in one step:
 
 ```bash
-.venv/bin/python -m vidsmith check demo --published VIDEO_ID
+.venv/bin/python -m vidsmith publish demo
 ```
+
+It finds the video in `out/published.json`, which the upload wrote, runs `check`
+first and refuses on a fault, changes only the privacy (`--privacy unlisted`
+for the other option), then reads the public copy back. To check a video without
+changing it, `vidsmith check demo --published VIDEO_ID` still works, private
+ones included.
 
 Setting it up is a one-off. In Google Cloud, enable the **YouTube Data API v3**,
 create an OAuth client of type **Desktop app**, and put its two values in `.env`:

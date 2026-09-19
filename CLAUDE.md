@@ -40,6 +40,7 @@ before writing anything. The traps are the reason this file exists.
 | Judge the footage a build chose | `vidsmith sheet <name>`, [configuration.md](docs/claude/configuration.md), reading the footage | Read the frames beside the words, never the log; with no `visuals{tag}/shots.json` the times are another cut's |
 | Add or change a footage style | [configuration.md](docs/claude/configuration.md), `visuals.genre` | A style word that is a noun, a place or a time becomes the subject; a rule the prompt states and the model can break is enforced in code |
 | Bring a live render down | `vidsmith fetch <job>`, [deploying.md](docs/claude/deploying.md) | The token is the instance's own, not the one in a local `.env` |
+| Make an upload public | `vidsmith publish <name>`, [uploading.md](docs/claude/uploading.md) | Status is replaced whole on update; send back every writable field, change only the privacy |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
 | Upload anything | `vidsmith upload`, [uploading.md](docs/claude/uploading.md) | Resolve every file by the same aspect tag; a caption track is not optional |
 | Rebuild anything already uploaded | `check` reports publish drift | A new description over the same cut means re-paste; a new *cut* means the public pair still match, and pasting its description onto the old video breaks attribution |

@@ -31,6 +31,16 @@ Uploads are `private` by default, so the listing can be read before anyone else
 sees it, and the command prints the `check --published` line to run once it is
 public.
 
+**`vidsmith publish` is the other half, and it changes one field.**
+`set_privacy()` reads the video's `status` and sends it back with only
+`privacyStatus` changed, because videos.update replaces the whole part: a
+writable field left out, `selfDeclaredMadeForKids` among them, is reset without
+a word. `publishAt` is deliberately not carried, since it schedules a private
+video. The command runs the offline `check` first and leaves the video as it is
+on a fault, then reads the visible copy back through `_check_live()`, the same
+helper `check --published` uses. The first public video, `3NuA_RVbO10`, was
+flipped by hand this way before the command existed.
+
 **The OAuth flow is the standard loopback one and its only security decision is
 the `state`.** The redirect port is open to anything else on this machine, so
 `redirect_result()` refuses a code that does not carry the state we generated;
