@@ -302,3 +302,105 @@ def test_check_never_claims_a_match_it_could_not_read(tmp_path, monkeypatch, cap
     assert "matches what is published" not in said
     assert "the published copy was not checked" in said
     assert not recorded, "a receipt was written for a copy nobody read"
+
+
+class _Api:
+    def __init__(self, body, status=200):
+        self.body, self.status = body, status
+
+    def raise_for_status(self):
+        if self.status >= 400:
+            raise RuntimeError(f"{self.status} Forbidden")
+
+    def json(self):
+        return self.body
+
+
+def test_signed_in_read_has_the_same_shape_as_the_public_one(monkeypatch):
+    """Built from what the API returned for 3NuA_RVbO10: an uploaded track is
+    trackKind 'standard', YouTube's own transcription is 'asr'."""
+    import requests
+    from vidsmith.published import fetch_signed_in
+
+    def get(url, params=None, headers=None, timeout=None):
+        assert headers["Authorization"] == "Bearer tok"
+        if url.endswith("/videos"):
+            return _Api({"items": [{"snippet": {
+                "title": "Why Your Bank Statement Lies", "description": "D",
+                "tags": ["bank"]}}]})
+        return _Api({"items": [
+            {"snippet": {"language": "en", "trackKind": "standard"}},
+            {"snippet": {"language": "en", "trackKind": "asr"}}]})
+
+    monkeypatch.setattr(requests, "get", get)
+    live = fetch_signed_in("3NuA_RVbO10", "tok")
+    assert live["description"] == "D" and live["tags"] == ["bank"]
+    assert live["uploaded_captions"] == ["en"]
+    assert live["asr_captions"] == ["en"]
+
+
+def test_a_refused_api_read_is_unreachable_not_a_finding(monkeypatch):
+    import requests
+    from vidsmith.published import fetch_signed_in
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _Api({}, status=403))
+    with pytest.raises(Unreachable, match="through the API"):
+        fetch_signed_in("3NuA_RVbO10", "tok")
+
+
+def _private_check(tmp_path, monkeypatch, token):
+    """Run `vidsmith check --published` on a video the public page calls private."""
+    import argparse
+    import vidsmith.check as check_mod
+    import vidsmith.cli as cli
+    import vidsmith.published as pub
+    import vidsmith.upload as up
+
+    monkeypatch.setattr(cli, "_project_dir", lambda name: tmp_path)
+    monkeypatch.setattr(cli, "find_keys", lambda root: {})
+    monkeypatch.setattr(check_mod, "check", lambda out: [])
+    real = pub.check_published
+
+    def check_published(out, vid, live=None):
+        if live is None:
+            raise pub.Private("YouTube shows it as 'Private video'")
+        return real(out, vid, live=live)
+
+    monkeypatch.setattr(pub, "check_published", check_published)
+    monkeypatch.setattr(up, "access_token", token)
+    monkeypatch.setattr(pub, "fetch_signed_in", lambda vid, tok: {
+        "id": vid, "title": "", "description": "Footage from Pixabay.",
+        "tags": [], "uploaded_captions": ["en"], "asr_captions": []})
+    recorded = []
+    monkeypatch.setattr(pub, "record", lambda *a, **k: recorded.append(a))
+    code = cli.cmd_check(argparse.Namespace(name="demo", published="3NuA_RVbO10"))
+    return code, recorded
+
+
+def test_a_private_video_is_checked_as_the_channel(tmp_path, monkeypatch, capsys):
+    """The first real upload was private and could not be checked at all."""
+    seen = {}
+
+    def token(root, cid, secret, interactive=True, log=print):
+        seen["interactive"] = interactive
+        return "tok"
+
+    code, recorded = _private_check(tmp_path, monkeypatch, token)
+    said = capsys.readouterr().out
+    assert code == 0 and "matches what is published" in said, said
+    assert seen["interactive"] is False, "a check must never open a browser"
+    assert recorded
+
+
+def test_a_private_video_with_no_login_says_it_was_not_checked(
+        tmp_path, monkeypatch, capsys):
+    from vidsmith.upload import NotConnected
+
+    def token(*a, **k):
+        raise NotConnected("YouTube is not connected")
+
+    code, recorded = _private_check(tmp_path, monkeypatch, token)
+    said = capsys.readouterr().out
+    assert code == 0
+    assert "not connected" in said and "was not checked" in said, said
+    assert "matches what is published" not in said and not recorded

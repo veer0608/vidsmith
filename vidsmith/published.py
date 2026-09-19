@@ -20,6 +20,10 @@ Three real ones, all from published videos:
 None of those are visible from `out/`. All three are visible in one
 unauthenticated GET of the watch page, so this needs no API key, no OAuth and no
 quota - the same property that makes `check` worth running.
+
+The one exception is a video still private, which the public page will not
+show: `fetch_signed_in` reads it through the Data API with the upload's own
+login, because private is the cheapest moment to catch a fault.
 """
 from __future__ import annotations
 
@@ -54,6 +58,11 @@ _PIXABAY = "pixabay.com"
 
 class Unreachable(RuntimeError):
     """The watch page could not be read. Not a finding about the video."""
+
+
+class Private(Unreachable):
+    """The video exists but the public page will not show it to a logged-out
+    reader. `fetch_signed_in` can still read it with the upload's own login."""
 
 
 def video_id(value: str) -> str:
@@ -103,10 +112,9 @@ def fetch(vid: str, timeout: float = 25.0) -> Dict:
         # on a video whose description was correct.
         status = data.get("playabilityStatus") or {}
         reason = status.get("reason") or status.get("status") or "unavailable"
-        raise Unreachable(
+        raise Private(
             f"YouTube shows {vid} to a logged-out reader as '{reason}', so "
-            "nothing about it can be checked from the public page; a private "
-            "video has to be unlisted or public first")
+            "nothing about it can be checked from the public page")
     tracks = ((data.get("captions") or {})
               .get("playerCaptionsTracklistRenderer") or {}).get("captionTracks") or []
     return {
@@ -119,6 +127,49 @@ def fetch(vid: str, timeout: float = 25.0) -> Dict:
                               if t.get("kind") != "asr"],
         "asr_captions": [t.get("languageCode") for t in tracks
                          if t.get("kind") == "asr"],
+    }
+
+
+API = "https://www.googleapis.com/youtube/v3"
+
+
+def fetch_signed_in(vid: str, token: str, timeout: float = 25.0) -> Dict:
+    """The same fields as `fetch`, read through the Data API as the channel.
+
+    For a video still private, which is exactly when a fault is cheapest to
+    fix. Costs two quota units (videos.list and captions.list), against the
+    1600 of the upload it is checking. The shape matches `fetch` so
+    `check_published` cannot tell which one read the video.
+    """
+    import requests
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def get(path: str, **params) -> Dict:
+        try:
+            r = requests.get(f"{API}/{path}", params=params, headers=headers,
+                             timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:                   # network, 401, 403, quota
+            raise Unreachable(f"could not read {vid} through the API: {exc}")
+
+    items = get("videos", part="snippet", id=vid).get("items") or []
+    if not items:
+        raise Unreachable(f"the API has no video {vid} on this channel")
+    snip = items[0].get("snippet") or {}
+    tracks = [(it.get("snippet") or {})
+              for it in get("captions", part="snippet", videoId=vid).get("items") or []]
+    return {
+        "id": vid,
+        "title": snip.get("title") or "",
+        "description": snip.get("description") or "",
+        "tags": list(snip.get("tags") or []),
+        # the API spells YouTube's own transcription trackKind "asr" too
+        "uploaded_captions": [t.get("language") for t in tracks
+                              if (t.get("trackKind") or "").lower() != "asr"],
+        "asr_captions": [t.get("language") for t in tracks
+                         if (t.get("trackKind") or "").lower() == "asr"],
     }
 
 
