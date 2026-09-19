@@ -353,6 +353,11 @@
   `fetch()` read that as a video with blank fields. It now raises `Unreachable`
   naming the reason, and the CLI no longer ends an unread check with "matches
   what is published", which it had been printing for any unreadable page.
+  **Then it reads a private video anyway, as the channel.** On `Private`,
+  `check --published` takes the upload's saved login with `interactive=False`
+  (a check must never open a browser) and `fetch_signed_in()` reads the same
+  fields through the Data API for two quota units. No login, or a refused
+  read, still ends in "the published copy was not checked".
 - **Replacing a thumbnail invalidates `description.txt`, which is the file that
   gets published.** `description.txt` and `youtube.txt` are composed from the
   `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the

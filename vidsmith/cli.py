@@ -256,10 +256,27 @@ def cmd_check(args) -> int:
     # opt-in so the offline guarantee above still holds by default.
     compared = False
     if getattr(args, "published", None):
-        from .published import Unreachable, check_published, record
+        from .published import (Private, Unreachable, check_published,
+                                fetch_signed_in, record, video_id)
 
         try:
-            found = check_published(proj.out, args.published)
+            try:
+                found = check_published(proj.out, args.published)
+            except Private as exc:
+                # still private is the cheapest moment to catch a fault, so read
+                # it as the channel; never opens a browser from a check
+                from .upload import UploadFailed, access_token
+                repo_root = Path(__file__).resolve().parent.parent
+                keys = find_keys(proj.root)
+                try:
+                    token = access_token(repo_root, keys.get("yt_client", ""),
+                                         keys.get("yt_secret", ""), interactive=False)
+                except UploadFailed as why:
+                    raise Unreachable(f"{exc}, and it cannot be read signed in "
+                                      f"either: {why}")
+                print(f"info     {exc}; reading it through the API as the channel")
+                live = fetch_signed_in(video_id(args.published), token)
+                found = check_published(proj.out, args.published, live=live)
             problems.extend(found)
             compared = True
             if not found:
