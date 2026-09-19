@@ -240,6 +240,44 @@ def _refresh_thumbnails(args) -> int:
     return 0
 
 
+def _check_live(proj, ref: str):
+    """Check the published copy of a video against this delivery.
+
+    Returns (problems, compared). `compared` is False when the video could not
+    be read at all, so nobody claims a match they never made. Private videos
+    are read through the API as the channel, never with a browser.
+    """
+    from .published import (Private, Unreachable, check_published,
+                            fetch_signed_in, record, video_id)
+
+    try:
+        try:
+            found = check_published(proj.out, ref)
+        except Private as exc:
+            # still private is the cheapest moment to catch a fault, so read
+            # it as the channel; never opens a browser from a check
+            from .upload import UploadFailed, access_token
+            repo_root = Path(__file__).resolve().parent.parent
+            keys = find_keys(proj.root)
+            try:
+                token = access_token(repo_root, keys.get("yt_client", ""),
+                                     keys.get("yt_secret", ""), interactive=False)
+            except UploadFailed as why:
+                raise Unreachable(f"{exc}, and it cannot be read signed in "
+                                  f"either: {why}")
+            print(f"info     {exc}; reading it through the API as the channel")
+            live = fetch_signed_in(video_id(ref), token)
+            found = check_published(proj.out, ref, live=live)
+    except (Unreachable, ValueError) as exc:
+        print(f"warn     could not read the published video: {exc}")
+        return [], False
+    if not found:
+        # only a clean check is worth remembering: a receipt written over a
+        # failing one would claim the published copy is good
+        record(proj.out, ref)
+    return found, True
+
+
 def cmd_check(args) -> int:
     """Read the delivered files against each other before anything is published.
 
@@ -256,35 +294,8 @@ def cmd_check(args) -> int:
     # opt-in so the offline guarantee above still holds by default.
     compared = False
     if getattr(args, "published", None):
-        from .published import (Private, Unreachable, check_published,
-                                fetch_signed_in, record, video_id)
-
-        try:
-            try:
-                found = check_published(proj.out, args.published)
-            except Private as exc:
-                # still private is the cheapest moment to catch a fault, so read
-                # it as the channel; never opens a browser from a check
-                from .upload import UploadFailed, access_token
-                repo_root = Path(__file__).resolve().parent.parent
-                keys = find_keys(proj.root)
-                try:
-                    token = access_token(repo_root, keys.get("yt_client", ""),
-                                         keys.get("yt_secret", ""), interactive=False)
-                except UploadFailed as why:
-                    raise Unreachable(f"{exc}, and it cannot be read signed in "
-                                      f"either: {why}")
-                print(f"info     {exc}; reading it through the API as the channel")
-                live = fetch_signed_in(video_id(args.published), token)
-                found = check_published(proj.out, args.published, live=live)
-            problems.extend(found)
-            compared = True
-            if not found:
-                # only a clean check is worth remembering: a receipt written
-                # over a failing one would claim the published copy is good
-                record(proj.out, args.published)
-        except (Unreachable, ValueError) as exc:
-            print(f"warn     could not read the published video: {exc}")
+        found, compared = _check_live(proj, args.published)
+        problems.extend(found)
 
     if not problems:
         # never claim a match with a copy that could not be read
@@ -297,6 +308,63 @@ def cmd_check(args) -> int:
     for line in problems:
         print(f"  - {line}")
     return 1
+
+
+def cmd_publish(args) -> int:
+    """Make an uploaded video visible, then prove the visible copy is right.
+
+    Uploads go up private so they can be read first. Going public was a hand
+    edit in Studio followed by a separate `check --published`; this is both,
+    in the order that matters: the offline check refuses first, because a
+    fault is cheapest to fix while nobody can see the video.
+    """
+    from .check import check
+    from .published import RECEIPT, video_id
+    from .upload import UploadFailed, access_token, set_privacy
+
+    proj = Project(_project_dir(args.name))
+    ref = args.video
+    if not ref:
+        receipt = proj.out / RECEIPT
+        try:
+            ref = json.loads(receipt.read_text(encoding="utf-8"))["video_id"]
+        except (OSError, ValueError, KeyError):
+            print(f"no video id: pass --video, or upload first so {RECEIPT} "
+                  "names one")
+            return 1
+    vid = video_id(ref)
+
+    problems = check(proj.out)
+    if problems and not args.force:
+        print(f"\n{len(problems)} problem(s) in {proj.out}, so {vid} was left "
+              "as it is:\n")
+        for line in problems:
+            print(f"  - {line}")
+        print("\nfix them, or publish anyway with --force")
+        return 1
+
+    keys = find_keys(proj.root)
+    repo_root = Path(__file__).resolve().parent.parent
+    try:
+        token = access_token(repo_root, keys["yt_client"], keys["yt_secret"])
+        now = set_privacy(token, vid, args.privacy)
+    except UploadFailed as exc:
+        print(f"publish failed: {exc}")
+        return 1
+    print(f"{now:<8} https://www.youtube.com/watch?v={vid}")
+
+    found, compared = _check_live(proj, vid)
+    if not compared:
+        print(f"warn     {vid} is {now}, but its published copy was not checked; "
+              f"run: vidsmith check {args.name} --published {vid}")
+        return 0
+    if found:
+        print(f"\n{vid} is {now} and has {len(found)} problem(s):\n")
+        for line in found:
+            print(f"  - {line}")
+        return 1
+    print(f"ok       {vid} is {now} and matches {proj.out}")
+    return 0
 
 
 def cmd_upload(args) -> int:
@@ -600,6 +668,16 @@ def main(argv=None) -> int:
     up.add_argument("--force", action="store_true",
                     help="upload even though check reported problems")
     up.set_defaults(func=cmd_upload)
+
+    pb = sub.add_parser("publish", help="make an uploaded video visible, then "
+                                        "check the visible copy")
+    pb.add_argument("name")
+    pb.add_argument("--video", metavar="ID_OR_URL",
+                    help="default: the video named in out/published.json")
+    pb.add_argument("--privacy", choices=("public", "unlisted"), default="public")
+    pb.add_argument("--force", action="store_true",
+                    help="publish even though check reported problems")
+    pb.set_defaults(func=cmd_publish)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
     d.set_defaults(func=cmd_doctor)

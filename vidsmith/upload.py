@@ -408,6 +408,39 @@ def add_captions(token: str, video_id: str, srt: Path, name: str = "English",
                            "Without it YouTube will transcribe the audio itself")
 
 
+VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
+# The writable status fields. videos.update replaces the whole `status` part,
+# so any of these left out of the PUT is reset to YouTube's default - a
+# made-for-kids declaration among them. `publishAt` is left out on purpose: it
+# schedules a private video, and this is making one visible now.
+KEEP_STATUS = ("embeddable", "license", "publicStatsViewable",
+               "selfDeclaredMadeForKids")
+
+
+def set_privacy(token: str, video_id: str, privacy: str) -> str:
+    """Change who can see a video and nothing else. Returns the new status."""
+    if privacy not in ("private", "unlisted", "public"):
+        raise ValueError(f"not a YouTube privacy status: {privacy!r}")
+    got = requests.get(VIDEOS_URL, params={"part": "status", "id": video_id},
+                       headers=_headers(token), timeout=30)
+    if got.status_code != 200:
+        raise UploadFailed(f"could not read {video_id} ({got.status_code}): "
+                           f"{got.text[:300]}")
+    items = got.json().get("items") or []
+    if not items:
+        raise UploadFailed(f"no video {video_id} on this channel")
+    status = items[0].get("status") or {}
+    body = {"id": video_id,
+            "status": {k: status[k] for k in KEEP_STATUS if k in status}}
+    body["status"]["privacyStatus"] = privacy
+    put = requests.put(VIDEOS_URL, params={"part": "status"}, json=body,
+                       headers=_headers(token), timeout=30)
+    if put.status_code != 200:
+        raise UploadFailed(f"YouTube refused the change ({put.status_code}): "
+                           f"{put.text[:300]}")
+    return (put.json().get("status") or {}).get("privacyStatus", "")
+
+
 def publish(cut: Path, meta: Dict[str, Any], description: str, token: str,
             thumbnail: Optional[Path] = None, captions: Optional[Path] = None,
             category: str = "28", privacy: str = "private",
