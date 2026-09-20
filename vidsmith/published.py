@@ -377,10 +377,10 @@ def digest(path: Path) -> str:
 def record(out_dir: Path, vid: str, tag: str = "") -> Path:
     """Write down that this delivery was verified against this video.
 
-    `check --published` can only read a *public* video, so it cannot help while
-    a draft is private - which is exactly when the description is being pasted
-    and is easiest to get wrong. This is the offline half of that: what was
-    verified, and what the files looked like at the time.
+    Written after a clean `check --published`, and by `vidsmith upload`, whose
+    video id `vidsmith publish` reads back from here. It records what was
+    verified and what the files looked like at the time, so drift can be seen
+    offline later.
     """
     out = Path(out_dir)
     body = {
