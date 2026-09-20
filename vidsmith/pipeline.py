@@ -5,6 +5,7 @@ already there, so a failed render does not cost you the narration again.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass
@@ -500,7 +501,16 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     #
     # A retake keeps the thumbnail it has. Choosing again would spend a model
     # call and could land on a different photograph, and nobody asked for that.
-    keep_thumbnail = retake or edit or (cut and (proj.out / f"{slug}{tag}.jpg").exists())
+    # What the metadata and the thumbnail were chosen for: the words, not the
+    # frame. Read once here because both decisions below turn on it.
+    spoken = narration_digest(cfg.title, scenes)
+    unmoved = (proj.out / "youtube.json").exists() and         _meta_narration(proj.out / "youtube.json") == spoken
+    # A rebuild of an already published video used to choose a new photograph,
+    # so the credits under it named someone whose photo was not on the video
+    # and `description.txt` drifted from the copy already published. Same words,
+    # same thumbnail.
+    keep_thumbnail = (retake or edit
+                      or ((cut or unmoved) and (proj.out / f"{slug}{tag}.jpg").exists()))
     thumb_lines = (kept_thumbnail_credit(proj.out / f"credits{tag}.txt")
                    if keep_thumbnail else "")
     if not keep_thumbnail:
@@ -563,7 +573,15 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
         rec.enter("meta")
         # ---- upload metadata --------------------------------------------- #
         meta_json = proj.out / "youtube.json"
-        if (retake or cut) and meta_json.exists():
+        # The title, description, chapters and tags describe the narration, not
+        # the frame, so a second shape must not buy a second set of them.
+        # `--aspect 9:16` on a finished project did: it re-asked the model and
+        # rewrote description.txt with the same facts in different words, so the
+        # description already published for the widescreen cut - whose video had
+        # not changed at all - read as drift for ever after. The web's cut path
+        # passed `cut=True` and got this right; the CLI had no way to say it, so
+        # the narration says it instead.
+        if ((retake or cut) and meta_json.exists()) or unmoved:
             # The title, chapters and tags describe narration that has not
             # moved, so only the credits under them change. Written the way
             # `thumbs --refresh` writes it, through the one writer.
@@ -577,6 +595,7 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
             try:
                 meta = llm.upload_metadata(cfg.title, scenes, keys["gemini"],
                                            log=log)
+                meta["narration_key"] = spoken
                 write_metadata(proj.out, meta, source=cfg.source)
                 log(f"meta     {proj.out / 'youtube.txt'} + description.txt")
             except Exception as exc:
@@ -943,6 +962,26 @@ def description_box(meta: Dict, credits: str = "") -> str:
     room = llm.MAX_DESCRIPTION - len("\n\n".join(tail)) - len("\n\n") - len("\n")
     prose = llm._clip_words(prose, room) if room > 0 else ""
     return "\n\n".join(p for p in [prose, *tail] if p) + "\n"
+
+
+def narration_digest(title: str, scenes: Sequence[Scene]) -> str:
+    """What the upload metadata was written from: the title and every word.
+
+    Stored in `youtube.json` so a later build can tell "the script changed" from
+    "another shape of the same video", which is the difference between prose
+    worth re-asking a model for and prose that must not move.
+    """
+    raw = "".join([title or ""]
+                      + [f"{s.heading}{s.text}" for s in scenes])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _meta_narration(meta_json: Path) -> str:
+    try:
+        return str(json.loads(meta_json.read_text(encoding="utf-8"))
+                   .get("narration_key") or "")
+    except (OSError, ValueError):
+        return ""
 
 
 def _readable_meta(meta: Dict) -> str:
