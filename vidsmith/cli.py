@@ -459,6 +459,24 @@ def cmd_published(args) -> int:
         except (UploadFailed, Unreachable) as exc:
             print(f"warn     could not read the channel: {exc}")
 
+    if args.box:
+        # the live instance keeps its own receipts, in its job directories, so
+        # a video it published is invisible to a listing of this checkout
+        from . import deploy
+
+        try:
+            body = deploy.remote_api("/api/jobs", host=args.host or deploy.HOST,
+                                     key=args.key or deploy.KEY)
+        except deploy.DeployFailed as exc:
+            print(f"warn     could not read the live box: {exc}")
+            body = {}
+        for render in body.get("renders") or []:
+            posted = (render.get("youtube") or {}).get("video_id")
+            if posted:
+                rows.append({"project": "live box", "tag": render.get("aspect", ""),
+                             "video_id": posted, "checked": "held on the box",
+                             "cut": "", "moved": []})
+
     for row in sorted(rows, key=lambda r: (r["project"], r["tag"])):
         shape = row["tag"] or "16:9"
         state = live.get(row["video_id"])
@@ -801,6 +819,10 @@ def main(argv=None) -> int:
     pl = sub.add_parser("published", help="list every video uploaded from here, "
                                           "with any drift since it was checked")
     pl.add_argument("name", nargs="?", help="one project; default: all of them")
+    pl.add_argument("--box", action="store_true",
+                    help="also list what the live instance uploaded (over ssh)")
+    pl.add_argument("--host", default=None, help="default: VIDSMITH_HOST")
+    pl.add_argument("--key", default=None, help="ssh key for --box")
     pl.add_argument("--live", action="store_true",
                     help="also ask YouTube what each one is now (1 quota unit per 50)")
     pl.set_defaults(func=cmd_published)

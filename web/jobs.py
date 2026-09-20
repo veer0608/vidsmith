@@ -327,7 +327,11 @@ class Jobs:
                  "finished": _iso(j.finished), "expires": _iso(j.expires()),
                  "aspect": j.options.get("aspect", ""), "runtime": j.runtime,
                  "size": sum(f["size"] for f in j.outputs),
-                 "files": len(j.outputs)}
+                 "files": len(j.outputs),
+                 # what became of it: a render that was uploaded and one that
+                 # was not look identical without this, on the page and to
+                 # `vidsmith published --box`
+                 "youtube": j.youtube}
                 for j in sorted(done, key=lambda j: j.finished, reverse=True)]
 
     # -- queries ------------------------------------------------------------- #

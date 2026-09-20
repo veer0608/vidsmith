@@ -115,7 +115,8 @@ def test_the_command_lists_projects_offline(out, monkeypatch, capsys):
     monkeypatch.setattr(pub, "privacy_of",
                         lambda *a, **k: pytest.fail("--live was not asked for"))
 
-    code = cli.cmd_published(argparse.Namespace(name="demo", live=False))
+    code = cli.cmd_published(argparse.Namespace(name="demo", live=False, box=False,
+                                            host=None, key=None))
 
     said = capsys.readouterr().out
     assert code == 0
@@ -131,7 +132,79 @@ def test_the_command_says_when_a_video_is_gone(out, monkeypatch, capsys):
     monkeypatch.setattr(pub, "privacy_of",
                         lambda ids, token, **k: {WIDE: {"title": "t", "privacy": "public"}})
 
-    cli.cmd_published(argparse.Namespace(name="demo", live=True))
+    cli.cmd_published(argparse.Namespace(name="demo", live=True, box=False,
+                                     host=None, key=None))
 
     said = capsys.readouterr().out
     assert "public" in said and "gone from the channel" in said
+
+
+# --------------------------------------------------------------------------- #
+# what the live instance published
+# --------------------------------------------------------------------------- #
+def test_the_box_is_read_over_loopback_on_the_box(monkeypatch):
+    """Every job route is behind the token and the token lives on the box, so
+    the question goes there rather than the credential coming here."""
+    import subprocess
+
+    from vidsmith import deploy
+
+    seen = {}
+
+    def run(args, **kwargs):
+        seen["command"] = args[-1]
+        return subprocess.CompletedProcess(args, 0, '{"renders": []}', "")
+
+    body = deploy.remote_api("/api/jobs", host="box.example", key="k.pem", run=run)
+
+    assert body == {"renders": []}
+    assert "127.0.0.1:8077/api/jobs" in seen["command"]
+    assert "VIDSMITH_TOKEN" in seen["command"] and "Host: box.example" in seen["command"]
+
+
+def test_a_box_that_answers_nonsense_is_a_clean_failure(monkeypatch):
+    import subprocess
+
+    from vidsmith import deploy
+
+    def run(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, "<html>bad gateway</html>", "")
+
+    with pytest.raises(deploy.DeployFailed, match="not JSON"):
+        deploy.remote_api("/api/jobs", host="box.example", key="k.pem", run=run)
+
+
+def test_the_command_lists_what_the_instance_uploaded(out, monkeypatch, capsys):
+    from vidsmith import deploy
+
+    monkeypatch.setattr(cli, "_project_dir", lambda name: out.parent)
+    monkeypatch.setattr(deploy, "remote_api", lambda path, **k: {"renders": [
+        {"id": "1e8bb07f1f04", "aspect": "16:9",
+         "youtube": {"status": "done", "video_id": "m7HFMi6m7AU"}},
+        {"id": "23a21a8f62fa", "aspect": "16:9", "youtube": None},
+    ]})
+
+    cli.cmd_published(argparse.Namespace(name="demo", live=False, box=True,
+                                         host=None, key=None))
+
+    said = capsys.readouterr().out
+    assert "live box" in said and "m7HFMi6m7AU" in said
+    assert "23a21a8f62fa" not in said, "a render nobody uploaded is not published"
+
+
+def test_an_unreachable_box_does_not_lose_the_local_list(out, monkeypatch, capsys):
+    from vidsmith import deploy
+
+    monkeypatch.setattr(cli, "_project_dir", lambda name: out.parent)
+
+    def refuse(path, **kwargs):
+        raise deploy.DeployFailed("ssh: connect to host box.example port 22")
+
+    monkeypatch.setattr(deploy, "remote_api", refuse)
+
+    cli.cmd_published(argparse.Namespace(name="demo", live=False, box=True,
+                                         host=None, key=None))
+
+    said = capsys.readouterr().out
+    assert "could not read the live box" in said
+    assert WIDE in said, "the local receipts are still worth printing"

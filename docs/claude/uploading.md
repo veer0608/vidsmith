@@ -54,6 +54,15 @@ because videos.list costs a unit per call rather than per video, and reports a
 video that does not come back as gone from the channel: a receipt outlives the
 video it names.
 
+**`--box` adds what the live instance published.** Its receipts live in
+its own job directories, so a video it uploaded is invisible to a listing of
+this checkout - the first one was. `deploy.remote_api()` reads `/api/jobs` from
+the box over loopback, because every job route is behind the token and the
+token lives there; a laptop never gets a copy of it to answer a question about
+it. `jobs.renders()` carries each render's `youtube` record for the same
+reason: a render that was uploaded and one that was not looked identical, on
+the page as well.
+
 **`check` runs first and refuses.** Everything it looks for is worse once
 public, and taking a video down does not unpublish it. `--force` exists for the
 operator who has read the problems and disagrees; it prints them either way.

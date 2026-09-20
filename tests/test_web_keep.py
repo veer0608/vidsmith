@@ -286,3 +286,18 @@ def test_the_page_lists_past_renders_and_reads_the_servers_expiry(client):
     page = client.get("/").text
     assert 'id="past"' in page and 'fetch("/api/jobs"' in page
     assert "keepSeconds" not in page, "the page kept its own copy of the keep again"
+
+
+def test_the_list_says_which_renders_were_uploaded(client):
+    """A render that went to YouTube and one that did not looked identical in
+    this list, on the page and to `vidsmith published --box`, so a video the
+    live instance published was invisible from anywhere else."""
+    job = client.post("/api/jobs", json={"script": SCRIPT}).json()
+    _settle(web_app.jobs)
+    web_app.jobs.get(job["id"]).youtube.update(status="done", video_id="m7HFMi6m7AU",
+                                               privacy="private")
+
+    [render] = client.get("/api/jobs").json()["renders"]
+
+    assert render["youtube"]["video_id"] == "m7HFMi6m7AU"
+    assert render["youtube"]["privacy"] == "private"
