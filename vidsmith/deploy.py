@@ -43,6 +43,36 @@ REMOTE = ("hostname; cd vidsmith; git fetch origin; git checkout main; "
 # the public URL fails a healthy box - which it did, on the first real run.
 # Caddy sends these two headers in ordinary traffic and uvicorn trusts them
 # from loopback, so the probe sends them too and gets the public answer.
+def remote_api(path: str, host: str = HOST, user: str = USER, key: str = KEY,
+               run: Run = subprocess.run, timeout: float = 90.0) -> Dict[str, Any]:
+    """Read one of the box's own API routes, from the box.
+
+    Every job route is behind the token, and the token lives on the box. Asking
+    over loopback keeps it there, the same way the deploy probe does, rather
+    than copying a live credential to a laptop to answer a question about it.
+    """
+    command = (
+        "cd vidsmith; curl -s -m 20 "
+        "-H \"x-vidsmith-token: $(grep -m1 '^VIDSMITH_TOKEN=' .env | cut -d= -f2-)\" "
+        f"-H \"Host: {host}\" -H 'X-Forwarded-Proto: https' "
+        f"http://127.0.0.1:8077{path}")
+    try:
+        result = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                      "-i", str(Path(key).expanduser()), f"{user}@{host}", command],
+                     capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise DeployFailed(f"{host} did not answer {path} within {timeout:.0f}s")
+    except FileNotFoundError:
+        raise DeployFailed("there is no ssh on PATH")
+    if result.returncode != 0:
+        raise DeployFailed(ssh_failure(result.stderr, requests.get, host, key))
+    try:
+        body = json.loads(result.stdout or "{}")
+    except ValueError:
+        raise DeployFailed(f"{host} answered {path} with something that is not JSON")
+    return body if isinstance(body, dict) else {}
+
+
 def youtube_probe(host: str) -> str:
     return (
         "; sleep 3; printf 'youtube:'; curl -s -m 10 "
