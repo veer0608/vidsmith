@@ -240,7 +240,7 @@ def _refresh_thumbnails(args) -> int:
     return 0
 
 
-def _check_live(proj, ref: str):
+def _check_live(proj, ref: str, tag: str = ""):
     """Check the published copy of a video against this delivery.
 
     Returns (problems, compared). `compared` is False when the video could not
@@ -252,7 +252,7 @@ def _check_live(proj, ref: str):
 
     try:
         try:
-            found = check_published(proj.out, ref)
+            found = check_published(proj.out, ref, tag=tag)
         except Private as exc:
             # still private is the cheapest moment to catch a fault, so read
             # it as the channel; never opens a browser from a check
@@ -267,14 +267,14 @@ def _check_live(proj, ref: str):
                                   f"either: {why}")
             print(f"info     {exc}; reading it through the API as the channel")
             live = fetch_signed_in(video_id(ref), token)
-            found = check_published(proj.out, ref, live=live)
+            found = check_published(proj.out, ref, live=live, tag=tag)
     except (Unreachable, ValueError) as exc:
         print(f"warn     could not read the published video: {exc}")
         return [], False
     if not found:
         # only a clean check is worth remembering: a receipt written over a
         # failing one would claim the published copy is good
-        record(proj.out, ref)
+        record(proj.out, ref, tag=tag)
     return found, True
 
 
@@ -294,7 +294,9 @@ def cmd_check(args) -> int:
     # opt-in so the offline guarantee above still holds by default.
     compared = False
     if getattr(args, "published", None):
-        found, compared = _check_live(proj, args.published)
+        found, compared = _check_live(proj, args.published,
+                                      aspect_tag(getattr(args, "aspect", "")
+                                                 or load_config(proj.config_path).render.aspect))
         problems.extend(found)
 
     if not problems:
@@ -319,18 +321,20 @@ def cmd_publish(args) -> int:
     fault is cheapest to fix while nobody can see the video.
     """
     from .check import check
-    from .published import RECEIPT, video_id
+    from .published import receipt_name, video_id
     from .upload import UploadFailed, access_token, set_privacy
 
     proj = Project(_project_dir(args.name))
+    cfg = load_config(proj.config_path)
+    tag = aspect_tag(args.aspect or cfg.render.aspect)
     ref = args.video
     if not ref:
-        receipt = proj.out / RECEIPT
+        receipt = proj.out / receipt_name(tag)
         try:
             ref = json.loads(receipt.read_text(encoding="utf-8"))["video_id"]
         except (OSError, ValueError, KeyError):
-            print(f"no video id: pass --video, or upload first so {RECEIPT} "
-                  "names one")
+            print(f"no video id: pass --video, or upload first so "
+                  f"{receipt_name(tag)} names one")
             return 1
     vid = video_id(ref)
 
@@ -353,7 +357,7 @@ def cmd_publish(args) -> int:
         return 1
     print(f"{now:<8} https://www.youtube.com/watch?v={vid}")
 
-    found, compared = _check_live(proj, vid)
+    found, compared = _check_live(proj, vid, tag)
     if not compared:
         print(f"warn     {vid} is {now}, but its published copy was not checked; "
               f"run: vidsmith check {args.name} --published {vid}")
@@ -695,6 +699,8 @@ def main(argv=None) -> int:
     ck = sub.add_parser("check", help="read a finished build for faults "
                                       "before publishing it")
     ck.add_argument("name")
+    ck.add_argument("--aspect", choices=ASPECTS,
+                    help="which cut --published names (default: the project's own)")
     ck.add_argument("--published", metavar="ID_OR_URL",
                     help="also read the live video and check the description, "
                          "chapters, tags and caption track against this build")
@@ -733,6 +739,8 @@ def main(argv=None) -> int:
     pb.add_argument("name")
     pb.add_argument("--video", metavar="ID_OR_URL",
                     help="default: the video named in out/published.json")
+    pb.add_argument("--aspect", choices=ASPECTS,
+                    help="which cut to publish (default: the project's own)")
     pb.add_argument("--privacy", choices=("public", "unlisted"), default="public")
     pb.add_argument("--force", action="store_true",
                     help="publish even though check reported problems")

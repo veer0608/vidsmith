@@ -361,14 +361,14 @@ def _private_check(tmp_path, monkeypatch, token):
     monkeypatch.setattr(check_mod, "check", lambda out: [])
     real = pub.check_published
 
-    def check_published(out, vid, live=None):
+    def check_published(out, vid, live=None, tag=""):
         if live is None:
             raise pub.Private("YouTube shows it as 'Private video'")
-        return real(out, vid, live=live)
+        return real(out, vid, live=live, tag=tag)
 
     monkeypatch.setattr(pub, "check_published", check_published)
     monkeypatch.setattr(up, "access_token", token)
-    monkeypatch.setattr(pub, "fetch_signed_in", lambda vid, tok: {
+    monkeypatch.setattr(pub, "fetch_signed_in", lambda vid, tok, **kw: {
         "id": vid, "title": "", "description": "Footage from Pixabay.",
         "tags": [], "uploaded_captions": ["en"], "asr_captions": []})
     recorded = []

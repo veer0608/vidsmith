@@ -173,9 +173,14 @@ def fetch_signed_in(vid: str, token: str, timeout: float = 25.0) -> Dict:
     }
 
 
-def _credit_lines(out: Path) -> List[str]:
-    """The widescreen ledger, which is the cut that gets published."""
-    ledger = out / "credits.txt"
+def _credit_lines(out: Path, tag: str = "") -> List[str]:
+    """The ledger of the cut being checked, widescreen when none is named.
+
+    The two cuts of a real build shared no footage at all, so checking a Short
+    against `credits.txt` asks a vertical video to name 27 creators none of
+    whose clips are in it.
+    """
+    ledger = out / f"credits{tag}.txt"
     if not ledger.exists():
         others = sorted(out.glob("credits*.txt"))
         if not others:
@@ -194,7 +199,7 @@ def _creator(line: str) -> str:
     return name
 
 
-def attribution(live_description: str, out: Path) -> List[str]:
+def attribution(live_description: str, out: Path, tag: str = "") -> List[str]:
     """Credits owed by the delivery, against the description actually published.
 
     A licence condition is met by the text a viewer can see, not by a file in
@@ -208,7 +213,7 @@ def attribution(live_description: str, out: Path) -> List[str]:
     photographers were trimmed out of two published descriptions.
     """
     problems: List[str] = []
-    lines = _credit_lines(out)
+    lines = _credit_lines(out, tag)
     if not lines:
         return problems
     lowered = live_description.lower()
@@ -281,7 +286,7 @@ def chapters(live_description: str, built: int) -> List[str]:
 
 
 def check_published(out_dir: Path, vid: str,
-                    live: Optional[Dict] = None) -> List[str]:
+                    live: Optional[Dict] = None, tag: str = "") -> List[str]:
     """Everything wrong with the published video, as plain sentences.
 
     `live` is injectable so this is testable without the network, which matters:
@@ -298,7 +303,7 @@ def check_published(out_dir: Path, vid: str,
         problems.append("the published video has no description at all")
         return problems
 
-    problems.extend(attribution(live["description"], out))
+    problems.extend(attribution(live["description"], out, tag))
 
     meta_path = out / "youtube.json"
     if meta_path.exists():
@@ -336,6 +341,18 @@ def check_published(out_dir: Path, vid: str,
 # the receipt
 # --------------------------------------------------------------------------- #
 RECEIPT = "published.json"
+
+
+def receipt_name(tag: str = "") -> str:
+    """The receipt for one cut: `published.json`, `published-9x16.json`.
+
+    One receipt per project could only witness the cut uploaded last. Uploading
+    a Short beside a widescreen video overwrote the widescreen receipt, so the
+    project forgot that video had been verified and every later drift check for
+    it compared against the Short's files. The 16:9 receipt keeps the
+    unsuffixed name, as every other delivered file does.
+    """
+    return f"published{tag}.json"
 
 # What a publish is actually a promise about. The description is the file that
 # gets pasted, and the credits are the licence condition inside it; if either
@@ -394,6 +411,6 @@ def record(out_dir: Path, vid: str, tag: str = "") -> Path:
     video = cut_file(out, tag)
     if video is not None:
         body["cut"] = {"name": video.name, "digest": digest(video)}
-    path = out / RECEIPT
+    path = out / receipt_name(tag)
     path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     return path

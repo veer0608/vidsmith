@@ -415,8 +415,9 @@ def test_the_receipt_names_the_cut_the_command_uploaded(tmp_path, monkeypatch):
 
     assert cli.main(["upload", str(root), "--aspect", "9:16"]) == 0
 
-    body = json.loads((out / "published.json").read_text(encoding="utf-8"))
+    body = json.loads((out / "published-9x16.json").read_text(encoding="utf-8"))
     assert set(body["files"]) == {"description-9x16.txt", "credits-9x16.txt"}
+    assert not (out / "published.json").exists(),         "a Short's receipt must not overwrite the widescreen video's"
 
 
 def test_private_is_the_default_privacy(tmp_path, monkeypatch):
@@ -445,8 +446,9 @@ def test_the_receipt_witnesses_the_cut_that_was_published(out):
 
     record(out, "abcdefghijk", tag="-9x16")
 
-    body = json.loads((out / "published.json").read_text(encoding="utf-8"))
+    body = json.loads((out / "published-9x16.json").read_text(encoding="utf-8"))
     assert set(body["files"]) == {"description-9x16.txt", "credits-9x16.txt"}
+    assert not (out / "published.json").exists(),         "a Short's receipt must not overwrite the widescreen video's"
 
 
 def test_the_widescreen_receipt_keeps_its_unsuffixed_names(out):

@@ -228,6 +228,20 @@ def substituted_scenes(cfg: dict) -> List[str]:
 
 
 def publish_drift(out: Path) -> List[str]:
+    """Every published cut's drift, one receipt at a time.
+
+    A Short and a widescreen video are two publications of one delivery, so
+    each leaves its own `published<tag>.json`. There used to be one receipt for
+    the project and the second upload overwrote the first, which lost the fact
+    that the widescreen video had ever been verified.
+    """
+    problems: List[str] = []
+    for receipt in sorted(Path(out).glob("published*.json")):
+        problems.extend(_drift_of(Path(out), receipt))
+    return problems
+
+
+def _drift_of(out: Path, path: Path) -> List[str]:
     """The delivery was rebuilt after it was verified against a live video.
 
     `check --published` reads the watch page, so it can only see a *public*
@@ -245,7 +259,6 @@ def publish_drift(out: Path) -> List[str]:
     Reads only files already on disk, so it costs nothing and keeps this module
     free of the network.
     """
-    path = out / "published.json"
     if not path.is_file():
         return []                     # never published from here; nothing to say
     try:

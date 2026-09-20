@@ -145,10 +145,30 @@ def test_the_receipt_records_the_cut(delivered):
 
 
 def test_a_short_receipt_records_the_short(delivered):
-    record(delivered, "0PkBP0dk4Lw", tag="-9x16")
+    """And keeps its own file. One receipt per project meant the Short's upload
+    overwrote the widescreen video's, so the project forgot that video had been
+    verified and checked its drift against the Short's files."""
+    record(delivered, "MgD7QwCozms")
+    record(delivered, "zAv-sAArB5Y", tag="-9x16")
 
-    body = json.loads((delivered / RECEIPT).read_text(encoding="utf-8"))
-    assert body["cut"]["name"] == "a-video-9x16.mp4"
+    wide = json.loads((delivered / RECEIPT).read_text(encoding="utf-8"))
+    short = json.loads((delivered / "published-9x16.json").read_text(encoding="utf-8"))
+    assert wide["video_id"] == "MgD7QwCozms", "the Short overwrote the widescreen receipt"
+    assert short["video_id"] == "zAv-sAArB5Y"
+    assert short["cut"]["name"] == "a-video-9x16.mp4"
+    assert list(short["files"]) == ["description-9x16.txt", "credits-9x16.txt"]
+
+
+def test_every_published_cut_is_checked_for_drift(delivered):
+    """Both receipts are read, so neither cut's drift goes unnoticed."""
+    for name in ("description-9x16.txt", "credits-9x16.txt"):
+        (delivered / name).write_text("the short's own\n", encoding="utf-8")
+    record(delivered, "MgD7QwCozms")
+    record(delivered, "zAv-sAArB5Y", tag="-9x16")
+    (delivered / "description-9x16.txt").write_text("moved", encoding="utf-8")
+
+    [problem] = publish_drift(delivered)
+    assert "description-9x16.txt" in problem and "zAv-sAArB5Y" in problem
 
 
 def test_a_rebuilt_cut_is_a_new_cut_not_a_stale_description(delivered):
