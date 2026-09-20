@@ -419,6 +419,58 @@ def cmd_retake(args) -> int:
     return 0
 
 
+def cmd_published(args) -> int:
+    """List every video this repo has uploaded, from the receipts it left.
+
+    Test uploads accumulate on a channel quietly: two private ones were there
+    within a day of the upload path working, and nothing in the tool could say
+    so. The receipts already know, one per published cut, so this reads them.
+
+    Offline by default, like `check`. `--live` spends one quota unit per fifty
+    videos to add what YouTube says each one is now, which is the half that
+    catches a video deleted in Studio while its receipt still claims it.
+    """
+    from .published import Unreachable, privacy_of, receipts
+
+    root = (Path(__file__).resolve().parent.parent / "projects")
+    if args.name:
+        projects = [_project_dir(args.name)]
+    else:
+        projects = sorted(p for p in root.glob("*") if (p / "out").is_dir())
+
+    rows = []
+    for proj_dir in projects:
+        for row in receipts(proj_dir / "out"):
+            row["project"] = proj_dir.name
+            rows.append(row)
+    if not rows:
+        print("nothing published from here yet")
+        return 0
+
+    live = {}
+    if args.live:
+        keys = find_keys(projects[0])
+        repo_root = Path(__file__).resolve().parent.parent
+        from .upload import UploadFailed, access_token
+        try:
+            token = access_token(repo_root, keys.get("yt_client", ""),
+                                 keys.get("yt_secret", ""), interactive=False)
+            live = privacy_of([r["video_id"] for r in rows], token)
+        except (UploadFailed, Unreachable) as exc:
+            print(f"warn     could not read the channel: {exc}")
+
+    for row in sorted(rows, key=lambda r: (r["project"], r["tag"])):
+        shape = row["tag"] or "16:9"
+        state = live.get(row["video_id"])
+        if args.live:
+            said = state["privacy"] if state else "gone from the channel"
+        else:
+            said = row["checked"] or "checked, date unknown"
+        drift = f"  drift: {', '.join(row['moved'])}" if row["moved"] else ""
+        print(f"{row['project']:<22} {shape:<6} {row['video_id']}  {said}{drift}")
+    return 0
+
+
 def cmd_upload(args) -> int:
     """Fill the upload form from the files the build already wrote.
 
@@ -745,6 +797,13 @@ def main(argv=None) -> int:
     pb.add_argument("--force", action="store_true",
                     help="publish even though check reported problems")
     pb.set_defaults(func=cmd_publish)
+
+    pl = sub.add_parser("published", help="list every video uploaded from here, "
+                                          "with any drift since it was checked")
+    pl.add_argument("name", nargs="?", help="one project; default: all of them")
+    pl.add_argument("--live", action="store_true",
+                    help="also ask YouTube what each one is now (1 quota unit per 50)")
+    pl.set_defaults(func=cmd_published)
 
     d = sub.add_parser("doctor", help="check ffmpeg, edge-tts and API keys")
     d.set_defaults(func=cmd_doctor)

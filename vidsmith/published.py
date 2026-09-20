@@ -32,7 +32,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 _ID = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/)([A-Za-z0-9_-]{11})")
 _PLAYER = re.compile(r"ytInitialPlayerResponse\s*=\s*(\{.*?\});", re.S)
@@ -389,6 +389,64 @@ def digest(path: Path) -> str:
     if not path.is_file():
         return ""
     return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+
+
+def receipts(out_dir: Path) -> List[Dict[str, Any]]:
+    """Every cut this delivery has published, newest receipt shape first.
+
+    One entry per `published<tag>.json`, carrying the video, the tag, when it
+    was verified and whether the witnessed files have moved since. Offline, so
+    it works on a spent day.
+    """
+    out = Path(out_dir)
+    found = []
+    for path in sorted(out.glob("published*.json")):
+        try:
+            body = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(body, dict) or not body.get("video_id"):
+            continue
+        tag = path.stem[len("published"):]
+        moved = [name for name, was in (body.get("files") or {}).items()
+                 if was and digest(out / name) != was]
+        cut = body.get("cut") if isinstance(body.get("cut"), dict) else {}
+        if cut.get("digest") and digest(out / cut.get("name", "")) != cut["digest"]:
+            moved.append(cut.get("name", "the cut"))
+        found.append({"video_id": body["video_id"], "tag": tag,
+                      "checked": (body.get("checked") or "")[:10],
+                      "cut": cut.get("name", ""), "moved": moved})
+    return found
+
+
+def privacy_of(ids: Sequence[str], token: str, timeout: float = 25.0) -> Dict[str, Dict[str, str]]:
+    """Title and privacy for each video, in one request per fifty.
+
+    videos.list costs a quota unit per call, not per video, so a channel's
+    worth of receipts is one unit. A video that has been deleted simply does
+    not come back, which is worth knowing and is why the caller is told.
+    """
+    import requests
+
+    out: Dict[str, Dict[str, str]] = {}
+    ids = [i for i in dict.fromkeys(ids) if i]
+    for start in range(0, len(ids), 50):
+        batch = ids[start:start + 50]
+        try:
+            r = requests.get(f"{API}/videos",
+                             params={"part": "snippet,status", "id": ",".join(batch)},
+                             headers={"Authorization": f"Bearer {token}"},
+                             timeout=timeout)
+            r.raise_for_status()
+            items = r.json().get("items") or []
+        except Exception as exc:
+            raise Unreachable(f"could not read the channel: {exc}")
+        for item in items:
+            out[item.get("id", "")] = {
+                "title": (item.get("snippet") or {}).get("title", ""),
+                "privacy": (item.get("status") or {}).get("privacyStatus", ""),
+            }
+    return out
 
 
 def record(out_dir: Path, vid: str, tag: str = "") -> Path:
