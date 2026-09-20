@@ -119,6 +119,7 @@ Or have Gemini draft one:
 | `vidsmith thumbs NAME --refresh` | redo the delivery thumbnails from stock, no re-render |
 | `vidsmith check NAME` | read a finished build for faults before publishing it |
 | `vidsmith sheet NAME` | a frame per shot beside the words spoken over it, as an html page |
+| `vidsmith retake NAME --scene N` | search one scene's footage again, keeping the narration |
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith publish NAME` | make the uploaded video public, then check the public copy |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
