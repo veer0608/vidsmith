@@ -358,6 +358,20 @@
   (a check must never open a browser) and `fetch_signed_in()` reads the same
   fields through the Data API for two quota units. No login, or a refused
   read, still ends in "the published copy was not checked".
+- **Another shape of the same script must not buy new words, or a new
+  photograph.** `--aspect 9:16` on a finished project re-asked the model for
+  the upload metadata and re-picked the thumbnail. The widescreen video had not
+  changed, but `description.txt` came back with the same facts in different
+  words and one different credit line, so the description already published for
+  it read as drift for ever after, and pasting the new one would have named a
+  photographer whose photo was not on the video. Found on `MgD7QwCozms`: 36 of
+  38 lines identical, the odd one out being the thumbnail credit. The web's cut
+  path passed `cut=True` and was right; the CLI had no way to say it. So the
+  narration says it instead: `narration_digest()` of the title and every
+  scene's words is stored in `youtube.json` as `narration_key`, and while it
+  matches, the metadata is reused and an existing thumbnail is kept. A redraft
+  moves the digest and both are made again. `check` caught this the moment it
+  happened, which is the third time that command has paid for itself.
 - **Replacing a thumbnail invalidates `description.txt`, which is the file that
   gets published.** `description.txt` and `youtube.txt` are composed from the
   `credits*.txt` files, so `thumbs --refresh` corrected the credits and left the

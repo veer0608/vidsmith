@@ -497,3 +497,101 @@ def test_adding_a_scene_still_drops_everything(tmp_path):
 
     assert not (build / "narration.wav").exists()
     assert not (vis / "scene_000_00.mp4").exists()
+
+
+def test_another_shape_of_the_same_script_does_not_rewrite_the_description(
+        project, rendered, monkeypatch, tmp_path):
+    """`--aspect 9:16` on a finished project used to re-ask the model.
+
+    It wrote the same facts in different words, so `description.txt` moved
+    under a widescreen video that had not changed, and the description already
+    published for it read as drift for ever after. The web's cut path passed
+    `cut=True` and was right; the CLI had no way to say it, so the narration
+    says it: the metadata records what it was written from.
+    """
+    import json
+
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": "a-real-key", "pexels": "", "pixabay": ""})
+    monkeypatch.setattr(pl.llm, "suggest_queries", lambda *a, **k: 0)
+    _stock_thumbnail(monkeypatch, tmp_path)
+    written = []
+
+    def upload_metadata(title, scenes, key, **kw):
+        written.append(title)
+        return {"title": "A Test Video", "description": f"Take {len(written)}.",
+                "tags": [], "chapters": []}
+
+    monkeypatch.setattr(pl.llm, "upload_metadata", upload_metadata)
+
+    pl.build(project, log=lambda *a: None)
+    first = (project / "out" / "description.txt").read_text(encoding="utf-8")
+    assert "Take 1." in first and len(written) == 1
+
+    pl.build(project, log=lambda *a: None, overrides={"aspect": "9:16"})
+
+    assert len(written) == 1, "the model was asked again for another shape"
+    assert (project / "out" / "description.txt").read_text(encoding="utf-8") == first
+    assert "Take 1." in (project / "out" / "description-9x16.txt").read_text(encoding="utf-8")
+
+
+def test_a_redrafted_script_still_gets_new_metadata(project, rendered, monkeypatch, tmp_path):
+    """The other half: prose that describes words which have moved is stale, so
+    reuse must key on the narration rather than on the file being there."""
+    import json
+
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": "a-real-key", "pexels": "", "pixabay": ""})
+    monkeypatch.setattr(pl.llm, "suggest_queries", lambda *a, **k: 0)
+    _stock_thumbnail(monkeypatch, tmp_path)
+    written = []
+
+    def upload_metadata(title, scenes, key, **kw):
+        written.append(title)
+        return {"title": "A Test Video", "description": f"Take {len(written)}.",
+                "tags": [], "chapters": []}
+
+    monkeypatch.setattr(pl.llm, "upload_metadata", upload_metadata)
+
+    pl.build(project, log=lambda *a: None)
+    script = project / "script.md"
+    script.write_text(script.read_text(encoding="utf-8")
+                      .replace("A first line of narration for the test to speak.",
+                               "Entirely different words now, on the same heading."),
+                      encoding="utf-8")
+    pl.build(project, log=lambda *a: None)
+
+    assert len(written) == 2, "a redraft kept prose describing the old words"
+    assert "Take 2." in (project / "out" / "description.txt").read_text(encoding="utf-8")
+
+
+def test_rebuilding_the_same_script_keeps_the_photograph(project, rendered, monkeypatch, tmp_path):
+    """A plain rebuild of a published video chose a new thumbnail photo, so the
+    credits named a photographer whose picture was not on the video and the
+    published description went stale. Found on MgD7QwCozms, where only that one
+    credit line differed between the published description and the new file."""
+    monkeypatch.setattr(pl, "find_keys",
+                        lambda root: {"gemini": "a-real-key", "pexels": "", "pixabay": ""})
+    monkeypatch.setattr(pl.llm, "suggest_queries", lambda *a, **k: 0)
+    monkeypatch.setattr(pl.llm, "upload_metadata", lambda *a, **k: {
+        "title": "A Test Video", "description": "Same words.", "tags": [],
+        "chapters": []})
+    picks = []
+
+    def from_stock(title, subjects, size, keys, workdir, log=print):
+        picks.append(title)
+        jpg = tmp_path / f"stock{len(picks)}.jpg"
+        jpg.write_bytes(b"a photograph")
+        return {"path": jpg, "query": "q", "author": f"Photographer {len(picks)}",
+                "page": f"https://pexels.com/photo/{len(picks)}"}
+
+    monkeypatch.setattr(pl.thumbs, "from_stock", from_stock)
+
+    pl.build(project, log=lambda *a: None)
+    first = (project / "out" / "credits.txt").read_text(encoding="utf-8")
+    assert "Photographer 1" in first and len(picks) == 1
+
+    pl.build(project, log=lambda *a: None)
+
+    assert len(picks) == 1, "a rebuild chose a new photograph for a published video"
+    assert (project / "out" / "credits.txt").read_text(encoding="utf-8") == first
