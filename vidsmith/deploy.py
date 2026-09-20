@@ -16,6 +16,7 @@ commit that was pushed. The public endpoints are the witness, not the restart.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -34,6 +35,57 @@ REMOTE = ("hostname; cd vidsmith; git fetch origin; git checkout main; "
           "bash scripts/fetch-runtime-deps.sh --fonts-only; "
           "sudo systemctl daemon-reload; sudo systemctl restart vidsmith; "
           "systemctl is-active vidsmith")
+# Asked on the box, over loopback, because /api/youtube is behind the token and
+# the token has no business travelling to a laptop to answer a health question.
+# Printed last on its own line, so the parsing above it is unchanged.
+# `/api/youtube` builds the redirect from the request it is answering, so a
+# bare loopback call reports `http://127.0.0.1:8077/...` and comparing that to
+# the public URL fails a healthy box - which it did, on the first real run.
+# Caddy sends these two headers in ordinary traffic and uvicorn trusts them
+# from loopback, so the probe sends them too and gets the public answer.
+def youtube_probe(host: str) -> str:
+    return (
+        "; sleep 3; printf 'youtube:'; curl -s -m 10 "
+        "-H \"x-vidsmith-token: $(grep -m1 '^VIDSMITH_TOKEN=' .env | cut -d= -f2-)\" "
+        f"-H \"Host: {host}\" -H 'X-Forwarded-Proto: https' "
+        "http://127.0.0.1:8077/api/youtube; echo")
+
+
+def youtube_state(stdout: str) -> Optional[Dict[str, Any]]:
+    """What the box says about uploading, or None when it did not answer."""
+    for line in (stdout or "").splitlines():
+        if line.startswith("youtube:"):
+            try:
+                body = json.loads(line[len("youtube:"):] or "{}")
+            except ValueError:
+                return None
+            return body if isinstance(body, dict) else None
+    return None
+
+
+def youtube_report(state: Optional[Dict[str, Any]], host: str) -> tuple:
+    """A line to log and a problem to raise, for uploading from the page.
+
+    The live box ran for weeks with no YouTube client at all, and nothing said
+    so: the fault would have surfaced as `redirect_uri_mismatch` in front of
+    whoever first tried to publish from the page. A wrong redirect is the same
+    shape, so it is a problem rather than a line, but only when a client is
+    configured - a box that does no uploading is a legitimate box.
+    """
+    if state is None:
+        return "uploading from the page: the box did not answer", ""
+    if not state.get("configured"):
+        return ("uploading from the page: no YouTube client on the box "
+                "(set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in its .env)"), ""
+    wanted = f"https://{host}/api/youtube/callback"
+    live = state.get("redirect_uri") or ""
+    if live != wanted:
+        return "", (f"its YouTube client redirects to {live or 'nothing'}, not "
+                    f"{wanted}, so Google will refuse the consent")
+    if not state.get("connected"):
+        return ("uploading from the page: configured, not connected yet "
+                "(POST /api/youtube/connect and allow it)"), ""
+    return "uploading from the page: ready", ""
 CHECK_IP = "https://checkip.amazonaws.com"
 # The box is in Mumbai. A console opened on "Global" shows no security groups at
 # all, and the IAM page is where a search for "security" lands: both happened
@@ -154,7 +206,7 @@ def deploy(host: str = HOST, user: str = USER, key: str = KEY,
     log(f"deploying to {user}@{host}")
     try:
         result = run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15",
-                      "-i", str(Path(key).expanduser()), f"{user}@{host}", REMOTE],
+                      "-i", str(Path(key).expanduser()), f"{user}@{host}", REMOTE + youtube_probe(host)],
                      capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         raise DeployFailed("ssh connected but the deploy ran past ten minutes")
@@ -162,7 +214,8 @@ def deploy(host: str = HOST, user: str = USER, key: str = KEY,
         raise DeployFailed("there is no ssh on PATH")
     if result.returncode != 0:
         raise DeployFailed(ssh_failure(result.stderr, get, host, key))
-    lines: List[str] = [line for line in (result.stdout or "").splitlines() if line.strip()]
+    lines: List[str] = [line for line in (result.stdout or "").splitlines()
+                       if line.strip() and not line.startswith("youtube:")]
     if lines:
         # the machine it ran on, first, so a deploy to the wrong box cannot pass for one
         log(f"ran on {lines[0]}; service {lines[-1]}")
@@ -186,7 +239,12 @@ def deploy(host: str = HOST, user: str = USER, key: str = KEY,
         problems.append(f"healthz lists fonts {health.get('fonts')}, not the two DejaVu faces")
     if "waiting" not in busy:
         problems.append("/api/busy did not answer with a waiting count")
+    note, refused = youtube_report(youtube_state(result.stdout), host)
+    if refused:
+        problems.append(refused)
     if problems:
         raise DeployFailed(f"{target} is live, but: " + "; ".join(problems))
     log(f"live: {base} is running {target}, with ffmpeg and both fonts")
+    if note:
+        log(note)
     return target

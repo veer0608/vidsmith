@@ -39,6 +39,19 @@ times, because on a connection that drops a deploy that had worked reported
 failure twice in one evening. `VIDSMITH_HOST`, `VIDSMITH_SSH_KEY` and
 `VIDSMITH_AWS_REGION` override the defaults.
 
+**A deploy also says whether the page can upload.** The box ran for weeks
+with no YouTube client at all and nothing reported it; the fault would have
+landed as `redirect_uri_mismatch` in front of whoever first published from the
+page. `deploy` asks the box its own `/api/youtube` over loopback, so the token
+is read there and never travels, and reports ready, not configured, or not
+connected. A client whose redirect is not `https://<host>/api/youtube/callback`
+fails the deploy, because consent will be refused at Google.
+
+The probe sends `Host:` and `X-Forwarded-Proto: https`, which Caddy sends in
+ordinary traffic and uvicorn trusts from loopback. Without them the route builds
+the redirect from the loopback request, answers `http://127.0.0.1:8077/...`, and
+the check failed a healthy box on its first real run.
+
 **Bring a finished render down with `vidsmith fetch <job>`.** It waits for a
 render still in progress, retries each file, and writes through a `.part` file
 so a dropped line never leaves half an mp4 that looks finished; three downloads

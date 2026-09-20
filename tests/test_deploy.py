@@ -27,9 +27,14 @@ class Reply:
 class Box:
     """The live instance: what its endpoints say, and what ssh does to it."""
 
-    def __init__(self, live="0000000", busy=None, ssh_code=0, ssh_err="", lands=True):
+    READY = ('{"configured": true, "connected": true, '
+             '"redirect_uri": "https://box.example/api/youtube/callback"}')
+
+    def __init__(self, live="0000000", busy=None, ssh_code=0, ssh_err="", lands=True,
+                 youtube=READY):
         self.live, self.busy = live, list(busy or [{"busy": False, "waiting": 0}])
         self.ssh_code, self.ssh_err, self.lands = ssh_code, ssh_err, lands
+        self.youtube = youtube
         self.ssh_calls: List[List[str]] = []
         self.log: List[str] = []
         self.clock = 0.0
@@ -40,9 +45,10 @@ class Box:
         self.ssh_calls.append(args)
         if self.ssh_code == 0 and self.lands:
             self.live = TARGET[:7]
-        return subprocess.CompletedProcess(args, self.ssh_code,
-                                           "ip-172-31-12-94\nabc1234 a commit\nactive\n",
-                                           self.ssh_err)
+        out = "ip-172-31-12-94\nabc1234 a commit\nactive\n"
+        if self.youtube is not None:
+            out += f"youtube:{self.youtube}\n"
+        return subprocess.CompletedProcess(args, self.ssh_code, out, self.ssh_err)
 
     def get(self, url, timeout=0):
         if url == deploy.CHECK_IP:
@@ -183,3 +189,77 @@ def test_an_endpoint_that_never_answers_is_still_a_failure():
 
     with pytest.raises(deploy.DeployFailed, match="did not answer with a waiting count"):
         box.go()
+
+
+# --------------------------------------------------------------------------- #
+# uploading from the page
+# --------------------------------------------------------------------------- #
+def test_a_deploy_says_whether_the_page_can_upload():
+    """The box ran for weeks with no YouTube client and nothing said so. The
+    fault would have surfaced as redirect_uri_mismatch in front of whoever
+    first tried to publish from the page."""
+    box = Box()
+
+    box.go()
+
+    assert any("uploading from the page: ready" in line for line in box.log), box.log
+    command = box.ssh_calls[0][-1]
+    assert "127.0.0.1:8077/api/youtube" in command, "asked over loopback, on the box"
+    assert "VIDSMITH_TOKEN" in command, "the token is read there, never sent from here"
+
+
+def test_a_box_with_no_client_is_reported_not_refused():
+    """A box that does no uploading is a legitimate box."""
+    box = Box(youtube='{"configured": false, "connected": false, "redirect_uri": ""}')
+
+    assert box.go() == TARGET[:7]
+    assert any("no YouTube client on the box" in line for line in box.log), box.log
+
+
+def test_a_client_that_redirects_somewhere_else_fails_the_deploy():
+    """Configured against the wrong host is the silent half: consent is refused
+    at Google, after the render is paid for."""
+    box = Box(youtube='{"configured": true, "connected": false, '
+                      '"redirect_uri": "http://127.0.0.1:53682"}')
+
+    with pytest.raises(deploy.DeployFailed, match="not https://box.example"):
+        box.go()
+
+
+def test_a_configured_box_that_nobody_connected_says_so():
+    box = Box(youtube='{"configured": true, "connected": false, '
+                      '"redirect_uri": "https://box.example/api/youtube/callback"}')
+
+    box.go()
+
+    assert any("not connected yet" in line for line in box.log), box.log
+
+
+def test_a_box_that_did_not_answer_is_not_a_failure():
+    box = Box(youtube=None)
+
+    assert box.go() == TARGET[:7]
+    assert any("did not answer" in line for line in box.log), box.log
+
+
+def test_the_probe_asks_as_the_public_host():
+    """The first real run failed a healthy box: /api/youtube builds the redirect
+    from the request, so a bare loopback call answers 127.0.0.1:8077."""
+    box = Box()
+
+    box.go()
+
+    command = box.ssh_calls[0][-1]
+    assert 'Host: box.example' in command
+    assert "X-Forwarded-Proto: https" in command
+
+
+def test_the_service_line_is_not_the_probe_output():
+    """`ran on ...; service active` reads the last line, and the probe now
+    prints after it."""
+    box = Box()
+
+    box.go()
+
+    [line] = [l for l in box.log if l.startswith("ran on")]
+    assert line.endswith("service active"), line
