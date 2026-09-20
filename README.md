@@ -122,6 +122,7 @@ Or have Gemini draft one:
 | `vidsmith retake NAME --scene N` | search one scene's footage again, keeping the narration |
 | `vidsmith upload NAME` | put the cut on YouTube, with its description, thumbnail and captions |
 | `vidsmith publish NAME` | make the uploaded video public, then check the public copy |
+| `vidsmith published [NAME]` | list what this repo has uploaded, with drift and (--live) privacy |
 | `vidsmith doctor` | check ffmpeg, edge-tts and keys |
 | `vidsmith deploy` | put `main` on the live instance, refusing during a render and proving the new commit is live |
 | `vidsmith fetch JOB` | download a finished render off the live instance, retrying a connection that drops |

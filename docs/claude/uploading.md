@@ -44,6 +44,16 @@ twice. It also reads every chapter label into every cut's description, not just
 widescreen one, so a cut rebuilt without the other is visible. A Shorts-only
 project has no reference and is not asked for one.
 
+**`vidsmith published` reads the receipts back.** Test uploads accumulate
+on a channel quietly - two private ones were there within a day of the upload
+path working, and nothing in the tool could say so. `published.receipts()`
+returns one row per `published<tag>.json` with the video, the cut and any file
+that has moved since it was verified, offline. `--live` adds what YouTube says
+each one is now through `privacy_of()`, which batches fifty ids per request
+because videos.list costs a unit per call rather than per video, and reports a
+video that does not come back as gone from the channel: a receipt outlives the
+video it names.
+
 **`check` runs first and refuses.** Everything it looks for is worse once
 public, and taking a video down does not unpublish it. `--force` exists for the
 operator who has read the problems and disagrees; it prints them either way.
