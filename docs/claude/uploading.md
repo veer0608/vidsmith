@@ -34,6 +34,16 @@ cut, because the two cuts of a real build shared no footage at all: checking a
 Short against `credits.txt` asks a vertical video to name 27 creators whose
 clips are not in it.
 
+**The cuts are checked against each other, not only against their own
+files.** `check.cuts_agree()` reads the opposite direction from
+`credits_published()`: a credit line in `description<tag>.txt` that is not in
+that cut's ledger is a photographer whose clip is not in the video, which is
+what pasting the widescreen description under a Short does and what shipped
+twice. It also reads every chapter label into every cut's description, not just
+`description.txt`, and compares the prose of each description with the
+widescreen one, so a cut rebuilt without the other is visible. A Shorts-only
+project has no reference and is not asked for one.
+
 **`check` runs first and refuses.** Everything it looks for is worse once
 public, and taking a video down does not unpublish it. `--force` exists for the
 operator who has read the problems and disagrees; it prints them either way.

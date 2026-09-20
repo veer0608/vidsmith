@@ -188,6 +188,70 @@ def credits_published(out: Path) -> List[str]:
     return problems
 
 
+def _prose(text: str) -> List[str]:
+    """A description with its credit block taken out: the part that is the video."""
+    return [ln.strip() for ln in text.splitlines()
+            if ln.strip() and "http" not in ln]
+
+
+def cuts_agree(out: Path, chapters: Optional[List[dict]] = None) -> List[str]:
+    """Every cut of one video says the same thing, and credits only its own clips.
+
+    Two cuts are one edit at two shapes, so their descriptions differ in exactly
+    one way: the credits, which share no footage at all on a real build. Three
+    things follow, and none of them were checked.
+
+    `credits_published()` reads each ledger into its description, which catches
+    a credit that was never published. The reverse is the fault that actually
+    shipped, twice: a description naming photographers whose clips are not in
+    that cut, from pasting the widescreen description under a Short. A wrong
+    `--aspect` anywhere produces exactly that.
+
+    The prose is compared because a cut built from a different script, or a
+    description written again for one cut only, means the two videos no longer
+    describe the same edit. And chapters were only ever checked against
+    `description.txt`, so a Short could publish a list YouTube would ignore.
+    """
+    problems: List[str] = []
+    descriptions = sorted(Path(out).glob("description*.txt"))
+    texts = {}
+    for path in descriptions:
+        tag = path.stem[len("description"):]
+        text = path.read_text(encoding="utf-8")
+        texts[tag] = text
+
+        ledger = Path(out) / f"credits{tag}.txt"
+        owned = set()
+        if ledger.exists():
+            owned = {ln.strip() for ln in
+                     ledger.read_text(encoding="utf-8").splitlines() if ln.strip()}
+            for line in text.splitlines():
+                line = line.strip()
+                if ("pexels.com" in line or "pixabay.com" in line) and line not in owned:
+                    problems.append(
+                        f"{path.name} credits someone whose clip is not in that "
+                        f"cut, which is a licence problem rather than a typo: "
+                        f"{line[:60]}")
+                    break              # one per cut is enough to act on
+
+        for chapter in chapters or []:
+            label = chapter.get("label") or ""
+            if label and label not in text:
+                problems.append(f"chapter '{label}' is missing from {path.name}, "
+                                "so that cut would publish a list YouTube ignores")
+                break
+
+    reference = texts.get("")
+    if reference is not None:
+        for tag, text in sorted(texts.items()):
+            if tag and _prose(text) != _prose(reference):
+                problems.append(
+                    f"description{tag}.txt does not describe the same video as "
+                    f"description.txt; one of the cuts was rebuilt without the "
+                    f"other, or a description was written again for one cut")
+    return problems
+
+
 # A scene the model swapped for a drawing is not automatically wrong - one
 # unfilmable idea in a video is ordinary. Two is a pattern, and a pattern usually
 # means the queries are bad rather than the subjects being unfilmable. The share
@@ -377,6 +441,7 @@ def check(out_dir: Path) -> List[str]:
             if desc and c.get("label") and c["label"] not in desc:
                 problems.append(f"chapter '{c['label']}' is missing from "
                                 "description.txt")
+        problems.extend(cuts_agree(out, chapters))
 
     for aspect, cut in cuts:
         srt = out / f"captions{aspect_tag(aspect)}.srt"
