@@ -88,6 +88,18 @@ next build writes fresh searches for those beats alone: a retake of one scene
 of machine-statements rebuilt in 103s against 499s for the whole video, and
 spent one scene's vision calls rather than nine.
 
+**A build says when a search has drifted off the page.**
+`genres.drifting_devices()` reports the device words a beat search names
+that the words spoken over it do not, and `prepare_beats` logs it as
+`drift: scene 5 searches '...' but these words name no monitor`. It is
+said and never fixed: `scrub()` rewrites, and only where a genre asks,
+because a scene really about software is meant to show a screen and this
+cannot tell the two apart. Measured on the 22 searches of that build
+before shipping: it warned on the four bad scene-5 searches, once softly
+on 'data entry on computer' where the narration says retype, and on
+nothing else. A plain word-overlap rule was tried first and cried wolf on
+'advertisement on bank statement' for a scene about a marketing banner.
+
 **It cannot change the subject, only the roll.** The search is written from the
 narration, so scene 5 of that build came back as screens and code twice, from
 "broken text on monitor" and then "database error on screen", because the words
