@@ -31,6 +31,7 @@ from .script_parser import Scene
 from .theme import Theme, resolve as resolve_theme
 from . import cards
 from . import captions as cap
+from . import genres
 from . import diagram
 from . import llm
 from . import manifest
@@ -1129,6 +1130,16 @@ class VisualBuilder:
             for beat in beats:
                 if beat.get("key") in cache:
                     beat["query"] = cache[beat["key"]]["query"]
+                # a search that names a screen the narration never mentions is
+                # how a scene about paper ends up showing code. Said, never
+                # fixed: a retake rerolls the same words and a scene that is
+                # really about software should show a screen.
+                strayed = genres.drifting_devices(beat["query"], beat["text"])
+                if strayed:
+                    self.log(f"    drift: scene {scene.index} searches "
+                             f"'{beat['query']}' but these words name no "
+                             f"{'/'.join(strayed)}; rewrite the words rather "
+                             f"than retaking the shot")
             self._beats[scene.index] = beats
 
     @staticmethod

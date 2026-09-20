@@ -16,7 +16,7 @@ import pytest
 
 from conftest import make_scene
 
-from vidsmith import visuals
+from vidsmith import genres, visuals
 from vidsmith.config import ThemeConfig, VisualConfig
 from vidsmith.llm import LLMUnavailable
 from vidsmith.theme import resolve
@@ -820,3 +820,50 @@ def test_a_search_the_rules_leave_alone_says_nothing(monkeypatch):
                      genre="technology", log=lines.append)
 
     assert not [l for l in lines if "style:" in l]
+
+
+# --------------------------------------------------------------------------- #
+# drift: a search that names a screen the words never mention
+# --------------------------------------------------------------------------- #
+def test_a_search_naming_a_screen_the_words_do_not_is_flagged():
+    """The signal that a retake will not help. Scene 5 of machine-statements was
+    about names splitting across printed rows, and its searches came back
+    "broken text on monitor" and then "database error on screen": two retakes
+    bought two more sets of screens, and rewriting the words is what moved the
+    footage to receipts and bills."""
+    words = ("Line wraps split long company names across two distinct rows "
+             "without a hyphen. It fails to find a match and leaves the entry "
+             "blank.")
+    assert genres.drifting_devices("broken text on monitor", words) == ["monitor"]
+    assert genres.drifting_devices("database error on screen", words) == ["screen"]
+
+
+def test_a_scene_that_is_really_about_software_is_left_alone():
+    """The honest case, and why this is never a rewrite: the words name a
+    device, so footage of one is right."""
+    words = "Stop trusting raw PDF exports to feed your personal finance apps."
+    assert genres.drifting_devices("personal finance app screen", words) == []
+
+
+def test_a_synonym_is_not_drift():
+    """Measured before shipping: a plain word-overlap rule flagged this correct
+    search on the real build, because 'advertisement' shares no word with
+    'marketing banner'. Two searches of 18 warned that way, both wrongly."""
+    words = "A marketing banner about a new credit card can look identical."
+    assert genres.drifting_devices("advertisement on bank statement", words) == []
+
+
+def test_the_build_says_it_and_keeps_the_search(tmp_path, monkeypatch):
+    lines = []
+    builder = _builder(tmp_path, lines=lines, beat_seconds=8.0)
+    scene = _long_scene()
+    cached = {"text": scene.text, "query": "database error on screen"}
+    (tmp_path / "build" / "beats.json").write_text(
+        json.dumps({"k": cached}), encoding="utf-8")
+    monkeypatch.setattr(builder, "_beat_key", lambda sc, text: "k")
+
+    builder.prepare_beats([scene])
+
+    assert any("drift:" in line and "screen" in line for line in lines), lines
+    kept = [b["query"] for b in builder._beats[scene.index]]
+    assert kept == ["database error on screen"] * len(kept), "a search was rewritten"

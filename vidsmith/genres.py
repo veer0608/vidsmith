@@ -209,6 +209,24 @@ def names_a_device(narration: str) -> bool:
     return bool(set(re.findall(r"[a-z]+", narration.lower())) & DEVICE_CUES)
 
 
+def drifting_devices(query: str, narration: str) -> List[str]:
+    """Device words a search names that the words spoken over it do not.
+
+    `scrub()` removes these, but only for a genre that asks it to. This says so
+    for any build, and only says it: a scene really about software is meant to
+    show a screen, so rewriting here would break the honest case.
+
+    It is the signal that a retake will not help. Scene 5 of machine-statements
+    was about names splitting across printed rows, and its searches came back
+    "broken text on monitor" and then "database error on screen", because the
+    narration talked about databases and matching. Two retakes bought two more
+    sets of screens; rewriting the words to describe the page is what moved it.
+    """
+    if names_a_device(narration):
+        return []
+    return sorted(set(re.findall(r"[a-z]+", (query or "").lower())) & DEVICE_WORDS)
+
+
 def rerank_block(name: str, line: str = "") -> str:
     """The style paragraph for the clip reranker, or nothing for `any`.
 
