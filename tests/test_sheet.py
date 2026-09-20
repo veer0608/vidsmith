@@ -264,3 +264,30 @@ def test_a_project_rendered_only_as_a_short_says_which_shape_it_has(tmp_path):
 
     with pytest.raises(sheet_mod.SheetFailed, match=r"has 9:16 - pass --aspect 9:16"):
         sheet_mod.build_sheet(root, log=lambda *a: None, run=_runs([]))
+
+
+def test_each_shot_names_the_search_that_found_it(tmp_path):
+    """The sheet is the one tool for judging footage, so the search beside a
+    frame has to be the one that found it. Since beat searches that is per
+    shot: a real build of machine-statements showed "printer rolling out
+    paper", the scene's directive, under clips it had found by searching
+    "broken text on monitor", which blamed the wrong search for the footage."""
+    scene = make_scene(TEXT, heading="Broken Words", query="printer rolling out paper")
+    half = scene.duration / 2
+    scene.shots = [
+        {"duration": half, "query": "broken text on monitor", "credit": "Ada"},
+        {"duration": half, "query": "line wrap on a receipt", "credit": "Ada"},
+    ]
+    rows = sheet_mod.shot_times([scene])
+
+    assert [r["query"] for r in rows] == ["broken text on monitor",
+                                          "line wrap on a receipt"]
+
+
+def test_a_shot_with_no_search_of_its_own_falls_back_to_the_directive(tmp_path):
+    """A build from before beat searches records no per-shot query, and a
+    scene whose beat search was unavailable keeps the directive."""
+    scene = make_scene(TEXT, heading="Old build", query="hands flipping a ledger")
+    scene.shots = [{"duration": scene.duration, "credit": "Ada"}]
+
+    assert sheet_mod.shot_times([scene])[0]["query"] == "hands flipping a ledger"

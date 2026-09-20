@@ -48,6 +48,15 @@ def shot_times(scenes: Sequence[Scene], offset: float = 0.0,
                       if within <= lead_in + w.get("start", 0.0) < within + length]
             start = offset + (scene.start or 0.0) + within
             credit = ""
+            # the search that actually found this clip, which since beat
+            # searches is per shot and not the scene's `[visual:]` line. The
+            # sheet exists to be read beside the frame, so showing the
+            # directive blamed the wrong search for every beat-searched shot:
+            # "printer rolling out paper" under footage a build had found by
+            # searching "broken text on monitor".
+            query = (scene.query or "").strip()
+            if isinstance(shot, dict) and (shot.get("query") or "").strip():
+                query = shot["query"].strip()
             if isinstance(shot, dict) and shot.get("credit"):
                 credit = f"{shot['credit']} - {shot.get('credit_url', '')}".rstrip(" -")
             rows.append({
@@ -55,7 +64,7 @@ def shot_times(scenes: Sequence[Scene], offset: float = 0.0,
                 "middle": start + length / 2,
                 "heading": scene.heading or "",
                 "words": " ".join(spoken),
-                "query": (scene.query or "").strip(),
+                "query": query,
                 "credit": credit,
             })
             within += length
