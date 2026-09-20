@@ -80,6 +80,21 @@ monitor", so the sheet blamed the wrong search for footage the reader was
 judging. It reads the per-shot `query` out of `shots.json` now, falling back
 to the directive for builds from before beat searches.
 
+**`vidsmith retake --scene N` re-films one scene and nothing else.**
+`visuals.forget_beats()` drops that scene's entries from `beats.json` - keyed
+by heading and passage text, so an entry is this scene's when its text is part
+of the scene's - and `invalidate(only={n})` drops its clips and verdicts. The
+next build writes fresh searches for those beats alone: a retake of one scene
+of machine-statements rebuilt in 103s against 499s for the whole video, and
+spent one scene's vision calls rather than nine.
+
+**It cannot change the subject, only the roll.** The search is written from the
+narration, so scene 5 of that build came back as screens and code twice, from
+"broken text on monitor" and then "database error on screen", because the words
+were about databases and matching. Rewriting the words to describe the printed
+page is what moved the footage to receipts and bills. A scene that comes back
+wrong twice needs `rewrite`, not another retake.
+
 **Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
 `build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no
 captions burned in), its timing, the words spoken over it, the search that

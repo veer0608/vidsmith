@@ -108,6 +108,37 @@ def card_headline(scene: Scene, mode: str = "auto") -> str:
     return cards.headline_phrase(scene.text, 58) or scene.heading or scene_query(scene)
 
 
+def forget_beats(build_dir: Path, scene: Scene) -> List[str]:
+    """Drop one scene's cached beat searches, and return what they were.
+
+    `beats.json` is keyed by a hash of the heading and the passage, so there is
+    no index to delete by; an entry is this scene's when its text is part of
+    the scene's own. That keying is what makes the cache survive a redraft, so
+    it is not changed to make deleting easier.
+
+    The next build writes fresh searches for those beats. It is worth saying
+    that the words decide the search: a scene that comes back wrong twice needs
+    its narration changed, not another search.
+    """
+    path = Path(build_dir) / "beats.json"
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(cache, dict):
+        return []
+    whole = " ".join((scene.text or "").split())
+    dropped = []
+    for key in list(cache):
+        text = " ".join(str((cache[key] or {}).get("text") or "").split())
+        if text and text in whole:
+            dropped.append(str((cache[key] or {}).get("query") or ""))
+            cache.pop(key)
+    if dropped:
+        path.write_text(json.dumps(cache, indent=1) + "\n", encoding="utf-8")
+    return dropped
+
+
 def scene_query(scene: Scene) -> str:
     if scene.query and scene.query.strip():
         return scene.query.strip()

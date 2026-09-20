@@ -37,6 +37,7 @@ before writing anything. The traps are the reason this file exists.
 | Show it to someone | [deploying.md](docs/claude/deploying.md) | The tunnel beats both hosts |
 | Commit anything | Working in this repo, below | `main` is protected; every change is a branch and a PR |
 | Publish a build | `vidsmith check <name>` | Run it first; it compares delivered files against each other |
+| Re-film one scene | `vidsmith retake <name> --scene N`, [configuration.md](docs/claude/configuration.md) | It rerolls the search, it cannot change the subject; a scene wrong twice needs its words rewritten |
 | Judge the footage a build chose | `vidsmith sheet <name>`, [configuration.md](docs/claude/configuration.md), reading the footage | Read the frames beside the words, never the log; with no `visuals{tag}/shots.json` the times are another cut's |
 | Add or change a footage style | [configuration.md](docs/claude/configuration.md), `visuals.genre` | A style word that is a noun, a place or a time becomes the subject; a rule the prompt states and the model can break is enforced in code |
 | Bring a live render down | `vidsmith fetch <job>`, [deploying.md](docs/claude/deploying.md) | The token is the instance's own, not the one in a local `.env` |

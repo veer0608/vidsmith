@@ -367,6 +367,54 @@ def cmd_publish(args) -> int:
     return 0
 
 
+def cmd_retake(args) -> int:
+    """Search a scene's footage again, keeping the narration and every other cut.
+
+    The footage is the part most often wrong, and the fix used to be a whole
+    rebuild in which every other scene was free to change too. This drops one
+    scene's cached beat searches and its clips, so the next build writes new
+    searches from the same words and re-films only that scene.
+
+    What it cannot do is change the subject: the search is written from the
+    narration, so a scene that comes back wrong twice needs its words changed
+    rather than another roll of the dice.
+    """
+    from . import visuals
+    from .pipeline import invalidate
+    from .script_parser import load_scenes
+
+    root = _project_dir(args.name)
+    proj = Project(root)
+    scenes_json = proj.build / "scenes.json"
+    if not scenes_json.exists():
+        print(f"nothing built yet - run: vidsmith build {args.name}")
+        return 1
+
+    scenes = load_scenes(scenes_json)
+    index = args.scene
+    if not 0 <= index < len(scenes):
+        print(f"scene {index} does not exist; this build has 0 to {len(scenes) - 1}")
+        return 1
+
+    scene = scenes[index]
+    dropped = visuals.forget_beats(proj.build, scene)
+    print(f"retake   scene {index}: {scene.heading or 'no heading'}")
+    for query in dropped:
+        print(f"         forgetting the search: {query}")
+    if not dropped:
+        print("         no cached beat search here, so only its clips go")
+    invalidate(proj, only={index})
+
+    out = pipeline.build(
+        root,
+        overrides={k: v for k, v in {"provider": args.provider,
+                                     "genre": args.genre}.items() if v},
+    )
+    print(f"\n{out}")
+    print(f"next:    vidsmith sheet {args.name}    # read the new shots")
+    return 0
+
+
 def cmd_upload(args) -> int:
     """Fill the upload form from the files the build already wrote.
 
@@ -668,6 +716,17 @@ def main(argv=None) -> int:
     up.add_argument("--force", action="store_true",
                     help="upload even though check reported problems")
     up.set_defaults(func=cmd_upload)
+
+    rt = sub.add_parser("retake", help="search one scene's footage again, "
+                                       "keeping the narration")
+    rt.add_argument("name")
+    rt.add_argument("--scene", type=int, required=True, metavar="N",
+                    help="which scene to re-film, as the shot sheet numbers them")
+    rt.add_argument("--provider", choices=("pexels", "pixabay", "cards", "local"),
+                    help="default: the project's own")
+    rt.add_argument("--genre", choices=sorted(GENRES),
+                    help="default: the project's own")
+    rt.set_defaults(func=cmd_retake)
 
     pb = sub.add_parser("publish", help="make an uploaded video visible, then "
                                         "check the visible copy")
