@@ -72,6 +72,14 @@ Pexels lacking a clip, or the reranker choosing differently between two runs
 of identical code - two renders an hour apart put a ship and then a sack under
 the same line. More rules will not fix those; compare frame sheets, never one run.
 
+**The search shown beside a frame is the shot's own, not the scene's.**
+Since beat searches a scene runs several, and `shot_times()` showed
+`scene.query`, the `[visual:]` directive, for every shot. A real build read
+"printer rolling out paper" under clips found by searching "broken text on
+monitor", so the sheet blamed the wrong search for footage the reader was
+judging. It reads the per-shot `query` out of `shots.json` now, falling back
+to the directive for builds from before beat searches.
+
 **Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
 `build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no
 captions burned in), its timing, the words spoken over it, the search that
