@@ -86,8 +86,8 @@ def project(tmp_path, monkeypatch):
         calls["privacy"].append((vid, level))
         return level
 
-    def live(proj, ref):
-        calls["checked"].append(ref)
+    def live(proj, ref, tag=""):
+        calls["checked"].append((ref, tag))
         return [], True
 
     monkeypatch.setattr(up, "set_privacy", privacy)
@@ -96,7 +96,8 @@ def project(tmp_path, monkeypatch):
 
 
 def _run(**over):
-    args = {"name": "demo", "video": None, "privacy": "public", "force": False}
+    args = {"name": "demo", "video": None, "privacy": "public", "force": False,
+            "aspect": None}
     args.update(over)
     return cli.cmd_publish(argparse.Namespace(**args))
 
@@ -104,7 +105,7 @@ def _run(**over):
 def test_publish_reads_the_receipt_flips_then_checks(project, capsys):
     assert _run() == 0
     assert project["privacy"] == [(VID, "public")]
-    assert project["checked"] == [VID], "the visible copy was never checked"
+    assert project["checked"] == [(VID, "")], "the visible copy was never checked"
     assert f"{VID} is public and matches" in capsys.readouterr().out
 
 
@@ -130,14 +131,15 @@ def test_no_receipt_and_no_video_touches_nothing(project, tmp_path, capsys):
 
 def test_a_fault_in_the_visible_copy_fails_the_command(project, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_check_live",
-                        lambda proj, ref: (["the published video has no caption track"], True))
+                        lambda proj, ref, tag="": (
+                            ["the published video has no caption track"], True))
     assert _run(video=f"https://youtu.be/{VID}") == 1
     said = capsys.readouterr().out
     assert f"{VID} is public and has 1 problem(s)" in said
 
 
 def test_an_unreadable_visible_copy_is_not_called_a_match(project, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_check_live", lambda proj, ref: ([], False))
+    monkeypatch.setattr(cli, "_check_live", lambda proj, ref, tag="": ([], False))
     assert _run() == 0
     said = capsys.readouterr().out
     assert "was not checked" in said and "matches" not in said

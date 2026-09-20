@@ -24,6 +24,16 @@ are not in it, which is a licence problem rather than a cosmetic one.
 `description.txt` after a 9:16 upload is a promise about a file nobody
 published.
 
+**A cut is published, not a project, so every artifact of publishing is per
+cut too.** `published<tag>.json` witnesses one video: there used to be a single
+`published.json`, and uploading a Short beside a widescreen video overwrote it,
+so the project forgot the widescreen video had been verified and checked its
+drift against the Short's files. `check.publish_drift()` reads every receipt it
+finds. `check --published ID --aspect 9:16` and `publish --aspect 9:16` name the
+cut, because the two cuts of a real build shared no footage at all: checking a
+Short against `credits.txt` asks a vertical video to name 27 creators whose
+clips are not in it.
+
 **`check` runs first and refuses.** Everything it looks for is worse once
 public, and taking a video down does not unpublish it. `--force` exists for the
 operator who has read the problems and disagrees; it prints them either way.
