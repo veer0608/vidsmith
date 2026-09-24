@@ -21,7 +21,7 @@ One command builds the whole thing. It speaks every scene, searches for footage,
 It draws a diagram for the scenes that cannot be filmed, mixes music under the voice, and encodes the master. A minute or so of video takes a few minutes to make.
 
 ## What you get back
-[visual: video editing timeline on a screen]
+[diagram: a tree whose root is One Build, with five children: video, captions, thumbnail, metadata, credits]
 An mp4 you can upload, a subtitle file, a thumbnail, and a draft title, description and chapter list. It also writes the credits for every clip it used, because the stock library requires you to name the creator and link back when you pull footage through its interface.
 
 ## Two shapes from one script
@@ -29,7 +29,7 @@ An mp4 you can upload, a subtitle file, a thumbnail, and a draft title, descript
 Ask for the vertical cut and you get a second video from the same words. The narration is reused, so the two are timed identically, and the captions reflow to the narrower frame rather than running off the edge of it.
 
 ## What it costs
-[diagram: one payment against a monthly subscription]
+[diagram: free for personal use, one payment for commercial use, kept forever]
 Free for personal use, study, hobby projects and non profits. If you are making money with it, that is a commercial licence: forty nine dollars once for one person, or two hundred and ninety nine once for a company. Both are perpetual, so there is no renewal and nothing to cancel.
 
 ## How to buy it
