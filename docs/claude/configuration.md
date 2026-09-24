@@ -88,6 +88,17 @@ next build writes fresh searches for those beats alone: a retake of one scene
 of machine-statements rebuilt in 103s against 499s for the whole video, and
 spent one scene's vision calls rather than nine.
 
+**`--shot J` changes one shot and keeps the rest of the scene.** A scene
+retake re-films every shot in it: howto's scene 1 had one bad clip among three
+good ones, and its second roll kept the bad clip and lost a real `pip install`
+log. `vidsmith retake <name> --scene N --shot J` with no `--clip` only lists
+that shot's other candidates, the reranker's verdicts beside them, and tiles
+their stills into `build/retake<tag>/scene_NNN_JJ.jpg`, the pictures the
+reranker judged. `--clip ID` then runs `retake.replace()`, the page's own swap
+(see [web-service.md](web-service.md), one shot of a finished render), so the
+clip is encoded to the old slot, the ledger and description name its creator,
+and nothing else in the video moves. `--search` looks with other words.
+
 **A build says when a search has drifted off the page.**
 `genres.drifting_devices()` reports the device words a beat search names
 that the words spoken over it do not, and `prepare_beats` logs it as

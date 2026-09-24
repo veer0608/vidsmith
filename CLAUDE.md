@@ -40,6 +40,7 @@ before writing anything. The traps are the reason this file exists.
 | Re-film one scene | `vidsmith retake <name> --scene N`, [configuration.md](docs/claude/configuration.md) | It rerolls the search, it cannot change the subject; a scene wrong twice needs its words rewritten |
 | Judge the footage a build chose | `vidsmith sheet <name>`, [configuration.md](docs/claude/configuration.md), reading the footage | Read the frames beside the words, never the log; with no `visuals{tag}/shots.json` the times are another cut's |
 | Add or change a footage style | [configuration.md](docs/claude/configuration.md), `visuals.genre` | A style word that is a noun, a place or a time becomes the subject; a rule the prompt states and the model can break is enforced in code |
+| Change one shot and keep the rest | `vidsmith retake <name> --scene N --shot J`, [configuration.md](docs/claude/configuration.md) | With no `--clip` it only lists; choose from the tiled stills, not the ids |
 | Bring a live render down | `vidsmith fetch <job>`, [deploying.md](docs/claude/deploying.md) | The token is the instance's own, not the one in a local `.env` |
 | Make an upload public | `vidsmith publish <name>`, [uploading.md](docs/claude/uploading.md) | Status is replaced whole on update; send back every writable field, change only the privacy |
 | See what is on the channel | `vidsmith published [--live]`, [uploading.md](docs/claude/uploading.md) | One row per receipt; `--live` is one quota unit per fifty videos, and a missing one is gone, not private |
