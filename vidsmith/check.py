@@ -49,6 +49,40 @@ def settings(out: Path) -> dict:
     return body if isinstance(body, dict) else {}
 
 
+def stale_cuts(build: Path, cuts: List[tuple], scenes: List[dict]) -> List[str]:
+    """A delivered cut made before scenes changed that it was never rebuilt for.
+
+    Changing a scene's words or directive drops its clips for every shape, and
+    a build re-films them only for the shape it builds. howto's 9:16 cut sat in
+    out/ from 2026-09-03 while the 16:9 was rebuilt twice around it, pricing
+    diagram and all, and every check agreed with it: both cuts ran 145.27s, and
+    `description-9x16.txt` had been rewritten from the shared youtube.json, so
+    its prose matched and its credits matched its own old ledger.
+
+    The clips are the evidence. A shape whose `visuals<tag>` has no clip for a
+    scene the script has was cut before that scene last changed. A build folder
+    that is gone entirely says nothing, so this stays quiet rather than guessing.
+    """
+    indices = [s.get("index", i) for i, s in enumerate(scenes) if isinstance(s, dict)]
+    problems: List[str] = []
+    for aspect, cut in cuts:
+        vis = build / f"visuals{aspect_tag(aspect)}"
+        if not vis.is_dir() or not indices:
+            continue
+        missing = [i for i in indices if not any(vis.glob(f"scene_{i:03d}_*.mp4"))]
+        if not missing:
+            continue
+        which = (f"scene {missing[0]}" if len(missing) == 1
+                 else f"{len(missing)} of its {len(indices)} scenes")
+        # "changed" rather than "the script changed": dropping a scene's clips
+        # also follows a footage change, which is what demo's 9:16 predates
+        problems.append(
+            f"{cut.name} was cut before {which} last changed and was not rebuilt "
+            f"since, so it shows an older edit than the rest of this delivery. "
+            f"Rebuild it with vidsmith build {build.parent.name} --aspect {aspect}")
+    return problems
+
+
 def frozen_shots(build: Path, aspect: str, scenes: List[dict],
                  cfg: Optional[dict] = None) -> List[str]:
     """Scenes whose picture sits on one clip for far too long.
@@ -417,6 +451,7 @@ def check(out_dir: Path) -> List[str]:
         except (ValueError, OSError):
             scenes = []
         cfg = settings(out)
+        problems.extend(stale_cuts(build, cuts, scenes))
         for aspect, _cut in cuts:
             problems.extend(frozen_shots(build, aspect, scenes, cfg))
         problems.extend(substituted_scenes(cfg))
