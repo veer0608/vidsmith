@@ -415,6 +415,15 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     if "diagrams" in force:
         clear_diagram_decisions(proj, log)
 
+    # A scene already built keeps its clips, so an excluded one it shows is
+    # only replaced if the scene is re-filmed. `--force visuals` re-films all.
+    if "visuals" not in force:
+        shown = visuals.excluded_scenes(proj.build, cfg.visuals.exclude)
+        for index, ids in sorted(shown.items()):
+            log(f"exclude  scene {index} shows {', '.join(ids)}; re-filming it")
+        if shown:
+            invalidate(proj, log, only=set(shown))
+
     vis_dir = proj.build / f"visuals{tag}"
     visuals.build_all(scenes, cfg.visuals, cfg.size, cfg.render.fps, vis_dir, keys,
                       force="visuals" in force, log=log, theme=theme,

@@ -26,7 +26,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import requests
 from PIL import Image
 
-from .config import LONG_SHOT_FACTOR, CaptionConfig, ThemeConfig, VisualConfig
+from .config import (LONG_SHOT_FACTOR, CaptionConfig, ThemeConfig, VisualConfig,
+                     clip_exclusion)
 from .script_parser import Scene
 from .theme import Theme, resolve as resolve_theme
 from . import cards
@@ -623,6 +624,46 @@ def _pixabay_fetch(query: str, key: str) -> List[Dict]:
     return results
 
 
+def is_excluded(rules: Sequence[Tuple[str, str]], provider: str, clip_id: str) -> bool:
+    """Whether `visuals.exclude` names this clip.
+
+    A rule or a clip with no provider matches on the id alone: a bare id in the
+    config says either library, and a ledger entry with no page cannot say.
+    """
+    return any(rid == clip_id and (not rp or not provider or rp == provider)
+               for rp, rid in rules)
+
+
+def excluded_scenes(build_dir: Path, exclude: Sequence[str]) -> Dict[int, List[str]]:
+    """The scenes whose placed clips `visuals.exclude` now names, per aspect.
+
+    Filtering the search results only reaches a scene that searches, and a
+    built scene reuses the clips it has, so adding the clip on screen to the
+    list would otherwise change nothing until something else forced a rebuild.
+    """
+    rules = [clip_exclusion(e) for e in exclude]
+    found: Dict[int, List[str]] = {}
+    if not rules:
+        return found
+    for ledger_path in sorted(build_dir.glob("visuals*/credits.json")):
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for key, entry in ledger.items():
+            if not isinstance(entry, dict) or not entry.get("id"):
+                continue
+            try:
+                provider = clip_exclusion(entry["url"])[0] if entry.get("url") else ""
+            except ValueError:
+                provider = ""
+            if is_excluded(rules, provider, str(entry["id"])):
+                clips = found.setdefault(int(key.split(":")[0]), [])
+                if entry["id"] not in clips:
+                    clips.append(entry["id"])
+    return found
+
+
 # --------------------------------------------------------------------------- #
 # orchestration
 # --------------------------------------------------------------------------- #
@@ -649,6 +690,8 @@ class VisualBuilder:
         self.keys = keys
         self.log = log
         self.used: set = set()
+        # visuals.exclude, parsed; load_config has already refused a bad entry
+        self._excluded = [clip_exclusion(e) for e in (cfg.exclude or [])]
         # a middle frame per downloaded clip, to catch one footage under two ids
         self._prints: Dict[str, Tuple[float, bytes]] = {}
         # each scene's beats and their searches, written once for the whole video
@@ -945,6 +988,13 @@ class VisualBuilder:
         except Exception as exc:
             self.log(f"    {provider} lookup failed ({exc}); falling back to a card")
             return []
+
+        # before the rerank, so an excluded clip never takes a place in the
+        # pool of stills the model is shown
+        banned = [h["id"] for h in hits if is_excluded(self._excluded, provider, h["id"])]
+        if banned:
+            self.log(f"    exclude: dropped {provider} {', '.join(banned)} from the results")
+            hits = [h for h in hits if h["id"] not in banned]
 
         hits = self._rerank(hits, scene, query, want=count, text=text, key=key)
         need = scene.duration if need is None else need
