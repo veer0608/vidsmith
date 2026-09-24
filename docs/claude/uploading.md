@@ -93,6 +93,31 @@ on a fault, then reads the visible copy back through `_check_live()`, the same
 helper `check --published` uses. The first public video, `3NuA_RVbO10`, was
 flipped by hand this way before the command existed.
 
+**`publish` also manages a video that is already live.** Replacing howto
+on 2026-09-24 needed three hand-written calls, and each is a flag now.
+`--privacy private` takes a video down and checks nothing, because nobody can
+see it afterwards and the video being retired is usually an old one whose files
+are gone. `--meta` puts this cut's title, description and tags on the video it
+was uploaded as, through `upload.set_metadata()`, which reads the snippet and
+sends `categoryId` and the languages back as they were, since videos.update
+replaces the snippet whole just as it does the status. It is refused unless the
+receipt names that video and records a cut whose digest still matches the one in
+out/: a new description on a rebuilt cut credits footage the live video does not
+contain. The stale-description drift for that receipt is the one check finding
+it answers; any other still stops it without `--force`.
+
+**A receipt remembers the video it replaced.** The new howto upload wrote over
+`published.json`, and the old video, still on the channel with 37 views,
+dropped out of `vidsmith published`. `record()` now moves a different video id
+it is about to overwrite into a `replaced` list, and `published` lists each one
+as "replaced by <id>", with `--live` adding whether it is still up.
+
+**A clean `check --published` answers the drift it resolved.** The run that
+confirmed a re-pasted description rewrote the receipt and still failed on "the
+description published there is stale", because the offline half had judged
+the old receipt first; a second run passed. The offline check is run again
+after a clean live comparison now.
+
 **The OAuth flow is the standard loopback one and its only security decision is
 the `state`.** The redirect port is open to anything else on this machine, so
 `redirect_result()` refuses a code that does not carry the state we generated;

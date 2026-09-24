@@ -32,7 +32,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -415,6 +415,41 @@ VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 # schedules a private video, and this is making one visible now.
 KEEP_STATUS = ("embeddable", "license", "publicStatsViewable",
                "selfDeclaredMadeForKids")
+
+
+# Written back as read, because videos.update replaces the snippet whole: a
+# field left out is cleared, and categoryId is required.
+KEEP_SNIPPET = ("categoryId", "defaultLanguage", "defaultAudioLanguage")
+
+
+def set_metadata(token: str, video_id: str, title: str, description: str,
+                 tags: List[str]) -> Dict[str, Any]:
+    """Replace a live video's title, description and tags, and nothing else.
+
+    Re-pasting a rebuilt description into Studio was the only way to correct
+    one, and the howto brand fix was a hand-written call doing this. The
+    snippet is read first and its other writable fields sent back unchanged.
+    Returns the snippet YouTube saved.
+    """
+    got = requests.get(VIDEOS_URL, params={"part": "snippet", "id": video_id},
+                       headers=_headers(token), timeout=30)
+    if got.status_code != 200:
+        raise UploadFailed(f"could not read {video_id} ({got.status_code}): "
+                           f"{got.text[:300]}")
+    items = got.json().get("items") or []
+    if not items:
+        raise UploadFailed(f"no video {video_id} on this channel")
+    snippet = items[0].get("snippet") or {}
+    body = {"id": video_id,
+            "snippet": {k: snippet[k] for k in KEEP_SNIPPET if k in snippet}}
+    body["snippet"].update({"title": title or snippet.get("title", ""),
+                            "description": description, "tags": list(tags or [])})
+    put = requests.put(VIDEOS_URL, params={"part": "snippet"}, json=body,
+                       headers=_headers(token), timeout=30)
+    if put.status_code != 200:
+        raise UploadFailed(f"YouTube refused the change ({put.status_code}): "
+                           f"{put.text[:300]}")
+    return put.json().get("snippet") or {}
 
 
 def set_privacy(token: str, video_id: str, privacy: str) -> str:
