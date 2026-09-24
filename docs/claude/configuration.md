@@ -118,7 +118,10 @@ nothing in silence. Excluded ids are dropped from the results before the rerank,
 so they take no place among the stills judged. A scene already showing one is
 re-filmed on the next plain `build`, every cut of it, because a built scene
 reuses its clips and never searches again; filtering the results alone would
-have left the clip exactly where it was.
+have left the clip exactly where it was. A one-shot retake honours it too:
+`retake.candidates()` leaves excluded clips out of the list, where the Matrix
+clip had just been offered back marked kept, and `replace()` refuses one asked
+for by id.
 
 **Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
 `build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no

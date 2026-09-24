@@ -153,3 +153,36 @@ def test_force_visuals_re_films_everything_anyway(project, rendered, monkeypatch
     pl.build(project, force=["visuals"], stop_after="render", log=lambda *a: None)
 
     assert seen == []
+
+
+# --------------------------------------------------------------------------- #
+# choosing one shot's clip
+# --------------------------------------------------------------------------- #
+def _excluding(tmp_path, monkeypatch, *exclude):
+    from test_retake import _hits, finished_build
+
+    root = finished_build(tmp_path / "job")
+    raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    raw["visuals"]["exclude"] = list(exclude)
+    (root / "config.yaml").write_text(yaml.safe_dump(raw, sort_keys=False),
+                                      encoding="utf-8")
+    monkeypatch.setattr(visuals, "pexels_search",
+                        lambda *a, **k: _hits("10", "20", "21", "22"))
+    return root
+
+
+def test_a_shots_candidates_leave_out_an_excluded_clip(tmp_path, monkeypatch):
+    """The listing offered the excluded Matrix clip back as a kept candidate."""
+    from vidsmith import retake
+
+    root = _excluding(tmp_path, monkeypatch, "https://www.pexels.com/video/x-21/")
+    found = retake.candidates(root, 0, 1, keys={"pexels": "x"})
+    assert [c["id"] for c in found["candidates"]] == ["20", "22"]
+
+
+def test_an_excluded_clip_is_refused_by_id_too(tmp_path, monkeypatch):
+    from vidsmith import retake
+
+    root = _excluding(tmp_path, monkeypatch, "21")
+    with pytest.raises(retake.RetakeRefused, match="visuals.exclude"):
+        retake.check(root, 0, 1, "21", keys={"pexels": "x"})
