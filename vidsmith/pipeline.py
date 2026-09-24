@@ -861,6 +861,12 @@ def source_credit(source: str) -> str:
     return f"Adapted from: {source}" if source else ""
 
 
+def project_names(root: Path) -> List[str]:
+    """What the project spells its own way: the title's names and `names:`."""
+    cfg = load_config(Path(root) / "config.yaml")
+    return list(dict.fromkeys(llm.title_names(cfg.title) + cfg.names))
+
+
 def write_metadata(out_dir: Path, meta: Dict[str, Any], source: str = "") -> str:
     """Write youtube.json, youtube.txt and description.txt for one build.
 
@@ -869,8 +875,15 @@ def write_metadata(out_dir: Path, meta: Dict[str, Any], source: str = "") -> str
     files stale beside it, so regenerating a description silently stripped the
     attribution out of the exact file you paste into YouTube - a licence
     condition, lost by a command whose whole job is to rewrite that file.
+
+    Names are respelt here rather than where the model is called, because six
+    callers hand this a metadata block, some of them from a youtube.json written
+    before the rule existed, and a fix that reaches five of six is the fault
+    this file keeps meeting. The names come from the project's own config, so
+    no caller can forget to pass them.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta = llm.spell_names(meta, project_names(out_dir.parent))
     (out_dir / "youtube.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )

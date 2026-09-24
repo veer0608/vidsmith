@@ -168,6 +168,11 @@ class Config:
     # the script is the only thing that knows. Free text rather than a URL
     # type: it is written into a description verbatim and never parsed.
     source: str = ""
+    # Names every upload spells exactly as written here, whatever the model
+    # drafting the title and description does to them. The title's own
+    # deliberately cased words are kept without being listed; see
+    # llm.title_names(). This is for a name the title does not carry.
+    names: List[str] = field(default_factory=list)
     theme: ThemeConfig = field(default_factory=ThemeConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     visuals: VisualConfig = field(default_factory=VisualConfig)
@@ -273,6 +278,8 @@ def load_config(path: Path) -> Config:
     # and a video went out crediting its photographers and not the article it
     # was built from, with every unit test passing on either side of the gap.
     cfg.source = raw.get("source", cfg.source)
+    names = raw.get("names") or []
+    cfg.names = [str(n) for n in (names if isinstance(names, list) else [names])]
     _merge(cfg.theme, raw.get("theme"))
     _merge(cfg.voice, raw.get("voice"))
     _merge(cfg.visuals, raw.get("visuals"))

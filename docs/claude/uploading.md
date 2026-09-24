@@ -63,6 +63,19 @@ it. `jobs.renders()` carries each render's `youtube` record for the same
 reason: a render that was uploaded and one that was not looked identical, on
 the page as well.
 
+**A name keeps its owner's spelling.** The howto title is "How To Use
+vidsmith And How To Buy It"; the model drafting the upload title-cased the brand
+and it went public as "How To Use Vidsmith", with "use Vidsmith to turn" in the
+description, beside earlier uploads that said vidsmith. `write_metadata()`, the
+one writer, now respells the title, description, tags and chapter labels with
+`llm.spell_names()` before any file is written, so a youtube.json from before
+the rule is corrected on its next pass as well. The names come from the
+project's config, not from each caller: `llm.title_names()` takes the words the
+title spells against its own case (a lower-case word in a title-cased title, or
+a capital inside a word like iPhone), and top-level `names:` adds any the title
+does not carry. A sentence-case title yields no lower-case names, since it
+cannot say which of its lower-case words are brands.
+
 **`check` runs first and refuses.** Everything it looks for is worse once
 public, and taking a video down does not unpublish it. `--force` exists for the
 operator who has read the problems and disagrees; it prints them either way.
