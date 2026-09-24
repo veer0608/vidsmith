@@ -135,6 +135,14 @@ have left the clip exactly where it was. A one-shot retake honours it too:
 clip had just been offered back marked kept, and `replace()` refuses one asked
 for by id.
 
+**A stock "subscribe" card is dropped before the rerank too.** howto went public
+with a "Thank you for watching! SUBSCRIBE" card at 76s, which the rerank had
+judged close enough to "credit list scrolling". `visuals.end_card()` reads the
+clip's page slug for `subscribe` or `thank-you-for-watching` as whole words.
+Measured on the 3,620 distinct results real builds had cached, it named exactly
+the 15 end cards among them and nothing else. Brand names are deliberately not
+filtered: a Windows command prompt was the right shot for a line about winget.
+
 **Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
 `build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no
 captions burned in), its timing, the words spoken over it, the search that
