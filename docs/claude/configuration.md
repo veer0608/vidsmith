@@ -56,7 +56,8 @@ Technology's "screen" put phone maps under "the box lands on your doorstep",
 City's "crowd" put a crowd at a crossing there, Documentary's "daylight" put
 daytime trucks under "overnight". So every style's `words` are adjectives - one
 word each, hyphenated if needed, no digits, because `beat_queries` keeps six
-words and strips digits ("slow motion" reached Pexels as "slow") - and a place
+words and drops any word with a digit in it ("slow motion" reached Pexels as
+"slow"; stripping only the digits once turned "mp4" into "mp") - and a place
 or time the narration names outranks the style. Business is the one exception
 and is excluded from the test, since its subject really is the office.
 **Every rule here that held is enforced in code, because the prompt already

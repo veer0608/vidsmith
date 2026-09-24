@@ -752,7 +752,12 @@ def beat_queries(passages: Sequence[Dict[str, str]], api_key: str,
                              f"{len(queries) if isinstance(queries, list) else 'none'}")
     out = []
     for q, p in zip(queries, passages):
-        words = re.sub(r"[^A-Za-z' \-]", " ", str(q)).split()
+        # No numbers, as the prompt says, but a word carrying a digit goes
+        # whole. Stripping only the digits left a different word behind: "video
+        # player mp4" searched Pexels for "video player mp" and came back with
+        # a VHS deck, and "4K" or "3D" would search for a lone letter.
+        kept = [w for w in str(q).split() if not any(c.isdigit() for c in w)]
+        words = re.sub(r"[^A-Za-z' \-]", " ", " ".join(kept)).split()
         out.append(genres.style_search(genre, " ".join(words[:6]), p["text"], log=log))
     return out
 
