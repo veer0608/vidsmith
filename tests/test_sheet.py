@@ -291,3 +291,23 @@ def test_a_shot_with_no_search_of_its_own_falls_back_to_the_directive(tmp_path):
     scene.shots = [{"duration": scene.duration, "credit": "Ada"}]
 
     assert sheet_mod.shot_times([scene])[0]["query"] == "hands flipping a ledger"
+
+
+def test_the_frames_are_inside_the_page(tmp_path):
+    """One file: a sheet opened as a snapshot, or sent on, keeps its pictures."""
+    import base64
+
+    root, _ = _project(tmp_path)
+    page = sheet_mod.build_sheet(root, log=lambda *a: None, run=_runs([]))
+
+    body = page.read_text(encoding="utf-8")
+    inline = "data:image/jpeg;base64," + base64.b64encode(b"jpg").decode("ascii")
+    assert body.count(f'src="{inline}"') == 2
+    assert 'src="shot_' not in body
+    assert (page.parent / "shot_000_00.jpg").exists(), "the jpgs are still written"
+
+
+def test_a_frame_ffmpeg_did_not_write_falls_back_to_its_name(tmp_path):
+    root, _ = _project(tmp_path)
+    page = sheet_mod.build_sheet(root, log=lambda *a: None, run=lambda args, **k: None)
+    assert 'src="shot_000_00.jpg"' in page.read_text(encoding="utf-8")

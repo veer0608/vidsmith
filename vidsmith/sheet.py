@@ -11,6 +11,7 @@ frame at a readable size, and a two-minute video is forty shots.
 """
 from __future__ import annotations
 
+import base64
 import html
 import json
 import re
@@ -135,6 +136,22 @@ def caption_rows(srt: str, block_seconds: float = BLOCK_SECONDS) -> List[Dict[st
     return rows
 
 
+def _inline(frame: Path) -> str:
+    """A frame as a data URI, or its file name when it cannot be read.
+
+    Inlined so the sheet is one file. The app's browser pane shows a local page
+    as a snapshot with no folder beside it, so every relative <img> came up
+    empty and the frames had to be tiled by hand to be seen at all; a sheet
+    sent to anyone else lost its pictures the same way. howto's 37 frames come
+    to about 470 KB. The jpgs are still written beside it.
+    """
+    try:
+        data = frame.read_bytes()
+    except OSError:
+        return frame.name
+    return "data:image/jpeg;base64," + base64.b64encode(data).decode("ascii")
+
+
 def _credits(vis_dir: Path) -> Dict[str, Dict[str, str]]:
     try:
         data = json.loads((vis_dir / "credits.json").read_text(encoding="utf-8"))
@@ -166,8 +183,8 @@ def _page(title: str, video: Path, rows: Sequence[Dict[str, Any]],
 <style>
  body {{ font: 15px/1.5 system-ui, sans-serif; margin: 24px; background: #111; color: #eee; }}
  h1 {{ font-size: 18px; font-weight: 600; }}
- figure {{ display: flex; gap: 16px; margin: 0 0 18px; align-items: flex-start; }}
- img {{ width: {FRAME_WIDTH}px; border-radius: 6px; background: #000; }}
+ figure {{ display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 18px; align-items: flex-start; }}
+ img {{ width: {FRAME_WIDTH}px; max-width: 100%; border-radius: 6px; background: #000; }}
  figcaption {{ max-width: 46em; }}
  .at {{ color: #9ad; margin: 0 0 6px; font-variant-numeric: tabular-nums; }}
  .said {{ margin: 0 0 6px; }}
@@ -253,7 +270,7 @@ def build_sheet(root: Path, aspect: str = "", out_dir: Optional[Path] = None,
         name = f"shot_{row['scene']:03d}_{row['shot']:02d}.jpg"
         run(["-ss", f"{row['middle']:.3f}", "-i", str(video), "-frames:v", "1",
              "-vf", f"scale={FRAME_WIDTH}:-2", str(out / name)])
-        row["frame"] = name
+        row["frame"] = _inline(out / name)
         entry = credits.get(f"{row['scene']}:{row['shot']}") or {}
         if not row.get("credit") and entry.get("credit"):
             row["credit"] = f"{entry['credit']} - {entry.get('url', '')}".rstrip(" -")
