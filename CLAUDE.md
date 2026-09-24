@@ -29,6 +29,7 @@ before writing anything. The traps are the reason this file exists.
 | Change the footage source | [configuration.md](docs/claude/configuration.md) | A provider with no key falls back to cards without failing |
 | Reword the drafting prompt | [script.md](docs/claude/script.md) | `test_script_prompt.py` says what it must still demand |
 | Repair text a model wrote | [incidents.md](docs/claude/incidents.md), dashes | A repair pass cannot tell its own output from the input |
+| Spell a name in an upload | [uploading.md](docs/claude/uploading.md), a name keeps its spelling | The title's own casing is kept for you; a name it does not carry goes in top-level `names:` |
 | Redraft an existing script | [incidents.md](docs/claude/incidents.md), stale caches | Scene-indexed caches must be invalidated |
 | Publish a video anywhere | [incidents.md](docs/claude/incidents.md), attribution and chapters | Crediting is a licence condition; YouTube drops a chapter list rather than the bad line |
 | Edit the web page | [web-service.md](docs/claude/web-service.md) | Ask the server for what it knows; do not hardcode a second copy |

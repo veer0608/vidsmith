@@ -397,6 +397,66 @@ def undash(text: str) -> str:
     return re.sub(r"\s{2,}", " ", out)
 
 
+# Short words a title-cased title may still leave in lower case. Anything else
+# it leaves lower case is being spelt that way on purpose.
+_TITLE_SMALL = {"about", "after", "and", "before", "from", "into", "over", "than",
+                "that", "then", "this", "under", "upon", "what", "when", "with",
+                "without", "your"}
+
+
+def title_names(title: str) -> List[str]:
+    """The words a title spells on purpose against the grain of its own case.
+
+    A title that capitalises its words and leaves one in lower case - "How To
+    Use vidsmith And How To Buy It" - is naming something, and so is a word
+    with a capital inside it: iPhone, YouTube, macOS. The model drafting the
+    upload title-cased the first and published "How To Use Vidsmith". A
+    sentence-case title says nothing either way, so it yields no lower-case
+    names: "Understanding how indexes work" is not a brand called indexes.
+    """
+    words = re.findall(r"[A-Za-z][A-Za-z0-9]*", title or "")
+    names = [w for w in words if not w.isupper() and any(c.isupper() for c in w[1:])]
+    lower = {w for w in words
+             if w.islower() and len(w) >= 4 and w not in _TITLE_SMALL}
+    # the first word is capitalised in either case, so it cannot say which
+    rest = [w for w in words[1:] if len(w) >= 3 and w not in lower]
+    if lower and rest and all(w[0].isupper() for w in rest):
+        names += [w for w in words if w in lower]
+    return list(dict.fromkeys(names))
+
+
+def spell_names(meta: Dict[str, Any], names: Sequence[str]) -> Dict[str, Any]:
+    """Every model-written field of an upload with each name spelt as given.
+
+    A rule the prompt states and the model can break is enforced in code; a
+    brand is spelt the way its owner spells it even at the start of a sentence.
+    Matched as a whole word in any case, so "Vidsmith's" becomes "vidsmith's"
+    and "vidsmithy" is left alone. Idempotent: it writes the names themselves,
+    so a second pass over its own output changes nothing.
+    """
+    names = [n for n in dict.fromkeys(str(n).strip() for n in names or ()) if n]
+    if not names:
+        return meta
+
+    def fix(text: str) -> str:
+        for name in names:
+            text = re.sub(r"(?<![A-Za-z0-9])" + re.escape(name) + r"(?![A-Za-z0-9])",
+                          name, text, flags=re.IGNORECASE)
+        return text
+
+    out = dict(meta)
+    for key in ("title", "description"):
+        if isinstance(out.get(key), str):
+            out[key] = fix(out[key])
+    if isinstance(out.get("tags"), list):
+        out["tags"] = [fix(t) if isinstance(t, str) else t for t in out["tags"]]
+    if isinstance(out.get("chapters"), list):
+        out["chapters"] = [dict(c, label=fix(c["label"]))
+                           if isinstance(c, dict) and isinstance(c.get("label"), str)
+                           else c for c in out["chapters"]]
+    return out
+
+
 def _json_block(text: str) -> Any:
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
     start = min((i for i in (text.find("["), text.find("{")) if i >= 0), default=-1)
