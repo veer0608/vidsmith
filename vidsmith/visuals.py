@@ -634,6 +634,20 @@ def is_excluded(rules: Sequence[Tuple[str, str]], provider: str, clip_id: str) -
                for rp, rid in rules)
 
 
+# Phrases in a stock clip's page that mark it as a channel's call to action
+# rather than footage of anything. A "Thank you for watching! SUBSCRIBE" card
+# landed at 76s of howto, under a line about crediting photographers, and the
+# rerank kept it. Matched as whole hyphenated words, so "subscription" passes.
+END_CARD_WORDS = ("subscribe", "thank-you-for-watching")
+
+
+def end_card(hit: Dict[str, Any]) -> str:
+    """The call-to-action phrase a stock result's page names, or ""."""
+    slug = str(hit.get("page") or "").rstrip("/").rsplit("/", 1)[-1].lower()
+    padded = f"-{slug}-"
+    return next((w for w in END_CARD_WORDS if f"-{w}-" in padded), "")
+
+
 def excluded_scenes(build_dir: Path, exclude: Sequence[str]) -> Dict[int, List[str]]:
     """The scenes whose placed clips `visuals.exclude` now names, per aspect.
 
@@ -994,7 +1008,12 @@ class VisualBuilder:
         banned = [h["id"] for h in hits if is_excluded(self._excluded, provider, h["id"])]
         if banned:
             self.log(f"    exclude: dropped {provider} {', '.join(banned)} from the results")
-            hits = [h for h in hits if h["id"] not in banned]
+        carded = [h["id"] for h in hits if h["id"] not in banned and end_card(h)]
+        if carded:
+            self.log(f"    end card: dropped {provider} {', '.join(carded)}, "
+                     f"a call to subscribe rather than footage")
+        if banned or carded:
+            hits = [h for h in hits if h["id"] not in banned and h["id"] not in carded]
 
         hits = self._rerank(hits, scene, query, want=count, text=text, key=key)
         need = scene.duration if need is None else need
