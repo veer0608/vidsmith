@@ -408,6 +408,20 @@ def test_beat_queries_reads_one_search_per_passage(monkeypatch):
     assert "STYLE" not in sent[0], "no genre chosen, so nothing added"
 
 
+def test_a_word_with_a_digit_goes_whole_not_as_a_fragment(monkeypatch):
+    """howto searched "video player mp" and got a VHS deck: the digit went, the
+    rest of the word stayed, and "mp" is not what the passage was about."""
+    from vidsmith import llm
+
+    monkeypatch.setattr(llm, "generate", lambda prompt, *a, **k:
+                        '["video player mp4", "4K monitor showing code", '
+                        '"3D printer at work", "server rack 2024"]')
+    got = llm.beat_queries([{"text": t} for t in "abcd"], "k")
+
+    assert got == ["video player", "monitor showing code", "printer at work",
+                   "server rack"]
+
+
 @pytest.mark.parametrize("writer", ["beat_queries", "suggest_queries"])
 def test_a_genre_steers_the_search_writer_but_not_past_the_subject(monkeypatch, writer):
     from vidsmith import llm
