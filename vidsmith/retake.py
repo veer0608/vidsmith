@@ -18,6 +18,7 @@ supplies, because this downloads whatever it is given.
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -224,6 +225,49 @@ def candidates(root: Path, scene_index: int, shot_index: int,
                         else "kept" if h["id"] in order else ""),
         } for h in fresh],
     }
+
+
+SHEET_MAX = 12      # candidates tiled into one image, in the order listed
+
+
+def candidate_sheet(root: Path, scene_index: int, shot_index: int,
+                    rows: List[Dict[str, Any]]) -> Optional[Path]:
+    """The candidates' stills in one image, numbered as the list prints them.
+
+    The page shows each candidate beside the shot; a terminal cannot, and a
+    list of ids and creators is no way to choose footage. The stills are the
+    ones the reranker judged, so this is the evidence it had. None when no
+    still could be fetched.
+    """
+    from PIL import Image, ImageDraw
+
+    build = Build(root)
+    tiles = []
+    for n, row in enumerate(rows[:SHEET_MAX], 1):
+        blob = visuals.preview_still(row["preview"]) if row.get("preview") else None
+        if not blob:
+            continue
+        try:
+            img = Image.open(BytesIO(blob)).convert("RGB")
+        except Exception:
+            continue
+        img.thumbnail((320, 180))
+        tiles.append((f"{n}  {row['id']}  {row.get('verdict') or ''}".strip(), img))
+    if not tiles:
+        return None
+    cols = min(3, len(tiles))
+    rows_n = (len(tiles) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * 320, rows_n * 180), "black")
+    draw = ImageDraw.Draw(sheet)
+    for i, (label, img) in enumerate(tiles):
+        x, y = (i % cols) * 320, (i // cols) * 180
+        sheet.paste(img, (x + (320 - img.width) // 2, y + (180 - img.height) // 2))
+        draw.rectangle([x, y, x + 8 + 7 * len(label), y + 18], fill="black")
+        draw.text((x + 4, y + 3), label, fill="yellow")
+    out = build.proj.build / f"retake{build.tag}" / f"scene_{scene_index:03d}_{shot_index:02d}.jpg"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out, quality=85)
+    return out
 
 
 def _why_fixed(build: Build, scene: Scene) -> str:

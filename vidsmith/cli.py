@@ -387,6 +387,12 @@ def cmd_retake(args) -> int:
     from .pipeline import invalidate
     from .script_parser import load_scenes
 
+    if getattr(args, "shot", None) is not None:
+        return _retake_shot(args)
+    if getattr(args, "clip", None) or getattr(args, "search", None):
+        print("--clip and --search choose footage for one shot; add --shot")
+        return 1
+
     root = _project_dir(args.name)
     proj = Project(root)
     scenes_json = proj.build / "scenes.json"
@@ -416,6 +422,60 @@ def cmd_retake(args) -> int:
     )
     print(f"\n{out}")
     print(f"next:    vidsmith sheet {args.name}    # read the new shots")
+    return 0
+
+
+def _retake_shot(args) -> int:
+    """Change one shot and keep every other, through the page's own retake.
+
+    A scene retake re-films every shot in it, so fixing one bad slot could
+    lose the good shots around it: howto's scene 1 traded a real `pip install`
+    log for the same bad clip on its second roll. With no `--clip` this lists
+    the shot's other candidates, verdicts beside them, and tiles their stills
+    into one image; `--clip` puts one in the old slot and delivers the video.
+    """
+    from . import retake
+
+    if args.provider or args.genre:
+        print("--provider and --genre re-film a whole scene; a shot keeps the "
+              "project's library")
+        return 1
+    root = _project_dir(args.name)
+    where = f"--scene {args.scene} --shot {args.shot}"
+    search = f' --search "{args.search}"' if args.search else ""
+    try:
+        if args.clip:
+            out = retake.replace(root, args.scene, args.shot, args.clip,
+                                 query=args.search)
+        else:
+            found = retake.candidates(root, args.scene, args.shot, query=args.search)
+    except retake.RetakeRefused as exc:
+        print(f"refused  {exc}")
+        return 1
+    if args.clip:
+        print(f"\n{out}")
+        print(f"next:    vidsmith sheet {args.name}    # read the new shot")
+        return 0
+
+    rows = found["candidates"]
+    print(f"retake   scene {args.scene} shot {args.shot}, {found['duration']:.1f}s, "
+          f"searched '{found['query']}'; now {found['current'] or 'no clip'}")
+    if not rows:
+        print("         nothing in these results is free to use; "
+              "try --search with other words")
+        return 1
+    for n, row in enumerate(rows, 1):
+        print(f"  {n:>3}  {row['id']:<10} {row['verdict'] or '-':<9}"
+              f"{(row['author'] or '')[:24]:<25}{row['page']}")
+    try:
+        sheet = retake.candidate_sheet(root, args.scene, args.shot, rows)
+    except Exception as exc:                  # the stills are help, not the retake
+        print(f"         no stills ({exc})")
+        sheet = None
+    if sheet:
+        print(f"stills   {sheet}")
+    print(f"next:    vidsmith retake {args.name} {where} --clip {rows[0]['id']}"
+          f"{search}    # the first above")
     return 0
 
 
@@ -798,6 +858,13 @@ def main(argv=None) -> int:
     rt.add_argument("name")
     rt.add_argument("--scene", type=int, required=True, metavar="N",
                     help="which scene to re-film, as the shot sheet numbers them")
+    rt.add_argument("--shot", type=int, metavar="J",
+                    help="change one shot of the scene and keep the rest; the "
+                         "sheet's scene 1.2 is --scene 1 --shot 2")
+    rt.add_argument("--clip", metavar="ID",
+                    help="with --shot: the candidate to put there")
+    rt.add_argument("--search", metavar="WORDS",
+                    help="with --shot: look for candidates with these words instead")
     rt.add_argument("--provider", choices=("pexels", "pixabay", "cards", "local"),
                     help="default: the project's own")
     rt.add_argument("--genre", choices=sorted(GENRES),
