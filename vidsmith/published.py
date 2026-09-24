@@ -416,6 +416,12 @@ def receipts(out_dir: Path) -> List[Dict[str, Any]]:
         found.append({"video_id": body["video_id"], "tag": tag,
                       "checked": (body.get("checked") or "")[:10],
                       "cut": cut.get("name", ""), "moved": moved})
+        for old in body.get("replaced") or []:
+            if isinstance(old, dict) and old.get("video_id"):
+                found.append({"video_id": old["video_id"], "tag": tag,
+                              "checked": "", "cut": "", "moved": [],
+                              "replaced_by": body["video_id"],
+                              "until": (old.get("until") or "")[:10]})
     return found
 
 
@@ -470,5 +476,19 @@ def record(out_dir: Path, vid: str, tag: str = "") -> Path:
     if video is not None:
         body["cut"] = {"name": video.name, "digest": digest(video)}
     path = out / receipt_name(tag)
+    # A new upload of a cut writes over the receipt of the video it replaces,
+    # and that video is still on the channel, private or not. howto's old cut
+    # vanished from `published` that way while it sat there with 37 views.
+    try:
+        prior = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        prior = {}
+    prior = prior if isinstance(prior, dict) else {}
+    replaced = [r for r in prior.get("replaced") or [] if isinstance(r, dict)]
+    if prior.get("video_id") and prior["video_id"] != body["video_id"]:
+        replaced.insert(0, {"video_id": prior["video_id"], "until": body["checked"]})
+    replaced = [r for r in replaced if r.get("video_id") != body["video_id"]]
+    if replaced:
+        body["replaced"] = replaced
     path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
     return path

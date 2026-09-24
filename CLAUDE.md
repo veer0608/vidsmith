@@ -44,6 +44,7 @@ before writing anything. The traps are the reason this file exists.
 | Change one shot and keep the rest | `vidsmith retake <name> --scene N --shot J`, [configuration.md](docs/claude/configuration.md) | With no `--clip` it only lists; choose from the tiled stills, not the ids |
 | Bring a live render down | `vidsmith fetch <job>`, [deploying.md](docs/claude/deploying.md) | The token is the instance's own, not the one in a local `.env` |
 | Make an upload public | `vidsmith publish <name>`, [uploading.md](docs/claude/uploading.md) | Status is replaced whole on update; send back every writable field, change only the privacy |
+| Retire or correct a live video | `vidsmith publish <name> --privacy private` or `--meta`, [uploading.md](docs/claude/uploading.md) | `--meta` only over the cut the receipt recorded; the snippet is replaced whole, like the status |
 | See what is on the channel | `vidsmith published [--live]`, [uploading.md](docs/claude/uploading.md) | One row per receipt; `--live` is one quota unit per fifty videos, and a missing one is gone, not private |
 | Check a video already public | `vidsmith check <name> --published <id>` | The offline half cannot see the YouTube form, where every shipped fault landed |
 | Upload anything | `vidsmith upload`, [uploading.md](docs/claude/uploading.md) | Resolve every file by the same aspect tag; a caption track is not optional |

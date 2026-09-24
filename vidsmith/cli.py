@@ -297,6 +297,12 @@ def cmd_check(args) -> int:
         found, compared = _check_live(proj, args.published,
                                       aspect_tag(getattr(args, "aspect", "")
                                                  or load_config(proj.config_path).render.aspect))
+        if compared and not found:
+            # A clean comparison has just rewritten the receipt, so drift judged
+            # against the old one is already answered. It used to be reported
+            # anyway: the run that confirmed a re-pasted description failed on
+            # "the description published there is stale", and a second run passed.
+            problems = check(proj.out)
         problems.extend(found)
 
     if not problems:
@@ -320,25 +326,55 @@ def cmd_publish(args) -> int:
     in the order that matters: the offline check refuses first, because a
     fault is cheapest to fix while nobody can see the video.
     """
-    from .check import check
+    from .check import _drift_of, check
     from .published import receipt_name, video_id
-    from .upload import UploadFailed, access_token, set_privacy
+    from .upload import UploadFailed, access_token, set_metadata, set_privacy
 
     proj = Project(_project_dir(args.name))
     cfg = load_config(proj.config_path)
     tag = aspect_tag(args.aspect or cfg.render.aspect)
-    ref = args.video
+    receipt_path = proj.out / receipt_name(tag)
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        receipt = {}
+    receipt = receipt if isinstance(receipt, dict) else {}
+    ref = args.video or receipt.get("video_id")
     if not ref:
-        receipt = proj.out / receipt_name(tag)
-        try:
-            ref = json.loads(receipt.read_text(encoding="utf-8"))["video_id"]
-        except (OSError, ValueError, KeyError):
-            print(f"no video id: pass --video, or upload first so "
-                  f"{receipt_name(tag)} names one")
-            return 1
+        print(f"no video id: pass --video, or upload first so "
+              f"{receipt_name(tag)} names one")
+        return 1
     vid = video_id(ref)
+    meta_too = getattr(args, "meta", False)
+    privacy = args.privacy or ("" if meta_too else "public")
+
+    def connect() -> str:
+        keys = find_keys(proj.root)
+        repo_root = Path(__file__).resolve().parent.parent
+        return access_token(repo_root, keys["yt_client"], keys["yt_secret"])
+
+    if privacy == "private" and not meta_too:
+        # Taking a video down is never refused: nobody can see it afterwards,
+        # so there is nothing about it to verify, and the video being retired
+        # is usually an old one whose files are long gone from out/.
+        try:
+            now = set_privacy(connect(), vid, "private")
+        except UploadFailed as exc:
+            print(f"publish failed: {exc}")
+            return 1
+        print(f"{now:<8} https://www.youtube.com/watch?v={vid}; nobody else can "
+              f"see it now, so nothing about it was checked")
+        return 0
 
     problems = check(proj.out)
+    if meta_too:
+        why = _meta_refused(proj, receipt, vid, tag)
+        if why:
+            print(f"refused  {why}")
+            return 1
+        # the stale description this receipt reports is what --meta replaces
+        answered = set(_drift_of(proj.out, receipt_path))
+        problems = [p for p in problems if p not in answered]
     if problems and not args.force:
         print(f"\n{len(problems)} problem(s) in {proj.out}, so {vid} was left "
               "as it is:\n")
@@ -347,15 +383,22 @@ def cmd_publish(args) -> int:
         print("\nfix them, or publish anyway with --force")
         return 1
 
-    keys = find_keys(proj.root)
-    repo_root = Path(__file__).resolve().parent.parent
     try:
-        token = access_token(repo_root, keys["yt_client"], keys["yt_secret"])
-        now = set_privacy(token, vid, args.privacy)
+        token = connect()
+        if meta_too:
+            meta = json.loads((proj.out / "youtube.json").read_text(encoding="utf-8"))
+            saved = set_metadata(token, vid, meta.get("title", ""),
+                                 (proj.out / f"description{tag}.txt").read_text(encoding="utf-8"),
+                                 meta.get("tags") or [])
+            print(f"meta     '{saved.get('title', '')}', its description and "
+                  f"{len(saved.get('tags') or [])} tags")
+        now = set_privacy(token, vid, privacy) if privacy else ""
     except UploadFailed as exc:
         print(f"publish failed: {exc}")
         return 1
-    print(f"{now:<8} https://www.youtube.com/watch?v={vid}")
+    if now:
+        print(f"{now:<8} https://www.youtube.com/watch?v={vid}")
+    now = now or "updated"
 
     found, compared = _check_live(proj, vid, tag)
     if not compared:
@@ -369,6 +412,34 @@ def cmd_publish(args) -> int:
         return 1
     print(f"ok       {vid} is {now} and matches {proj.out}")
     return 0
+
+
+def _meta_refused(proj, receipt, vid: str, tag: str) -> str:
+    """Why this cut's words may not replace the live video's, or "".
+
+    Only over the same cut. A new description on a rebuilt video credits
+    footage the published one does not contain, which is the one move that
+    makes public credits wrong, so the receipt must show the video unchanged.
+    """
+    from .published import cut_file, digest
+
+    if receipt.get("video_id") != vid:
+        return (f"{vid} is not the video this cut was uploaded as "
+                f"({receipt.get('video_id') or 'none recorded'}), so nothing "
+                f"shows it carries this cut")
+    cut = receipt.get("cut") if isinstance(receipt.get("cut"), dict) else {}
+    if not cut.get("digest"):
+        return ("this receipt predates recording the cut, so it cannot show the "
+                "video is unchanged; upload the cut instead")
+    here = cut_file(proj.out, tag)
+    if here is None or digest(here) != cut["digest"]:
+        return ("the cut has changed since it was uploaded; upload it with its own "
+                "description rather than pasting that onto the old video, which "
+                "would credit footage it does not contain")
+    for name in ("youtube.json", f"description{tag}.txt"):
+        if not (proj.out / name).exists():
+            return f"no {name} in {proj.out}"
+    return ""
 
 
 def cmd_retake(args) -> int:
@@ -544,6 +615,10 @@ def cmd_published(args) -> int:
             said = state["privacy"] if state else "gone from the channel"
         else:
             said = row["checked"] or "checked, date unknown"
+        if row.get("replaced_by"):
+            now = f"{said}, " if args.live else ""
+            when = f" on {row['until']}" if row.get("until") else ""
+            said = f"{now}replaced by {row['replaced_by']}{when}"
         drift = f"  drift: {', '.join(row['moved'])}" if row["moved"] else ""
         print(f"{row['project']:<22} {shape:<6} {row['video_id']}  {said}{drift}")
     return 0
@@ -878,7 +953,12 @@ def main(argv=None) -> int:
                     help="default: the video named in out/published.json")
     pb.add_argument("--aspect", choices=ASPECTS,
                     help="which cut to publish (default: the project's own)")
-    pb.add_argument("--privacy", choices=("public", "unlisted"), default="public")
+    pb.add_argument("--privacy", choices=("public", "unlisted", "private"),
+                    help="default public; private takes a video down and checks "
+                         "nothing, since nobody can see it")
+    pb.add_argument("--meta", action="store_true",
+                    help="put this cut's title, description and tags on the video "
+                         "it was uploaded as; refused if the cut has changed since")
     pb.add_argument("--force", action="store_true",
                     help="publish even though check reported problems")
     pb.set_defaults(func=cmd_publish)
