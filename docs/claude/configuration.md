@@ -107,6 +107,22 @@ were about databases and matching. Rewriting the words to describe the printed
 page is what moved the footage to receipts and bills. A scene that comes back
 wrong twice needs `rewrite`, not another retake.
 
+**A clip that keeps coming back goes in `visuals.exclude`.** A retake writes a
+near-identical search, the results overlap, and the rerank can approve the same
+clip every roll: howto's scene 1 came back twice with a Matrix-rain
+"hacking code" clip in the same slot, and the second roll lost the good shots
+around it. An entry is what the shot sheet prints beside a frame, the clip's
+Pexels or Pixabay page, or its bare id; `clip_exclusion()` reads both, and
+`load_config()` refuses an entry that names no clip, since it would exclude
+nothing in silence. Excluded ids are dropped from the results before the rerank,
+so they take no place among the stills judged. A scene already showing one is
+re-filmed on the next plain `build`, every cut of it, because a built scene
+reuses its clips and never searches again; filtering the results alone would
+have left the clip exactly where it was. A one-shot retake honours it too:
+`retake.candidates()` leaves excluded clips out of the list, where the Matrix
+clip had just been offered back marked kept, and `replace()` refuses one asked
+for by id.
+
 **Read the footage off a shot sheet.** `vidsmith sheet <name>` writes
 `build/sheet<tag>/sheet.html`: a frame per shot from the picture track (no
 captions burned in), its timing, the words spoken over it, the search that

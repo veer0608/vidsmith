@@ -40,6 +40,9 @@ visuals:
   max_shot_seconds: 5.5
   card_text: auto
   per_scene_queries: 1
+  exclude:
+  # Matrix-rain "hacking code", picked by the rerank on two retakes of scene 1
+  - https://www.pexels.com/video/matrix-console-hacking-code-852292/
 captions:
   enabled: true
   style: karaoke
