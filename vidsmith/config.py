@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
+from urllib.parse import urlparse
 
 import yaml
 
@@ -77,6 +79,11 @@ class VisualConfig:
     # Gemini writes rather than filtering results, so it needs a Gemini key to
     # do anything; `any` searches exactly as a build did before it existed.
     genre: str = "any"
+    # Clips never to use, as the shot sheet names them: the clip's Pexels or
+    # Pixabay page, or its bare id. A retake writes a near-identical search, the
+    # results overlap, and the rerank approved the same clip on every roll;
+    # this is how one goes for good. See clip_exclusion().
+    exclude: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -209,6 +216,29 @@ _CLOSED_SETS = {
 }
 
 
+_CLIP_HOSTS = {"pexels.com": "pexels", "pixabay.com": "pixabay"}
+
+
+def clip_exclusion(entry: Any) -> Tuple[str, str]:
+    """`(provider, id)` for one `visuals.exclude` entry, provider "" for either.
+
+    An entry is what the shot sheet prints beside a frame: the clip's page, or
+    just the id at the end of it. A page names its provider. A bare id matches
+    under both, which only costs anything if the two libraries' independent
+    numbering happens to collide inside one project's searches.
+    """
+    text = str(entry).strip().rstrip("/")
+    if text.isdigit():
+        return "", text
+    parsed = urlparse(text)
+    host = parsed.netloc.lower()
+    host = host[4:] if host.startswith("www.") else host
+    ids = re.findall(r"\d+", parsed.path)
+    if host in _CLIP_HOSTS and ids:
+        return _CLIP_HOSTS[host], ids[-1]
+    raise ValueError(f"{entry!r} is neither a clip id nor a Pexels or Pixabay page")
+
+
 def _check(cfg: "Config", path: Path) -> None:
     from .genres import GENRES
     from .theme import PRESETS
@@ -223,6 +253,13 @@ def _check(cfg: "Config", path: Path) -> None:
                 f"{path}: {section}.{key} is {value!r}; "
                 f"expected one of {', '.join(sorted(allowed))}"
             )
+    # An entry that names no clip excludes nothing, and the clip it was meant
+    # to remove comes back on the next roll with nothing said.
+    for entry in cfg.visuals.exclude:
+        try:
+            clip_exclusion(entry)
+        except ValueError as exc:
+            raise ValueError(f"{path}: visuals.exclude: {exc}") from None
 
 
 def load_config(path: Path) -> Config:
@@ -242,6 +279,11 @@ def load_config(path: Path) -> Config:
     _merge(cfg.captions, raw.get("captions"))
     _merge(cfg.audio, raw.get("audio"))
     _merge(cfg.render, raw.get("render"))
+    # one clip written without the list brackets is still one clip, and YAML
+    # hands a bare id over as an int
+    if not isinstance(cfg.visuals.exclude, list):
+        cfg.visuals.exclude = [cfg.visuals.exclude] if cfg.visuals.exclude else []
+    cfg.visuals.exclude = [str(e) for e in cfg.visuals.exclude]
     # The CLI rejects these through argparse and the web front through
     # _validate; config.yaml is the surface `vidsmith new` writes out in full
     # and invites you to edit, and it validated nothing at all.

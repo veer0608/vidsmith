@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from . import captions as cap
 from . import ffmpeg_util as ff
 from . import pipeline, snapshot, visuals
-from .config import Config, aspect_tag, load_config
+from .config import Config, aspect_tag, clip_exclusion, load_config
 from .script_parser import Scene, load_scenes
 
 # Only a stock search has other candidates to offer. A card, a local file and a
@@ -59,6 +59,8 @@ class Build:
         pipeline.read_shots(self.vis, self.scenes)
         self.ledger: Dict[str, Dict[str, str]] = _read(self.vis / "credits.json")
         self.decided: Dict[str, Any] = _read(self.proj.build / "diagram_scenes.json")
+        # visuals.exclude, parsed; load_config has already refused a bad entry
+        self.excluded = [clip_exclusion(e) for e in self.cfg.visuals.exclude]
 
     @property
     def provider(self) -> str:
@@ -78,6 +80,9 @@ class Build:
 
     def entry(self, scene_index: int, shot_index: int) -> Dict[str, str]:
         return self.ledger.get(f"{scene_index}:{shot_index}") or {}
+
+    def excludes(self, clip_id: str) -> bool:
+        return visuals.is_excluded(self.excluded, self.provider, clip_id)
 
     def used(self) -> Dict[str, str]:
         """Every clip in the video, by id, and which shot holds it."""
@@ -185,7 +190,10 @@ def candidates(root: Path, scene_index: int, shot_index: int,
     Kept by the reranker first, in its order, then anything it never judged,
     then what it rejected. Rejected clips are still offered: a person looking at
     the shot may disagree, and the reason for this feature is that the model
-    was wrong about it. Clips already somewhere in the video are left out.
+    was wrong about it. Clips already somewhere in the video are left out, and
+    so are the ones `visuals.exclude` names: the project has already decided
+    against them, and the reranker offered the Matrix clip it had just
+    excluded as a kept candidate.
     """
     build = Build(root)
     scene, _ = build.shot(scene_index, shot_index)
@@ -205,7 +213,7 @@ def candidates(root: Path, scene_index: int, shot_index: int,
             return 0, order.index(hit["id"])
         return 1, 0
 
-    fresh = [h for h in hits if h["id"] not in used]
+    fresh = [h for h in hits if h["id"] not in used and not build.excludes(h["id"])]
     fresh.sort(key=rank)                      # stable, so search order breaks ties
     return {
         "query": query, "current": current,
@@ -284,6 +292,8 @@ def _resolve(build: Build, scene_index: int, shot_index: int, clip_id: str,
     if holder:
         raise RetakeRefused("that clip is already in the video; using it twice "
                             "shows the same footage twice")
+    if build.excludes(clip_id):
+        raise RetakeRefused("that clip is in this project's visuals.exclude")
     # the search is cached for a day, so asking again costs no request
     hit = next((h for h in _search(build, query, keys) if h["id"] == clip_id), None)
     if hit is None:
