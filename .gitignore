@@ -8,9 +8,11 @@ __pycache__/
 !.env.example
 projects/*/build/
 projects/*/out/
-# what `vidsmith sheet` writes, and the logs a build or retake is redirected to;
-# both are remade from the project, like build/ and out/
+# Sheets made while `vidsmith sheet` was being written, before it settled on
+# build/sheet<tag>/. The command has never written here; this is for the copies
+# that are still lying around.
 projects/*/sheet/
+# the logs a build or retake is redirected to by hand
 projects/*/*.log
 assets/clips/
 bin/
