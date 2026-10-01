@@ -8,6 +8,10 @@ __pycache__/
 !.env.example
 projects/*/build/
 projects/*/out/
+# what `vidsmith sheet` writes, and the logs a build or retake is redirected to;
+# both are remade from the project, like build/ and out/
+projects/*/sheet/
+projects/*/*.log
 assets/clips/
 bin/
 assets/fonts/
