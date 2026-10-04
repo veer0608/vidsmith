@@ -78,6 +78,44 @@ def test_the_finished_notification_says_what_actually_finished(tmp_path):
     assert said["failed"][0] == "Racks failed"
 
 
+def test_the_login_link_carries_only_the_token(tmp_path):
+    """The copied link must log a browser in, and carry nothing else.
+
+    Fetching the token meant reading the server's .env by hand every time the
+    site was opened somewhere new. The link replaces that, so it has to keep the
+    page's own path (a tunnel can serve it below one), put the token where
+    tokenFromUrl() looks, survive characters a URL would mangle, and drop a
+    stale `t` or anything else that was in the address bar.
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    page = PAGE.read_text(encoding="utf-8")
+    cases = [
+        ["https://vidsmith.example.org/", "abc123"],
+        ["https://vidsmith.example.org/?t=old&x=1#log", "new"],
+        ["https://tunnel.example.com/sub/path/", "a+b/c=d&e"],
+    ]
+    harness = tmp_path / "login.js"
+    harness.write_text(
+        _function(page, "loginLink") + "\n"
+        + f"const cases = {json.dumps(cases)};\n"
+        + "console.log(JSON.stringify(cases.map(([h, t]) => {\n"
+          "  const link = loginLink(h, t);\n"
+          "  const u = new URL(link);\n"
+          "  return [link, u.searchParams.get('t'), [...u.searchParams.keys()], u.pathname, u.hash];\n"
+          "})));\n", encoding="utf-8")
+
+    result = subprocess.run([node, str(harness)], capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    plain, stale, awkward = json.loads(result.stdout)
+
+    assert plain[0] == "https://vidsmith.example.org/?t=abc123"
+    assert stale[1] == "new" and stale[2] == ["t"] and stale[4] == "", "old query or fragment survived"
+    assert awkward[1] == "a+b/c=d&e", "the token did not round-trip through the URL"
+    assert awkward[3] == "/sub/path/", "the page's own path was lost"
+
+
 def test_the_check_can_fail(tmp_path):
     """A gate nobody has seen fail is not known to be a gate."""
     node = shutil.which("node")
