@@ -755,6 +755,11 @@
           <p class="error" id="token-error" aria-live="polite"></p>
           <p class="hint" id="token-hint">Kept in this browser only. It stops a public URL
             from being a renderer that spends someone else’s API quota.</p>
+          <div class="hidden" id="login-link-row" style="margin-top:10px">
+            <button class="btn sm" type="button" id="copy-login">
+              <svg aria-hidden="true"><use href="#i-copy"/></svg><span id="copy-login-label">Copy My Login Link</span></button>
+            <p class="hint" id="login-copied" role="status" aria-live="polite"></p>
+          </div>
         </div>
       </section>
 
@@ -956,6 +961,20 @@ function tokenPill() {
   $("token-pill").classList.remove("hidden");
   $("token-dot").className = `dot ${has ? "ok" : "warn"}`;
   $("token-state").textContent = has ? "Token Saved" : "Token Needed";
+  $("login-link-row").classList.toggle("hidden", !has);
+}
+
+/* The link that logs a browser in: this page's address with the token as `?t=`,
+   which tokenFromUrl() reads and then strips. Without it, opening the site
+   anywhere new (another browser, a phone, a cleared cache) meant fetching the
+   token from the server's .env by hand. Any other query or fragment is dropped,
+   so a copied link never carries a stale `t` or whatever else was in the bar. */
+function loginLink(href, tok) {
+  const url = new URL(href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("t", tok);
+  return url.toString();
 }
 
 /* The app always answers in JSON. Whatever sits in front of it may not: a
@@ -1200,6 +1219,19 @@ async function loadOptions() {
     });
     // the list is behind the token, so a token pasted in is the moment to fetch it
     $("tokenfield").addEventListener("change", () => { loadPast(); loadYouTube(); loadAllowance(); });
+    $("copy-login").onclick = async () => {
+      const link = loginLink(window.location.href, token());
+      try {
+        await navigator.clipboard.writeText(link);
+        $("copy-login-label").textContent = "Copied";
+        $("login-copied").textContent =
+          "Login link copied. Anyone who has it can render here, so send it only to people you trust.";
+      } catch {
+        // a page without clipboard permission can still show the link to copy by hand
+        $("login-copied").textContent = `Could not copy. Select this link and copy it: ${link}`;
+      }
+      setTimeout(() => ($("copy-login-label").textContent = "Copy My Login Link"), 1600);
+    };
     tokenPill();
   }
   const saved = loadSettings();

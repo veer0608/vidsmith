@@ -165,6 +165,19 @@ def test_the_page_takes_a_token_from_the_link(client):
     assert 'searchParams' in page and '"t"' in page or "'t'" in page
 
 
+def test_the_page_offers_a_login_link_once_a_token_is_in(client):
+    """The other half of taking a token from the link: handing one out.
+
+    Shown only when a token is present, since an instance with no gate needs
+    no link and an empty token would make one that logs nobody in. Hidden and
+    shown by tokenPill(), which every path that changes the token already calls.
+    """
+    page = client.get("/").text
+    assert 'id="copy-login"' in page and 'id="login-link-row"' in page
+    assert "loginLink(window.location.href, token())" in page
+    assert '$("login-link-row").classList.toggle("hidden", !has)' in page
+
+
 def test_the_page_strips_the_token_from_the_address_bar(client):
     """Not secrecy - it travelled in a chat message and the server logs it.
 
