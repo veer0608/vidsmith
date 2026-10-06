@@ -12,7 +12,8 @@ from .config import ASPECTS, aspect_tag, load_config, write_default_config
 from .genres import GENRES
 from .theme import PRESETS as THEME_PRESETS
 from .pipeline import (KEY_ENV, KEY_NOTES, Project, _slug, find_keys,
-                       resolve_title, set_thumbnail_credit, write_metadata)
+                       resolve_title, set_thumbnail_credit, write_metadata,
+                       write_thumbnail_choice)
 
 STARTER = """# {title}
 
@@ -201,6 +202,17 @@ def _refresh_thumbnails(args) -> int:
             continue
         size = ASPECTS[aspect]
         target = (1280, 720) if size[0] >= size[1] else None
+        own = thumbs.from_mine(root, scenes)
+        if own:
+            out = proj.out / f"{slug}{tag}.jpg"
+            thumbs.titled(own["path"], out, cfg.title, theme, target)
+            # their own photo owes nobody a credit, and the line for the stock
+            # photographer it replaces must go with it
+            set_thumbnail_credit(proj.out / f"credits{tag}.txt", None)
+            write_thumbnail_choice(proj.build, tag, {"kind": "mine", "file": own["file"]})
+            print(f"  {aspect:5} your own photo {own['file']}")
+            done += 1
+            continue
         try:
             stock = thumbs.from_stock(cfg.title, subjects, size, keys,
                                       proj.build / ".thumbstock", strict=True)

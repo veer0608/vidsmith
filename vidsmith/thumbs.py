@@ -160,6 +160,42 @@ def _thumb_bytes(path: Path, width: int = 384) -> bytes:
     return buf.getvalue()
 
 
+# narrower than this and a photo is enlarged past what a thumbnail can hide
+MIN_OWN_WIDTH = 640
+
+
+def from_mine(root: Path, scenes: Sequence) -> Optional[dict]:
+    """The best of the viewer's own photos that the script uses, or None.
+
+    Their photos come before stock: they are what the video is about, nothing
+    needs crediting, and no search or model call is spent. Only images a scene
+    names through `[media:]` are considered (the folder can hold more than the
+    script uses), and a video file is never a candidate, since the stock path
+    wants a still. Ranked with the same sharpness-and-colour score a lifted
+    frame is, so a blurry or crushed photo loses to a good one.
+    """
+    from .visuals import IMAGE_EXT, MINE_DIR
+
+    folder = Path(root) / MINE_DIR
+    if not folder.is_dir():
+        return None
+    named = {Path(n).name.lower() for s in scenes for n in (s.media or [])}
+    best: Optional[Tuple[float, Path]] = None
+    for path in sorted(folder.iterdir()):
+        if path.name.lower() not in named or path.suffix.lower() not in IMAGE_EXT:
+            continue
+        try:
+            with Image.open(path) as im:
+                if im.width < MIN_OWN_WIDTH:
+                    continue
+            score = _score(path)[0]
+        except Exception:
+            continue
+        if best is None or score > best[0]:
+            best = (score, path)
+    return {"path": best[1], "file": best[1].name} if best else None
+
+
 def from_stock(title: str, subjects: str, size: Optional[Tuple[int, int]],
                keys: dict, workdir: Path, log=print,
                strict: bool = False) -> Optional[dict]:
