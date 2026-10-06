@@ -26,6 +26,7 @@ before writing anything. The traps are the reason this file exists.
 | Add a config key | [configuration.md](docs/claude/configuration.md) | A misspelled key is ignored in silence; a closed-set value is refused on load |
 | Reach for a build's output file | [incidents.md](docs/claude/incidents.md), an empty tag | 16:9 has no suffix, so `*{tag}.mp4` matches every other cut |
 | Write an artifact a second way | [incidents.md](docs/claude/incidents.md), two writers | Call the one writer; a second copy is how credits go missing |
+| Change how a viewer's own files reach a render | [web-service.md](docs/claude/web-service.md), your own photos and videos | A name resolves inside `assets/mine` only, and a missing one is logged, never a silent card |
 | Change the footage source | [configuration.md](docs/claude/configuration.md) | A provider with no key falls back to cards without failing |
 | Reword the drafting prompt | [script.md](docs/claude/script.md) | `test_script_prompt.py` says what it must still demand |
 | Repair text a model wrote | [incidents.md](docs/claude/incidents.md), dashes | A repair pass cannot tell its own output from the input |
