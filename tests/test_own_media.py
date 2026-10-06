@@ -171,3 +171,51 @@ def test_an_unknown_upload_id_is_a_400_not_a_failed_job(client):
                                        "media": ["0123456789ab"]})
     assert r.status_code == 400
     assert client.get("/api/jobs").json()["renders"] == []
+
+
+# -- the thumbnail --------------------------------------------------------- #
+
+def _photo(path: Path, size=(1280, 720), noisy=False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if noisy:
+        import random
+        random.seed(1)
+        im = Image.new("RGB", size)
+        im.putdata([(random.randrange(256), random.randrange(256), random.randrange(256))
+                    for _ in range(size[0] * size[1])])
+    else:
+        im = Image.new("RGB", size, (120, 120, 120))
+    im.save(path)
+
+
+def test_the_thumbnail_takes_the_best_photo_the_script_names(tmp_path):
+    from vidsmith import thumbs
+    _photo(tmp_path / MINE_DIR / "flat.png")
+    _photo(tmp_path / MINE_DIR / "busy.png", noisy=True)
+    scenes = [make_scene("x", media=["flat.png", "busy.png"])]
+    got = thumbs.from_mine(tmp_path, scenes)
+    assert got["file"] == "busy.png"
+
+
+def test_a_photo_the_script_never_names_is_not_a_candidate(tmp_path):
+    from vidsmith import thumbs
+    _photo(tmp_path / MINE_DIR / "unused.png", noisy=True)
+    assert thumbs.from_mine(tmp_path, [make_scene("x")]) is None
+
+
+def test_a_video_and_a_tiny_photo_are_skipped(tmp_path):
+    from vidsmith import thumbs
+    (tmp_path / MINE_DIR).mkdir(parents=True)
+    (tmp_path / MINE_DIR / "clip.mp4").write_bytes(b"")
+    _photo(tmp_path / MINE_DIR / "tiny.png", size=(100, 100), noisy=True)
+    scenes = [make_scene("x", media=["clip.mp4", "tiny.png"])]
+    assert thumbs.from_mine(tmp_path, scenes) is None
+
+
+def test_dropping_the_only_credit_removes_it_rather_than_keeping_it(tmp_path):
+    from vidsmith import pipeline
+    credits = tmp_path / "credits.txt"
+    credits.write_text(pipeline.thumbnail_credit_line(
+        {"author": "Someone", "page": "https://example.com/p"}), encoding="utf-8")
+    pipeline.set_thumbnail_credit(credits, None)
+    assert not credits.exists()

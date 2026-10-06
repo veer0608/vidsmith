@@ -530,9 +530,15 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
             # not the hook, which is where every script keeps its frustration
             subjects = ", ".join(dict.fromkeys(
                 visuals.scene_query(s) for s in scenes))
-            stock = thumbs.from_stock(cfg.title, subjects, cfg.size, keys,
-                                      proj.build / ".thumbstock", log=log)
-            if stock:
+            own = thumbs.from_mine(proj.root, scenes)
+            stock = None if own else thumbs.from_stock(
+                cfg.title, subjects, cfg.size, keys,
+                proj.build / ".thumbstock", log=log)
+            if own:
+                log(f"         thumbnail: your own photo {own['file']}")
+                source = own["path"]
+                thumb_credit = None
+            elif stock:
                 source = stock["path"]
                 thumb_credit = stock
             else:
@@ -547,7 +553,8 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
             # other photographs instead of asking the model to write it again
             write_thumbnail_choice(proj.build, tag, {
                 "kind": "photo", "query": stock["query"], "id": stock.get("id", "")}
-                if stock else {"kind": "frame"})
+                if stock else {"kind": "mine", "file": own["file"]}
+                if own else {"kind": "frame"})
         except Exception as exc:
             log(f"         thumbnail fell back to a plain frame ({exc})")
             render.thumbnail(final, proj.out / f"{slug}{tag}.jpg",
@@ -731,6 +738,10 @@ def set_thumbnail_credit(path: Path, stock: Optional[Dict[str, Any]]) -> None:
         text += thumbnail_credit_line(stock)
     if text:
         path.write_text(text, encoding="utf-8")
+    elif old:
+        # the thumbnail line was the only one, and it is no longer owed. Leaving
+        # the file alone kept naming a photographer whose photo had been dropped.
+        path.unlink()
 
 
 def credits_block(scenes: Sequence[Scene], provider: str) -> str:

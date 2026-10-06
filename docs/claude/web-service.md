@@ -163,4 +163,12 @@ files than scenes. A script that names any file is left alone.
 `assets/mine`, so `../` cannot leave it. It runs before the provider branch, so it
 works under every provider and beats a model-decided diagram; a missing name is
 logged and the scene falls back to the provider. A user's own file has no author, so
-nothing reaches `credits.txt`. Not covered: the thumbnail still searches stock.
+nothing reaches `credits.txt`.
+
+**The thumbnail takes their photo first.** `thumbs.from_mine` ranks the images a
+`[media:]` line names (at least 640 wide, never a video) with the same sharpness-and-colour
+score a lifted frame gets, and a build or `thumbs --refresh` uses the winner before any
+stock search, so no search or model call is spent and no credit is owed. A refresh that
+swaps a stock photo for theirs must drop the stock credit line: `set_thumbnail_credit`
+used to leave the file alone when that was the only line, so it kept naming a
+photographer whose photo was gone. It now deletes the file when nothing is owed.
