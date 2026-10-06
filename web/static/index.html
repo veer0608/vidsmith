@@ -224,6 +224,17 @@
   .kbd { font: 500 11px var(--mono); padding: 1px 5px; border-radius: 4px;
          border: 1px solid var(--border-strong); color: var(--fg-2); }
 
+  .mine { display: grid; gap: 10px; }
+  .mine-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+               grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .mine-list:empty { display: none; }
+  .mine-list li { position: relative; border: 1px solid var(--border-strong); border-radius: 8px;
+                  overflow: hidden; background: var(--hover); font-size: 12px; }
+  .mine-list img, .mine-list video { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+  .mine-list .nm { padding: 4px 6px; overflow-wrap: anywhere; color: var(--fg-2); }
+  .mine-list button { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%;
+                      border: 0; cursor: pointer; background: rgba(0,0,0,.65); color: #fff; line-height: 1; }
+
   .hint { color: var(--fg-2); font-size: 13px; margin: 10px 0 0; text-wrap: pretty; }
   .error { color: var(--bad); font-size: 13px; margin: 10px 0 0; }
   .error::before { content: "! "; font-weight: 700; }
@@ -815,6 +826,24 @@
               searches stock footage; <code translate="no">[diagram: three boxes]</code> draws one.
               <span id="undo-slot"></span></span>
             <button class="btn sm end" id="sample" type="button">Load the Sample</button>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="mine-h">
+          <div class="card-h">
+            <h2 id="mine-h">Your Photos and Videos</h2>
+            <div class="end"><span class="badge">Optional</span></div>
+          </div>
+          <div class="card-b mine">
+            <div>
+              <input type="file" id="mine-pick" multiple accept="image/*,video/*" hidden>
+              <button class="btn" id="mine-add" type="button">Add Photos or Videos</button>
+            </div>
+            <ul class="mine-list" id="mine-list"></ul>
+            <p class="error" id="mine-error" aria-live="polite"></p>
+            <p class="hint" id="mine-hint">Added files are spread across the scenes in order, in place of stock
+              footage. To place one yourself, put <code translate="no">[media: beach.jpg]</code> above a
+              paragraph; several names separated by commas play one after another.</p>
           </div>
         </section>
 
@@ -2847,6 +2876,7 @@ $("form").addEventListener("submit", async (e) => {
     mood: $("mood").value,
     watermark: $("watermark").value,
     music: $("music").checked,
+    media: mine.map((m) => m.id),
   };
   const estimate = analyse(body.script).seconds;
   let r, job;
@@ -2882,6 +2912,57 @@ $("form").addEventListener("submit", async (e) => {
   render(job);
   follow(job.id);
   $("progress").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+});
+
+/* The viewer's own files. Each goes up on its own request as the raw body, and
+   what the server keeps comes back as an id; the render is told the ids, not
+   the bytes, so Render stays a small JSON post. */
+const mine = [];
+function drawMine() {
+  const list = $("mine-list");
+  list.replaceChildren(...mine.map((m, i) => {
+    const li = document.createElement("li");
+    const src = `/api/uploads/${m.id}${authQuery()}`;
+    const media = document.createElement(m.kind === "video" ? "video" : "img");
+    media.src = src;
+    if (m.kind === "video") { media.muted = true; media.preload = "metadata"; }
+    else media.alt = m.name;
+    const nm = document.createElement("div");
+    nm.className = "nm"; nm.textContent = m.name;
+    const x = document.createElement("button");
+    x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", `Remove ${m.name}`);
+    x.addEventListener("click", async () => {
+      mine.splice(i, 1); drawMine();
+      try { await fetch(`/api/uploads/${m.id}`, {method: "DELETE", headers: authHeaders()}); } catch (e) {}
+    });
+    li.append(media, nm, x);
+    return li;
+  }));
+}
+$("mine-add").addEventListener("click", () => $("mine-pick").click());
+$("mine-pick").addEventListener("change", async (ev) => {
+  const err = $("mine-error");
+  err.textContent = "";
+  const files = [...ev.target.files];
+  ev.target.value = "";
+  const room = 20;
+  for (const f of files) {
+    if (mine.length >= room) { err.textContent = `At most ${room} files per video.`; break; }
+    $("mine-add").disabled = true;
+    $("mine-add").textContent = `Uploading ${f.name}…`;
+    try {
+      const r = await fetch(`/api/uploads?name=${encodeURIComponent(f.name)}`,
+                            {method: "POST", headers: authHeaders(), body: f});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) err.textContent = typeof j.detail === "string" ? j.detail : `Could not add ${f.name}`;
+      else mine.push(j);
+    } catch (e) {
+      err.textContent = `Could not upload ${f.name}. Check your connection.`;
+    }
+    drawMine();
+  }
+  $("mine-add").disabled = false;
+  $("mine-add").textContent = "Add Photos or Videos";
 });
 
 loadOptions();

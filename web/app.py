@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import hmac
 
@@ -26,6 +26,7 @@ from vidsmith import usage
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
+from web import uploads as uploading
 from web.youtube import CALLBACK, Refused, YouTube
 
 HERE = Path(__file__).resolve().parent
@@ -98,9 +99,11 @@ class BuildRequest(BaseModel):
     music: bool = True
     mood: str = "calm"
     voice: Optional[str] = None
+    # ids from POST /api/uploads: the viewer's own photos and videos
+    media: List[str] = Field(default_factory=list, max_length=uploading.MAX_FILES)
 
     def options(self) -> Dict[str, Any]:
-        return self.model_dump(exclude={"script"})
+        return self.model_dump(exclude={"script", "media"})
 
 
 def _validate(req: BuildRequest) -> None:
@@ -114,6 +117,9 @@ def _validate(req: BuildRequest) -> None:
         raise HTTPException(400, f"genre must be one of {list(GENRES)}")
     if req.mood not in music_mod.moods():
         raise HTTPException(400, f"mood must be one of {music_mod.moods()}")
+    for upload_id in req.media:
+        if jobs.uploads.find(upload_id) is None:
+            raise HTTPException(400, "an uploaded file has expired; add it again")
     words = script_parser.narration_words(req.script)
     if words > WORD_CAP:
         raise HTTPException(
@@ -201,6 +207,9 @@ def options() -> Dict[str, Any]:
             "max_queue": MAX_QUEUE,
             # how long a vertical cut may be and still be a Short
             "shorts_seconds": SHORTS_SECONDS,
+            "uploads": {"max_files": uploading.MAX_FILES,
+                        "max_image_mb": uploading.MAX_IMAGE_BYTES // 2**20,
+                        "max_video_mb": uploading.MAX_VIDEO_BYTES // 2**20},
             "busy": jobs.busy(), "auth": bool(TOKEN),
             "stages": stage_sequence(),
             # `ready` says whether this instance holds the key that provider
@@ -250,7 +259,7 @@ def busy() -> Dict[str, Any]:
 def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     _validate(req)
     try:
-        job = jobs.submit(req.script, req.options())
+        job = jobs.submit(req.script, req.options(), media=req.media)
     except Busy as exc:
         # one x264 encode already has this box and the line behind it is full;
         # a second encode would starve both rather than finishing either sooner
@@ -260,6 +269,54 @@ def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
     # snapshot rather than public(), so a caller that landed in the queue is
     # told where it landed in the same response
     return jobs.snapshot(job.id) or job.public()
+
+
+@app.post("/api/uploads", status_code=201)
+async def upload(request: Request, name: str = "",
+                 _: None = Depends(guard)) -> Dict[str, Any]:
+    """Keep one photo or video of the viewer's own, as the raw request body.
+
+    The name rides in the query because the body is the file. The size is
+    enforced as it streams, so a huge body is cut off at the limit rather than
+    written whole and measured afterwards.
+    """
+    try:
+        upload_id, path = jobs.uploads.begin(name)
+    except uploading.Refused as exc:
+        raise HTTPException(400, str(exc))
+    limit = uploading.limit_for(path.name)
+    size = 0
+    try:
+        with path.open("wb") as out:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > limit:
+                    raise uploading.Refused(
+                        f"'{path.name}' is over the {limit // 2**20} MB limit")
+                out.write(chunk)
+        if not size:
+            raise uploading.Refused(f"'{path.name}' is empty")
+        return jobs.uploads.finish(upload_id, path)
+    except uploading.Refused as exc:
+        jobs.uploads.discard(upload_id)
+        raise HTTPException(400, str(exc))
+    except BaseException:
+        jobs.uploads.discard(upload_id)
+        raise
+
+
+@app.delete("/api/uploads/{upload_id}")
+def remove_upload(upload_id: str, _: None = Depends(guard)) -> Dict[str, bool]:
+    jobs.uploads.discard(upload_id)
+    return {"removed": True}
+
+
+@app.get("/api/uploads/{upload_id}")
+def upload_preview(upload_id: str, _: None = Depends(guard)) -> FileResponse:
+    path = jobs.uploads.find(upload_id)
+    if path is None:
+        raise HTTPException(404, "that upload is gone")
+    return FileResponse(path)
 
 
 @app.get("/api/jobs")

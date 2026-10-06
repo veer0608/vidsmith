@@ -27,7 +27,7 @@ from typing import Any, Dict, List
 # Kept as data rather than buried in the pattern: the web page needs the same
 # vocabulary to tell you what it is about to build, and gets it from the server
 # instead of keeping a second copy that can quietly disagree.
-DIRECTIVE_KINDS = ("visual", "b-?roll", "footage", "shot", "hold", "image", "diagram")
+DIRECTIVE_KINDS = ("visual", "b-?roll", "footage", "shot", "hold", "image", "diagram", "media")
 NOTE_PREFIXES = (">", "<!--", "//")
 
 DIRECTIVE = re.compile(
@@ -55,6 +55,9 @@ class Scene:
     query: str = ""
     hold: float = 0.0
     diagram: str = ""      # "[diagram: ...]" forces a drawn frame for this scene
+    # "[media: a.jpg, b.mp4]": the viewer's own files, by name, for this scene.
+    # They win over stock footage and over a model-decided diagram.
+    media: List[str] = field(default_factory=list)
     # The "[visual: ...]" value exactly as written, or "" when the scene has no
     # directive. `query` is not a substitute: llm.suggest_queries() overwrites it
     # for undirected scenes, so a cached query cannot be compared against a fresh
@@ -91,7 +94,7 @@ class Scene:
         searched on it: a changed heading is a changed narration key already, so
         it invalidates everything rather than only the shot.
         """
-        return (self.directive, self.diagram)
+        return (self.directive, self.diagram, tuple(self.media))
 
     def source_key(self) -> tuple:
         """Everything about this scene that came from the script.
@@ -176,6 +179,7 @@ def _parse(text: str) -> tuple[str, List[Scene], List[List[int]]]:
     cur_query = ""
     cur_hold = 0.0
     cur_diagram = ""
+    cur_media: List[str] = []
     buf: List[str] = []
     buf_lines: List[int] = []
 
@@ -184,7 +188,7 @@ def _parse(text: str) -> tuple[str, List[Scene], List[List[int]]]:
         # it needs no nonlocal. It survives a flush on purpose: a heading is a
         # section, not a label for one paragraph, so every scene under one `##`
         # keeps it, and an undirected scene is searched on it.
-        nonlocal buf, buf_lines, cur_query, cur_hold, cur_diagram
+        nonlocal buf, buf_lines, cur_query, cur_hold, cur_diagram, cur_media
         text = _clean(" ".join(buf))
         taken = buf_lines
         buf, buf_lines = [], []
@@ -200,11 +204,13 @@ def _parse(text: str) -> tuple[str, List[Scene], List[List[int]]]:
                 hold=cur_hold,
                 diagram=cur_diagram,
                 directive=cur_query,
+                media=cur_media,
             )
         )
         cur_query = ""
         cur_hold = 0.0
         cur_diagram = ""
+        cur_media = []
 
     for number, raw in enumerate(lines):
         line = raw.rstrip()
@@ -220,6 +226,10 @@ def _parse(text: str) -> tuple[str, List[Scene], List[List[int]]]:
                     cur_hold = float(value)
                 except ValueError:
                     pass
+            elif kind == "media":
+                if buf:
+                    flush()
+                cur_media = [n.strip() for n in value.split(",") if n.strip()]
             elif kind == "diagram":
                 if buf:
                     flush()

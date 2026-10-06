@@ -138,3 +138,29 @@ rather than served because asking the server per keystroke would be absurd. It
 is not authoritative and the server still decides, but if the scene-break rule
 changes, `analyse()` changes with it. The regex literals beside it are fallbacks
 for a failed options fetch, not a second source of truth.
+
+## Your own photos and videos
+
+The page's "Your Photos and Videos" card sends each file to `POST /api/uploads?name=...`
+as the raw request body (no multipart dependency). `web/uploads.py` refuses at the
+door what the encode would choke on minutes later: the extension must be one of
+`VIDEO_EXT | IMAGE_EXT`, an image must open in Pillow, a video must have a duration
+ffmpeg can read, and the size is counted as it streams (15 MB an image, 150 MB a
+video, 20 files and 400 MB a render). Files wait in `<jobs>/_uploads/<id>/`; the
+leading underscore is what keeps `sweep_orphans` from treating it as a dead render.
+
+`POST /api/jobs` takes `media: [ids]`. `Jobs.submit` copies them into the job's
+`assets/mine` (a repeated phone name like `IMG_0001.jpg` is numbered, not
+overwritten), so a render never depends on an upload a later sweep could remove.
+
+The script reaches them through `[media: a.jpg, b.mp4]` above a paragraph
+(`Scene.media`, part of `picture_key`, so editing it rebuilds that shot). With
+no `[media:]` line anywhere, `uploads.spread` writes them in for you: scene *i*
+gets files `i*n//T .. (i+1)*n//T`, or the one it lands on when there are fewer
+files than scenes. A script that names any file is left alone.
+
+`VisualBuilder._mine` resolves names by file name only, case-insensitively, inside
+`assets/mine`, so `../` cannot leave it. It runs before the provider branch, so it
+works under every provider and beats a model-decided diagram; a missing name is
+logged and the scene falls back to the provider. A user's own file has no author, so
+nothing reaches `credits.txt`. Not covered: the thumbnail still searches stock.

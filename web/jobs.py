@@ -38,6 +38,7 @@ from vidsmith import cuts as cutting
 from vidsmith import rewrite, snapshot
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
+from web import uploads as uploading
 
 # stage -> fraction of the run that is behind you once it starts.
 #
@@ -203,6 +204,7 @@ class Jobs:
         self._lock = threading.Lock()
         self._active: Optional[str] = None
         self._waiting: Deque[str] = deque()
+        self.uploads = uploading.Uploads(workdir, KEEP_SECONDS)
         self.sweep_orphans()
 
     def sweep_orphans(self) -> int:
@@ -227,7 +229,7 @@ class Jobs:
         """
         removed = 0
         for path in sorted(self.workdir.glob("*")):
-            if not path.is_dir():
+            if not path.is_dir() or path.name.startswith("_"):
                 continue
             job = self._adopt(path)
             if job is not None:
@@ -406,7 +408,8 @@ class Jobs:
         return "stopping"
 
     # -- submission ---------------------------------------------------------- #
-    def submit(self, script: str, options: Dict[str, Any]) -> Job:
+    def submit(self, script: str, options: Dict[str, Any],
+               media: Optional[List[str]] = None) -> Job:
         script = (script or "").strip()
         if not script:
             raise ValueError("the script is empty")
@@ -432,6 +435,9 @@ class Jobs:
 
         try:
             job.root.mkdir(parents=True, exist_ok=True)
+            if media:
+                names = self.uploads.stage(media, job.root / "assets" / "mine")
+                script = uploading.spread(script, names)
             (job.root / "script.md").write_text(script, encoding="utf-8")
             self._write_config(job.root, options)
         except BaseException as exc:

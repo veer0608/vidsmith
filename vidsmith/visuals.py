@@ -41,6 +41,8 @@ from . import ffmpeg_util as ff
 
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# where a project keeps the viewer's own files, the ones `[media: ...]` names
+MINE_DIR = "assets/mine"
 STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "of", "to", "in", "on", "for", "is",
     "are", "was", "were", "it", "its", "this", "that", "these", "those", "with",
@@ -720,6 +722,7 @@ class VisualBuilder:
         # subject - a near-total rejection means there is no footage to find
         self._reject_ratio = 0.0
         self._filmable = True
+        self._project_root = Path(project_root) if project_root is not None else None
         self._local: List[Path] = []
         if cfg.provider == "local":
             self._local = self._find_local(project_root)
@@ -751,6 +754,31 @@ class VisualBuilder:
                          f"local_dir is read from the project, so move it there "
                          f"or give an absolute path")
         return found
+
+    def _mine(self, scene: Scene) -> List[Dict]:
+        """The viewer's own files this scene names with `[media: ...]`.
+
+        They live in the project's `assets/mine`, matched on file name alone
+        (never a path, so a script cannot reach outside the folder) and without
+        regard to case. A name that is not there is logged and skipped, and a
+        scene whose every name is missing falls back to the provider rather than
+        becoming a card in silence. No author and no page: it is the viewer's
+        own footage, so there is nothing to credit.
+        """
+        if not scene.media or self._project_root is None:
+            return []
+        root = self._project_root / MINE_DIR
+        have = ({p.name.lower(): p for p in root.iterdir() if p.is_file()}
+                if root.is_dir() else {})
+        out: List[Dict] = []
+        for name in scene.media:
+            path = have.get(Path(name).name.lower())
+            if path is None or path.suffix.lower() not in VIDEO_EXT | IMAGE_EXT:
+                self.log(f"    scene {scene.index}: [media: {name}] is not in "
+                         f"{MINE_DIR}; skipped")
+                continue
+            out.append({"path": path, "author": "", "page": ""})
+        return out
 
     # -- attribution ledger ------------------------------------------------- #
     def _ledger_path(self) -> Path:
@@ -1297,7 +1325,9 @@ class VisualBuilder:
         # ---- source the footage --------------------------------------------- #
         spec: Optional[diagram.Spec] = None
         decided = self._decisions().get(str(scene.index))
-        wants_drawing = self.cfg.diagrams and (bool(scene.diagram) or decided is True)
+        mine = self._mine(scene)
+        wants_drawing = (self.cfg.diagrams and not mine
+                         and (bool(scene.diagram) or decided is True))
         if scene.diagram and not self.cfg.diagrams:
             # Said out loud, because otherwise a directive the author wrote
             # would vanish in silence and the scene would just be footage.
@@ -1327,6 +1357,14 @@ class VisualBuilder:
             # build. _drawn_ranges() therefore reads `or s.diagram` as well, so
             # a thumbnail can still consider these scenes.
             sources = []
+        elif mine:
+            self.log(f"    scene {scene.index}: using {len(mine)} of your own file(s)")
+            if len(plan) < len(mine):
+                # providers that do not cut on sentences plan one shot, which
+                # would use the first file and drop the rest
+                plan = plan_shots(scene, self.lead_in, self.cfg.min_shot_seconds,
+                                  self.cfg.max_shot_seconds)
+            plan, sources = self._fit(scene, plan, mine)
         elif self.cfg.provider in ("pexels", "pixabay"):
             self._scene_creators = set()
             beats = self._beats.get(scene.index) or self._passages(scene, plan)
