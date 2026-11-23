@@ -38,6 +38,9 @@
   button.no { border-color: var(--bad); color: var(--bad); }
   .msg { color: var(--bad); min-height: 1.4em; }
   a { color: var(--brand-a); }
+  #link[hidden] { display: none !important; }
+  #link code { display: block; margin: 8px 0; word-break: break-all;
+               font-family: ui-monospace, Menlo, Consolas, monospace; }
 </style>
 </head>
 <body>
@@ -45,6 +48,7 @@
   <h1>Access requests</h1>
   <p class="sub" id="sub">Uses the owner token saved in this browser.</p>
   <p class="msg" id="msg" role="alert" aria-live="polite"></p>
+  <div class="row" id="link" hidden style="display:block"></div>
   <div id="list"></div>
   <p><a href="/">Back to vidsmith</a></p>
 </main>
@@ -63,7 +67,8 @@ async function load() {
     return;
   }
   const body = await r.json();
-  $("sub").textContent = "Each approved person can render " + body.daily_renders + " videos a day.";
+  $("sub").textContent = "Each approved person can render " + body.daily_renders +
+    " videos and draft " + body.daily_drafts + " scripts a day.";
   const list = $("list");
   list.replaceChildren();
   if (!body.requests.length) {
@@ -80,22 +85,47 @@ async function load() {
     }
     const tag = document.createElement("span");
     tag.className = "tag " + q.status;
-    tag.textContent = q.status === "approved" ? "approved · " + q.today + " today" : q.status;
+    tag.textContent = q.status === "approved"
+      ? "approved · " + q.today + " renders, " + q.drafts + " drafts today" : q.status;
     row.append(who, tag);
     if (q.status !== "approved") row.append(button("Approve", "go", q.id, "approve"));
+    if (q.status === "approved") row.append(button("New Login Link", "", q.id, "reissue"));
     if (q.status !== "denied") row.append(button(q.status === "approved" ? "Revoke" : "Deny", "no", q.id, "deny"));
     list.append(row);
   }
+}
+
+/* A reissued token is shown here once, as a login link, for the owner to send
+   on. It is not kept anywhere this page can show it again. */
+function showLink(token) {
+  const url = new URL("/", window.location.href);
+  url.searchParams.set("t", token);
+  const box = $("link");
+  box.replaceChildren();
+  const p = document.createElement("p");
+  p.textContent = "New login link. Send it to them; it will not be shown again, " +
+                  "and their old one has stopped working:";
+  const code = document.createElement("code"); code.textContent = url.toString();
+  const copy = document.createElement("button");
+  copy.type = "button"; copy.textContent = "Copy";
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(url.toString()); copy.textContent = "Copied"; }
+    catch { copy.textContent = "Select the link and copy it"; }
+  });
+  box.append(p, code, copy);
+  box.hidden = false;
 }
 
 function button(label, cls, id, action) {
   const b = document.createElement("button");
   b.type = "button"; b.className = cls; b.textContent = label;
   b.addEventListener("click", async () => {
+    if (action === "reissue" && !confirm("Their current login stops working. Make a new one?")) return;
     b.disabled = true;
     const r = await fetch("/api/admin/requests/" + encodeURIComponent(id) + "/" + action,
                           {method: "POST", headers: headers()});
     if (!r.ok) $("msg").textContent = "That did not go through (" + r.status + ").";
+    else if (action === "reissue") showLink((await r.json()).token);
     load();
   });
   return b;

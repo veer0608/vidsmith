@@ -26,6 +26,13 @@ from typing import Any, Dict, List, Optional
 MAX_PENDING = 30
 # Renders one member may start per UTC day.
 DAILY_RENDERS = int(os.environ.get("VIDSMITH_DAILY_RENDERS", "3"))
+# Topic drafts one member may ask for per UTC day. Each is a Gemini call on the
+# owner's free tier, and a draft costs nothing to ask for again, so it is capped
+# on its own rather than left to the render cap.
+DAILY_DRAFTS = int(os.environ.get("VIDSMITH_DAILY_DRAFTS", "5"))
+
+# what each kind of spending is called in a request's row
+_KINDS = {"render": "count", "draft": "drafts"}
 
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 
@@ -78,7 +85,7 @@ class Accounts:
                                    "email": email, "note": note[:300],
                                    "status": "pending", "asked": int(time.time()),
                                    "token_hash": "", "pending_token": "",
-                                   "day": "", "count": 0}
+                                   "day": "", "count": 0, "drafts": 0}
             self._save()
             return secret
 
@@ -102,7 +109,8 @@ class Accounts:
         with self._lock:
             return [{"id": r["id"], "name": r["name"], "email": r["email"],
                      "note": r["note"], "status": r["status"], "asked": r["asked"],
-                     "today": r["count"] if r["day"] == _today() else 0}
+                     "today": r["count"] if r["day"] == _today() else 0,
+                     "drafts": r.get("drafts", 0) if r["day"] == _today() else 0}
                     for r in sorted(self._data["requests"].values(),
                                     key=lambda r: r["asked"], reverse=True)]
 
@@ -111,6 +119,26 @@ class Accounts:
             if req["id"] == request_id:
                 return req
         return None
+
+    def pending(self) -> int:
+        with self._lock:
+            return sum(1 for r in self._data["requests"].values()
+                       if r["status"] == "pending")
+
+    def reissue(self, request_id: str) -> str:
+        """A new token for an approved member who lost theirs; the old one stops.
+
+        Returned for the owner to send on as a login link, and also left for the
+        person's status link, in case they still have that.
+        """
+        with self._lock:
+            req = self._find(request_id)
+            if req is None or req["status"] != "approved":
+                raise Refused("Only an approved member can be given a new token.")
+            token = secrets.token_urlsafe(24)
+            req.update(token_hash=_hash(token), pending_token=token)
+            self._save()
+            return token
 
     def decide(self, request_id: str, approve: bool) -> Dict[str, Any]:
         with self._lock:
@@ -140,28 +168,48 @@ class Accounts:
                     return req["id"]
         return None
 
-    def spend(self, member: str) -> int:
-        """Count one render against today's cap; raise when it is spent."""
+    def _cap(self, kind: str) -> int:
+        return DAILY_RENDERS if kind == "render" else DAILY_DRAFTS
+
+    def _roll(self, req: Dict[str, Any]) -> None:
+        """Start the day's counts again when the stored day is not today."""
+        if req["day"] != _today():
+            req["day"], req["count"], req["drafts"] = _today(), 0, 0
+
+    def spend(self, member: str, kind: str = "render") -> int:
+        """Count one render or draft against today's cap; raise when it is spent."""
+        field, cap = _KINDS[kind], self._cap(kind)
         with self._lock:
             req = self._find(member)
             if req is None or req["status"] != "approved":
                 raise Refused("This access has ended.")
-            if req["day"] != _today():
-                req["day"], req["count"] = _today(), 0
-            if req["count"] >= DAILY_RENDERS:
-                raise Refused(f"You have used your {DAILY_RENDERS} renders for today. "
+            self._roll(req)
+            if req.get(field, 0) >= cap:
+                noun = "renders" if kind == "render" else "drafts"
+                raise Refused(f"You have used your {cap} {noun} for today. "
                               "The count resets at midnight UTC.")
-            req["count"] += 1
+            req[field] = req.get(field, 0) + 1
             self._save()
-            return DAILY_RENDERS - req["count"]
+            return cap - req[field]
 
-    def refund(self, member: str) -> None:
-        """Give a render back when it never started."""
+    def refund(self, member: str, kind: str = "render") -> None:
+        """Give one back when the thing it paid for never happened."""
+        field = _KINDS[kind]
         with self._lock:
             req = self._find(member)
-            if req is not None and req["day"] == _today() and req["count"] > 0:
-                req["count"] -= 1
+            if req is not None and req["day"] == _today() and req.get(field, 0) > 0:
+                req[field] -= 1
                 self._save()
+
+    def left(self, member: str) -> Dict[str, int]:
+        """Renders and drafts still available today."""
+        with self._lock:
+            req = self._find(member)
+            if req is None:
+                return {"renders": 0, "drafts": 0}
+            today = req["day"] == _today()
+            return {"renders": DAILY_RENDERS - (req["count"] if today else 0),
+                    "drafts": DAILY_DRAFTS - (req.get("drafts", 0) if today else 0)}
 
     # -- who made which render --------------------------------------------- #
     def own(self, job_id: str, member: str) -> None:

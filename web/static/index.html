@@ -68,6 +68,10 @@
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
   .num { font-variant-numeric: tabular-nums; }
   .hidden { display: none !important; }
+  /* A member holds a token of their own: render, download, nothing that
+     publishes or spends more. Hidden here as well as refused by the server,
+     so a member is never offered a button that can only fail. */
+  body.member .owner-only { display: none !important; }
   .skip { position: absolute; left: 12px; top: -60px; z-index: 30; background: var(--fg);
           color: var(--bg); padding: 10px 16px; border-radius: var(--r-sm); font-weight: 600;
           text-decoration: none; }
@@ -91,6 +95,8 @@
   .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
           border: 1px solid var(--border); border-radius: 999px; color: var(--fg-2);
           font-size: 13px; white-space: nowrap; background: var(--bg); }
+  a.pill { text-decoration: none; }
+  a.pill[href] { color: var(--warn); border-color: var(--warn); }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-3); flex: none; }
   .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
   .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
@@ -481,6 +487,7 @@
     <span class="slash" aria-hidden="true">/</span>
     <span class="crumb" id="crumb">New Video</span>
     <div class="right">
+      <a class="pill hidden" id="who-pill" href="/admin"></a>
       <span class="pill hidden" id="token-pill"><span class="dot" id="token-dot"></span><span id="token-state">Token Needed</span></span>
       <span class="pill" id="nav-status"><span class="dot"></span><span>Connecting…</span></span>
     </div>
@@ -543,7 +550,7 @@
       <!-- A render's footage is the part most often wrong. Each shot is kept with
            the search it came from, so one can be changed without building the
            rest again. -->
-      <section class="card hidden" id="shots-card" aria-labelledby="shots-h">
+      <section class="card hidden owner-only" id="shots-card" aria-labelledby="shots-h">
         <div class="card-h">
           <span class="chip" style="--c:var(--s3)" aria-hidden="true"><svg><use href="#i-film"/></svg></span>
           <h2 id="shots-h">Shots</h2>
@@ -585,7 +592,7 @@
 
       <!-- A line that reads badly aloud used to cost the whole video. Only the
            scene whose words change is voiced and filmed again. -->
-      <section class="card hidden" id="script-card" aria-labelledby="scenes-h">
+      <section class="card hidden owner-only" id="script-card" aria-labelledby="scenes-h">
         <div class="card-h">
           <span class="chip" style="--c:var(--brand-a)" aria-hidden="true"><svg><use href="#i-doc"/></svg></span>
           <h2 id="scenes-h">Script</h2>
@@ -599,7 +606,7 @@
 
       <!-- The thumbnail is the first thing a viewer sees, and the build chose it
            alone. Any photograph from a search, or any shot's frame, instead. -->
-      <section class="card hidden" id="thumb-card" aria-labelledby="thumb-h">
+      <section class="card hidden owner-only" id="thumb-card" aria-labelledby="thumb-h">
         <div class="card-h">
           <span class="chip" style="--c:var(--s7)" aria-hidden="true"><svg><use href="#i-image"/></svg></span>
           <h2 id="thumb-h">Thumbnail</h2>
@@ -712,7 +719,7 @@
             <div><dt>Check</dt><dd id="check-badge">—</dd></div>
             <div><dt>Kept until</dt><dd id="kept">—</dd></div>
           </dl>
-          <div id="yt-box" class="hidden">
+          <div id="yt-box" class="hidden owner-only">
             <hr class="sep">
             <p class="eyebrow"><span>YouTube</span><span id="yt-state"></span></p>
             <div id="yt-upload-row" class="yt-row hidden">
@@ -727,7 +734,7 @@
             <button class="btn block hidden" type="button" id="yt-connect">Connect YouTube</button>
             <p class="fine" id="yt-note" aria-live="polite"></p>
           </div>
-          <div id="shorts-box" class="hidden">
+          <div id="shorts-box" class="hidden owner-only">
             <hr class="sep">
             <p class="eyebrow"><span>Shorts</span><span id="shorts-state"></span></p>
             <button class="btn block" type="button" id="shorts-make">Make a Shorts Version</button>
@@ -898,7 +905,7 @@
           <div class="meter" id="words-bar" aria-hidden="true"><i id="words-fill"></i></div>
           <!-- Both allowances run out in silence: no footage turns a video into
                cards, no model turns searches into keywords. Said before Render. -->
-          <div id="allowance" class="hidden">
+          <div id="allowance" class="hidden owner-only">
             <hr class="sep">
             <p class="eyebrow num" id="gemini-row"><span>Gemini today</span><span id="gemini-text">—</span></p>
             <div class="meter" id="gemini-bar" aria-hidden="true"><i id="gemini-fill"></i></div>
@@ -1037,6 +1044,31 @@ function forgetToken() {
   $("tokenfield").focus();
 }
 const authQuery = () => needsAuth ? `?t=${encodeURIComponent(token())}` : "";
+
+/* Owner or member. A member's page drops the cards it cannot use, and shows
+   what is left of today; the owner's shows requests waiting at /admin. */
+async function loadWho() {
+  const pill = $("who-pill");
+  pill.classList.add("hidden");
+  document.body.classList.remove("member");
+  if (!needsAuth || !token()) return;
+  let who;
+  try {
+    const r = await fetch("/api/whoami", {headers: authHeaders()});
+    if (!r.ok) return;
+    who = await r.json();
+  } catch { return; }
+  if (who.role === "member") {
+    document.body.classList.add("member");
+    pill.removeAttribute("href");
+    pill.textContent = `${who.left.renders} of ${who.daily.renders} renders left today`;
+    pill.classList.remove("hidden");
+  } else if (who.pending) {
+    pill.setAttribute("href", "/admin");
+    pill.textContent = `${who.pending} waiting for access`;
+    pill.classList.remove("hidden");
+  }
+}
 
 /* Everything but the video is a few KB, and rounding those to megabytes printed
    `credits.txt · 0.0 MB`. The licence-bearing files were the ones that read as
@@ -1248,7 +1280,7 @@ async function loadOptions() {
       tokenPill();
     });
     // the list is behind the token, so a token pasted in is the moment to fetch it
-    $("tokenfield").addEventListener("change", () => { loadPast(); loadYouTube(); loadAllowance(); });
+    $("tokenfield").addEventListener("change", () => { loadWho(); loadPast(); loadYouTube(); loadAllowance(); });
     $("copy-login").onclick = async () => {
       const link = loginLink(window.location.href, token());
       try {
@@ -1289,6 +1321,8 @@ async function loadOptions() {
   $("hint").textContent = "Expect roughly five minutes of building per minute of video.";
   showTab(window.location.hash === "#topic" ? "topic" : "script");
   updateMeter();
+  // first, so a member never sees the owner's cards appear and vanish
+  await loadWho();
   // before reattach, so a finished render shown on load knows whether to offer an upload
   await loadYouTube();
   await reattach();
@@ -2543,6 +2577,7 @@ function finished() {
   watchBusy();
   loadPast();
   loadAllowance();
+  loadWho();                       // a member's count of renders left has moved
 }
 
 /* ------------------------------------------------------------- Allowance

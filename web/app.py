@@ -75,6 +75,11 @@ def guard(x_vidsmith_token: str = Header(default=""), t: str = "") -> None:
     if not TOKEN:
         return
     if not authorised(x_vidsmith_token, t):
+        # A member's token is good, just not for this. The page answers a 401 by
+        # forgetting the token, and a member was handed theirs once, so a member
+        # is told 403 and keeps it.
+        if accounts.member(x_vidsmith_token or t):
+            raise HTTPException(403, "this is for the owner of this instance")
         raise HTTPException(401, "bad or missing token")
 
 
@@ -219,16 +224,35 @@ def register_status(secret: str) -> Dict[str, Any]:
     return body
 
 
+@app.get("/api/whoami")
+def whoami(who: Who = Depends(identity)) -> Dict[str, Any]:
+    """Owner or member, and what that leaves.
+
+    The page hides what a member cannot use rather than offering it and failing,
+    and shows the owner how many requests are waiting.
+    """
+    if who.owner:
+        return {"role": "owner", "pending": accounts.pending()}
+    return {"role": "member", "left": accounts.left(who.member),
+            "daily": {"renders": accounting.DAILY_RENDERS,
+                      "drafts": accounting.DAILY_DRAFTS}}
+
+
 @app.get("/api/admin/requests")
 def admin_requests(_: None = Depends(guard)) -> Dict[str, Any]:
-    return {"requests": accounts.listing(), "daily_renders": accounting.DAILY_RENDERS}
+    return {"requests": accounts.listing(), "daily_renders": accounting.DAILY_RENDERS,
+            "daily_drafts": accounting.DAILY_DRAFTS}
 
 
 @app.post("/api/admin/requests/{request_id}/{action}")
 def admin_decide(request_id: str, action: str, _: None = Depends(guard)) -> Dict[str, Any]:
-    if action not in ("approve", "deny"):
+    if action not in ("approve", "deny", "reissue"):
         raise HTTPException(404, "no such action")
     try:
+        if action == "reissue":
+            # handed to the owner once, to send on as a login link
+            return {"id": request_id, "status": "approved",
+                    "token": accounts.reissue(request_id)}
         return accounts.decide(request_id, action == "approve")
     except accounting.Refused as exc:
         raise HTTPException(404, str(exc))
@@ -674,20 +698,29 @@ class DraftRequest(BaseModel):
 
 
 @app.post("/api/draft")
-def draft(req: DraftRequest, _: Who = Depends(identity)) -> Dict[str, Any]:
+def draft(req: DraftRequest, who: Who = Depends(identity)) -> Dict[str, Any]:
     """Write a script from a topic, so the page is usable without one."""
     key = _keys().get("gemini", "")
     if not key:
         raise HTTPException(503, "drafting needs GEMINI_API_KEY on this instance")
     minutes = max(0.5, min(MAX_MINUTES * DRAFT_HEADROOM, req.minutes))
+    if not who.owner:
+        try:
+            accounts.spend(who.member, "draft")
+        except accounting.Refused as exc:
+            raise HTTPException(429, str(exc))
     try:
         return {"script": llm.draft_script(req.topic.strip(), minutes, key),
                 "minutes": minutes}
     except llm.QuotaExhausted as exc:
+        if not who.owner:
+            accounts.refund(who.member, "draft")
         # 429, not 502: a spent quota is not a broken gateway, and a 5xx invites
         # a proxy to substitute its own HTML page, which the page cannot parse
         raise HTTPException(429, str(exc))
     except llm.LLMUnavailable as exc:
+        if not who.owner:
+            accounts.refund(who.member, "draft")
         raise HTTPException(502, f"the model did not answer: {exc}")
 
 

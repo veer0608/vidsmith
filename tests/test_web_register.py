@@ -119,8 +119,70 @@ def test_a_refused_render_is_given_back(client):
     ("get", "/api/admin/requests"), ("post", "/api/admin/requests/x/approve"),
 ])
 def test_member_cannot_reach_owner_routes(client, method, path):
+    """403, never 401: the page forgets a token on a 401, and a member has one copy."""
     ann, _, _ = _member(client)
-    assert getattr(client, method)(path, headers=ann).status_code == 401
+    assert getattr(client, method)(path, headers=ann).status_code == 403
+    # and the token still works afterwards
+    assert client.get("/api/jobs", headers=ann).status_code == 200
+
+
+def test_whoami_says_who_and_what_is_left(client):
+    client.post("/api/register", json={"name": "Waiting", "email": "w@example.com"})
+    assert client.get("/api/whoami", headers=OWNER).json() == {"role": "owner", "pending": 1}
+    ann, _, _ = _member(client)
+    client.post("/api/jobs", json={"script": SCRIPT, "provider": "cards"}, headers=ann)
+    _settle(web_app.jobs)
+    body = client.get("/api/whoami", headers=ann).json()
+    assert body["role"] == "member" and body["left"]["renders"] == 1
+    assert client.get("/api/whoami").status_code == 401
+
+
+def test_member_drafts_are_capped_and_refunded(client, monkeypatch):
+    from vidsmith import llm
+    monkeypatch.setattr(accounting, "DAILY_DRAFTS", 2)
+    monkeypatch.setattr(web_app, "_keys", lambda: {"gemini": "k"})
+    ann, _, _ = _member(client)
+    topic = {"topic": "how tides work", "minutes": 1}
+
+    def down(*a, **k):
+        raise llm.LLMUnavailable("down")
+    monkeypatch.setattr(llm, "draft_script", down)
+    assert client.post("/api/draft", json=topic, headers=ann).status_code == 502
+
+    monkeypatch.setattr(llm, "draft_script", lambda *a, **k: SCRIPT)
+    for _ in range(2):          # the failed one was given back, so two still remain
+        assert client.post("/api/draft", json=topic, headers=ann).status_code == 200
+    over = client.post("/api/draft", json=topic, headers=ann)
+    assert over.status_code == 429 and "drafts for today" in over.json()["detail"]
+    assert client.post("/api/draft", json=topic, headers=OWNER).status_code == 200
+
+
+def test_reissue_replaces_a_lost_token(client):
+    old, secret, request_id = _member(client)
+    r = client.post(f"/api/admin/requests/{request_id}/reissue", headers=OWNER)
+    new = {"X-Vidsmith-Token": r.json()["token"]}
+    assert client.get("/api/jobs", headers=old).status_code == 401
+    assert client.get("/api/jobs", headers=new).status_code == 200
+    # the status link can collect it too, once
+    assert client.get(f"/api/register/{secret}").json()["token"] == new["X-Vidsmith-Token"]
+    assert "token" not in client.get(f"/api/register/{secret}").json()
+
+
+def test_only_an_approved_member_is_reissued(client):
+    client.post("/api/register", json={"name": "W", "email": "w@example.com"})
+    request_id = client.get("/api/admin/requests", headers=OWNER).json()["requests"][0]["id"]
+    assert client.post(f"/api/admin/requests/{request_id}/reissue",
+                       headers=OWNER).status_code == 404
+
+
+def test_owner_only_cards_are_marked_on_the_page(client):
+    """The page hides these for a member; a card left unmarked would offer a 403."""
+    page = client.get("/").text
+    for card in ('id="shots-card"', 'id="script-card"', 'id="thumb-card"',
+                 'id="yt-box"', 'id="shorts-box"', 'id="allowance"'):
+        start = page.index(card)
+        tag = page[page.rindex("<", 0, start):page.index(">", start)]
+        assert "owner-only" in tag, card
 
 
 def test_stranger_and_garbage_tokens_are_refused(client):

@@ -185,12 +185,23 @@ the page polls, and the secret lives in that browser's storage.
 Three rules hold it together:
 
 - **`guard` stays the owner's alone.** A member uses `identity` and `own_job`, on
-  exactly these routes: create, uploads, draft, and a job's status, files, archive,
-  description and cancel. YouTube login, usage, retakes, rewrites, covers, cuts and the
-  admin list stay on `guard`, because a member who could reach the YouTube login could
-  publish to the owner's channel. A new route is the owner's unless it is added to that list.
+  exactly these routes: create, uploads, draft, whoami, and a job's status, files,
+  archive, description and cancel. YouTube login, usage, retakes, rewrites, covers, cuts
+  and the admin list stay on `guard`, because a member who could reach the YouTube login
+  could publish to the owner's channel. A new route is the owner's unless it is added to
+  that list. **`guard` refuses a member with 403, never 401**: the page answers a 401 by
+  forgetting the token, and a member was handed theirs once, so a 401 on one stray click
+  locked them out for good. The page also asks `/api/whoami` and hides every
+  `owner-only` card for a member; a new owner-only card needs that class.
 - **A member sees only their own renders**: `owners` maps job id to member, and another
   member's job is a 404, not a 403, so ids cannot be probed.
 - **The cap is per member per UTC day** (`VIDSMITH_DAILY_RENDERS`, default 3), spent
   before the submit and given back if the submit is refused. The owner is not counted.
-  Revoking drops the hash, so the token stops working at once.
+  Topic drafts have their own cap (`VIDSMITH_DAILY_DRAFTS`, default 5), because each is
+  a Gemini call and asking again is free; a draft the model fails is given back.
+  Revoking drops the hash, so the token stops working at once. **New Login Link** in
+  `/admin` mints a replacement for a member who lost theirs, shows it to the owner once
+  as a `?t=` link, and leaves it on their status link too; the old token stops.
+
+The owner's page shows "N waiting for access", linked to `/admin`, when requests are
+pending. There is no other notice, so that pill is how a request gets seen.
