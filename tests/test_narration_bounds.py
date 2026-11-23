@@ -53,15 +53,18 @@ def scene_factory():
 
 
 @pytest.mark.parametrize("count", [1, 3])
-def test_the_pad_is_bounded(monkeypatch, tmp_path, scene_factory, count):
-    """A bare `apad` is the fault; `apad=whole_dur=` is the same guarantee with
-    an end on it."""
+def test_nothing_in_the_graph_generates_forever(monkeypatch, tmp_path, scene_factory, count):
+    """The length comes from a silent bed bounded at its source, and no apad.
+
+    A bare `apad` hung macOS CI; `apad` after `amix` cut the narration short on
+    ffmpeg 8.0.1 about half the time. The bed is neither.
+    """
     scenes = [_scene(i, i * 8.0, tmp_path, scene_factory) for i in range(count)]
     graph = _captured_graph(monkeypatch, scenes)
 
-    assert f"apad=whole_dur={TOTAL:.3f}" in graph
-    assert not re.search(r"apad(?![=\w])", graph), \
-        "an unbounded apad is back in the graph"
+    assert f"anullsrc=r=48000:cl=stereo:d={TOTAL:.3f}" in graph
+    assert f"amix=inputs={count + 1}:normalize=0:duration=longest" in graph
+    assert "apad" not in graph, "apad is back in the narration graph"
 
 
 @pytest.mark.parametrize("count", [1, 3])
