@@ -84,6 +84,12 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now vidsmith
 
+# and keep it on main: merging a PR is the deploy (deploy/aws.md)
+cp "${APP_DIR}/deploy/vidsmith-autodeploy.service" "${APP_DIR}/deploy/vidsmith-autodeploy.timer" \
+    /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now vidsmith-autodeploy.timer
+
 echo "=== reverse proxy ==="
 apt-get install -y --no-install-recommends caddy || {
     echo "caddy is not in this release's archive; installing from the official repo"

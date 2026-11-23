@@ -1,0 +1,13 @@
+# Checks origin/main every five minutes. A run that finds nothing new is one
+# `git fetch`. systemd never starts a second run while one is still going.
+[Unit]
+Description=Check origin/main for a new vidsmith commit
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
