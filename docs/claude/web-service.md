@@ -172,3 +172,25 @@ stock search, so no search or model call is spent and no credit is owed. A refre
 swaps a stock photo for theirs must drop the stock credit line: `set_thumbnail_credit`
 used to leave the file alone when that was the only line, so it kept naming a
 photographer whose photo was gone. It now deletes the file when nothing is owed.
+
+## Registering for access
+
+`/register` is open to anyone and spends nothing: it writes one row to
+`<jobs>/_accounts.json` (`web/accounts.py`). The owner approves at `/admin`, which is
+only a shell; every call it makes needs the owner token the page already holds. Approval
+mints a member token, and the person collects it once from their status link
+(`GET /api/register/{secret}`), after which only its sha256 is kept. There is no email:
+the page polls, and the secret lives in that browser's storage.
+
+Three rules hold it together:
+
+- **`guard` stays the owner's alone.** A member uses `identity` and `own_job`, on
+  exactly these routes: create, uploads, draft, and a job's status, files, archive,
+  description and cancel. YouTube login, usage, retakes, rewrites, covers, cuts and the
+  admin list stay on `guard`, because a member who could reach the YouTube login could
+  publish to the owner's channel. A new route is the owner's unless it is added to that list.
+- **A member sees only their own renders**: `owners` maps job id to member, and another
+  member's job is a 404, not a 403, so ids cannot be probed.
+- **The cap is per member per UTC day** (`VIDSMITH_DAILY_RENDERS`, default 3), spent
+  before the submit and given back if the submit is refused. The owner is not counted.
+  Revoking drops the hash, so the token stops working at once.

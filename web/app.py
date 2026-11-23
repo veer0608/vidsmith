@@ -26,6 +26,7 @@ from vidsmith import usage
 from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
+from web import accounts as accounting
 from web import uploads as uploading
 from web.youtube import CALLBACK, Refused, YouTube
 
@@ -60,6 +61,7 @@ PUBLIC_URL = (os.environ.get("VIDSMITH_PUBLIC_URL")
 
 app = FastAPI(title="vidsmith", docs_url="/api/docs", redoc_url=None)
 jobs = Jobs(WORKDIR)
+accounts = accounting.Accounts(WORKDIR)
 # the login lives beside .env at the repo root, where `vidsmith upload` keeps it
 youtube = YouTube(HERE.parent, lambda: _keys())
 
@@ -86,7 +88,39 @@ def authorised(header: str, query: str) -> bool:
     """
     if not TOKEN:
         return True                        # nothing configured, nothing to hide
-    return hmac.compare_digest(header or query, TOKEN)
+    return hmac.compare_digest((header or query).encode(), TOKEN.encode())
+
+
+class Who:
+    """Who is calling: the owner, or a registered member with their own token."""
+
+    def __init__(self, owner: bool, member: str = "") -> None:
+        self.owner, self.member = owner, member
+
+
+def identity(x_vidsmith_token: str = Header(default=""), t: str = "") -> Who:
+    """The owner's token, or an approved member's. Anything else is a 401.
+
+    Only the routes a member needs use this; everything else stays on `guard`,
+    which is the owner's alone. A member must never reach the YouTube login,
+    the usage report, retakes or the admin list.
+    """
+    if not TOKEN:
+        return Who(True)
+    given = x_vidsmith_token or t
+    if authorised(given, ""):
+        return Who(True)
+    member = accounts.member(given)
+    if member:
+        return Who(False, member)
+    raise HTTPException(401, "bad or missing token")
+
+
+def own_job(job_id: str, who: Who = Depends(identity)) -> Who:
+    """A member sees only the renders they started; a stranger's is a 404."""
+    if not who.owner and not accounts.owns(job_id, who.member):
+        raise HTTPException(404, "no such job")
+    return who
 
 
 class BuildRequest(BaseModel):
@@ -143,6 +177,61 @@ def _keys() -> Dict[str, str]:
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (HERE / "static" / "index.html").read_text(encoding="utf-8")
+
+
+# -- registering for access ------------------------------------------------- #
+@app.get("/register", response_class=HTMLResponse)
+def register_page() -> str:
+    return (HERE / "static" / "register.html").read_text(encoding="utf-8")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page() -> str:
+    # the page is only a shell; every call it makes is behind the owner's token
+    return (HERE / "static" / "admin.html").read_text(encoding="utf-8")
+
+
+class RegisterRequest(BaseModel):
+    name: str = Field(max_length=200)
+    email: str = Field(max_length=254)
+    note: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/register", status_code=201)
+def register(req: RegisterRequest) -> Dict[str, Any]:
+    """Ask for access. Open to anyone, and spends nothing: it only writes a row."""
+    if not TOKEN:
+        raise HTTPException(400, "this instance is open; there is nothing to register for")
+    try:
+        return {"secret": accounts.register(req.name, req.email, req.note)}
+    except accounting.Refused as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/api/register/{secret}")
+def register_status(secret: str) -> Dict[str, Any]:
+    """Where a request stands. Once approved it hands over the token, a single time."""
+    try:
+        body = accounts.check(secret)
+    except accounting.Refused as exc:
+        raise HTTPException(404, str(exc))
+    body["daily_renders"] = accounting.DAILY_RENDERS
+    return body
+
+
+@app.get("/api/admin/requests")
+def admin_requests(_: None = Depends(guard)) -> Dict[str, Any]:
+    return {"requests": accounts.listing(), "daily_renders": accounting.DAILY_RENDERS}
+
+
+@app.post("/api/admin/requests/{request_id}/{action}")
+def admin_decide(request_id: str, action: str, _: None = Depends(guard)) -> Dict[str, Any]:
+    if action not in ("approve", "deny"):
+        raise HTTPException(404, "no such action")
+    try:
+        return accounts.decide(request_id, action == "approve")
+    except accounting.Refused as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.get("/healthz")
@@ -256,16 +345,27 @@ def busy() -> Dict[str, Any]:
 
 
 @app.post("/api/jobs", status_code=202)
-def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
+def create(req: BuildRequest, who: Who = Depends(identity)) -> Dict[str, Any]:
     _validate(req)
+    if not who.owner:
+        try:
+            accounts.spend(who.member)
+        except accounting.Refused as exc:
+            raise HTTPException(429, str(exc))
     try:
         job = jobs.submit(req.script, req.options(), media=req.media)
     except Busy as exc:
         # one x264 encode already has this box and the line behind it is full;
         # a second encode would starve both rather than finishing either sooner
+        if not who.owner:
+            accounts.refund(who.member)
         raise HTTPException(429, str(exc))
     except ValueError as exc:
+        if not who.owner:
+            accounts.refund(who.member)
         raise HTTPException(400, str(exc))
+    if not who.owner:
+        accounts.own(job.id, who.member)
     # snapshot rather than public(), so a caller that landed in the queue is
     # told where it landed in the same response
     return jobs.snapshot(job.id) or job.public()
@@ -273,7 +373,7 @@ def create(req: BuildRequest, _: None = Depends(guard)) -> Dict[str, Any]:
 
 @app.post("/api/uploads", status_code=201)
 async def upload(request: Request, name: str = "",
-                 _: None = Depends(guard)) -> Dict[str, Any]:
+                 _: Who = Depends(identity)) -> Dict[str, Any]:
     """Keep one photo or video of the viewer's own, as the raw request body.
 
     The name rides in the query because the body is the file. The size is
@@ -306,13 +406,13 @@ async def upload(request: Request, name: str = "",
 
 
 @app.delete("/api/uploads/{upload_id}")
-def remove_upload(upload_id: str, _: None = Depends(guard)) -> Dict[str, bool]:
+def remove_upload(upload_id: str, _: Who = Depends(identity)) -> Dict[str, bool]:
     jobs.uploads.discard(upload_id)
     return {"removed": True}
 
 
 @app.get("/api/uploads/{upload_id}")
-def upload_preview(upload_id: str, _: None = Depends(guard)) -> FileResponse:
+def upload_preview(upload_id: str, _: Who = Depends(identity)) -> FileResponse:
     path = jobs.uploads.find(upload_id)
     if path is None:
         raise HTTPException(404, "that upload is gone")
@@ -320,13 +420,17 @@ def upload_preview(upload_id: str, _: None = Depends(guard)) -> FileResponse:
 
 
 @app.get("/api/jobs")
-def renders(_: None = Depends(guard)) -> Dict[str, Any]:
+def renders(who: Who = Depends(identity)) -> Dict[str, Any]:
     """Finished renders still held, newest first, with when each will go.
 
     Behind the token like every job route: a title is the subject of somebody's
     video, and the list is the archive of what this instance has made.
     """
-    return {"renders": jobs.renders(), "keep_seconds": KEEP_SECONDS,
+    listed = jobs.renders()
+    if not who.owner:
+        mine = accounts.jobs_of(who.member)
+        listed = [r for r in listed if r["id"] in mine]
+    return {"renders": listed, "keep_seconds": KEEP_SECONDS,
             "keep_bytes": KEEP_BYTES}
 
 
@@ -570,7 +674,7 @@ class DraftRequest(BaseModel):
 
 
 @app.post("/api/draft")
-def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
+def draft(req: DraftRequest, _: Who = Depends(identity)) -> Dict[str, Any]:
     """Write a script from a topic, so the page is usable without one."""
     key = _keys().get("gemini", "")
     if not key:
@@ -588,7 +692,7 @@ def draft(req: DraftRequest, _: None = Depends(guard)) -> Dict[str, Any]:
 
 
 @app.post("/api/jobs/{job_id}/cancel")
-def cancel(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
+def cancel(job_id: str, _: Who = Depends(own_job)) -> Dict[str, Any]:
     outcome = jobs.cancel(job_id)
     if outcome is None:
         raise HTTPException(404, "no such job")
@@ -601,14 +705,14 @@ def cancel(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
 
 
 @app.get("/api/jobs/{job_id}/description")
-def description(job_id: str, _: None = Depends(guard)) -> Dict[str, str]:
+def description(job_id: str, _: Who = Depends(own_job)) -> Dict[str, str]:
     if jobs.get(job_id) is None:
         raise HTTPException(404, "no such job")
     return {"description": jobs.description(job_id)}
 
 
 @app.get("/api/jobs/{job_id}")
-def status(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
+def status(job_id: str, _: Who = Depends(own_job)) -> Dict[str, Any]:
     body = jobs.snapshot(job_id)
     if body is None:
         raise HTTPException(404, "no such job")
@@ -617,7 +721,7 @@ def status(job_id: str, _: None = Depends(guard)) -> Dict[str, Any]:
 
 @app.get("/api/jobs/{job_id}/files/{name}")
 def download(job_id: str, name: str,
-             _: None = Depends(guard)) -> FileResponse:
+             _: Who = Depends(own_job)) -> FileResponse:
     path = jobs.file(job_id, name)
     if path is None:
         raise HTTPException(404, "no such file")
@@ -629,7 +733,7 @@ def download(job_id: str, name: str,
 
 
 @app.get("/api/jobs/{job_id}/archive")
-def archive(job_id: str, _: None = Depends(guard)) -> FileResponse:
+def archive(job_id: str, _: Who = Depends(own_job)) -> FileResponse:
     """Everything the render produced, in one file.
 
     The mp4 alone is not the deliverable. `credits*.txt` carries attribution the

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vidsmith · Access requests</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #000; --surface: #0a0a0a; --border: #262626;
+    --fg: #ededed; --fg-2: #a1a1a1;
+    --ok: #3fcf8e; --warn: #f5a524; --bad: #ff6369; --focus: #60a5fa;
+    --brand-a: #a78bfa;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --bg: #fff; --surface: #fafafa; --border: #e5e5e5;
+            --fg: #171717; --fg-2: #525252; --ok: #067a46; --warn: #8a5a00;
+            --bad: #c4161c; --focus: #1d4ed8; --brand-a: #6d28d9; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--sans);
+         padding: 24px 16px; }
+  main { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  p.sub { color: var(--fg-2); margin: 0 0 20px; }
+  .row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+         padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 12px;
+         align-items: center; flex-wrap: wrap; }
+  .who { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+  .who small { display: block; color: var(--fg-2); }
+  .tag { font-size: 13px; }
+  .pending { color: var(--warn); } .approved { color: var(--ok); } .denied { color: var(--bad); }
+  button { background: transparent; color: var(--fg); border: 1px solid var(--border);
+           border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button.go { border-color: var(--ok); color: var(--ok); }
+  button.no { border-color: var(--bad); color: var(--bad); }
+  .msg { color: var(--bad); min-height: 1.4em; }
+  a { color: var(--brand-a); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Access requests</h1>
+  <p class="sub" id="sub">Uses the owner token saved in this browser.</p>
+  <p class="msg" id="msg" role="alert" aria-live="polite"></p>
+  <div id="list"></div>
+  <p><a href="/">Back to vidsmith</a></p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const token = () => { try { return localStorage.getItem("vidsmith_token") || ""; } catch { return ""; } };
+const headers = () => ({"X-Vidsmith-Token": token()});
+
+async function load() {
+  $("msg").textContent = "";
+  let r;
+  try { r = await fetch("/api/admin/requests", {headers: headers()}); }
+  catch { $("msg").textContent = "Could not reach the server."; return; }
+  if (r.status === 401) {
+    $("msg").textContent = "This needs the owner token. Open vidsmith with your login link, then come back.";
+    return;
+  }
+  const body = await r.json();
+  $("sub").textContent = "Each approved person can render " + body.daily_renders + " videos a day.";
+  const list = $("list");
+  list.replaceChildren();
+  if (!body.requests.length) {
+    const p = document.createElement("p");
+    p.className = "sub"; p.textContent = "No requests yet.";
+    list.append(p);
+  }
+  for (const q of body.requests) {
+    const row = document.createElement("div"); row.className = "row";
+    const who = document.createElement("div"); who.className = "who";
+    who.textContent = q.name;
+    for (const text of [q.email, q.note].filter(Boolean)) {
+      const s = document.createElement("small"); s.textContent = text; who.append(s);
+    }
+    const tag = document.createElement("span");
+    tag.className = "tag " + q.status;
+    tag.textContent = q.status === "approved" ? "approved · " + q.today + " today" : q.status;
+    row.append(who, tag);
+    if (q.status !== "approved") row.append(button("Approve", "go", q.id, "approve"));
+    if (q.status !== "denied") row.append(button(q.status === "approved" ? "Revoke" : "Deny", "no", q.id, "deny"));
+    list.append(row);
+  }
+}
+
+function button(label, cls, id, action) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = cls; b.textContent = label;
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    const r = await fetch("/api/admin/requests/" + encodeURIComponent(id) + "/" + action,
+                          {method: "POST", headers: headers()});
+    if (!r.ok) $("msg").textContent = "That did not go through (" + r.status + ").";
+    load();
+  });
+  return b;
+}
+load();
+</script>
+</body>
+</html>
