@@ -459,8 +459,9 @@
   **not** failing to produce - it gets to within a second and a half of the end
   and then sits for the whole 45s. Five rounds of theorising had no way to tell
   those apart; one line of output did.
-  The tail is the region a bare `apad` owns, so `build_narration` now uses
-  `apad=whole_dur=<total>` and the graph holds nothing that generates forever.
+  The tail is the region a bare `apad` owns, so `build_narration` moved to
+  `apad=whole_dur=<total>` and the graph held nothing that generates forever
+  (since replaced by a bounded silent bed; see the 8.0.1 entry below).
   A bare apad pads until something downstream stops asking, and `atrim` drops
   the frames past the end **without propagating EOF upstream**, so apad went on
   producing silence for atrim to throw away. Measured against real ffmpeg on the
@@ -495,6 +496,24 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **The bounded pad cut the narration short on ffmpeg 8.0.1, about half the
+  time.** In November 2026 `ubuntu-latest` moved from 24.04 to 26.04, which took
+  apt's ffmpeg from 6.1.1 to 8.0.1, and `test_narration_is_exactly_the_requested_length`
+  started failing on ubuntu only: 21.542s for a 24.746s track, which is exactly
+  the bare mix, as if the pad were not there. It first read as flaky (it failed
+  on the second suite pass, not the first) and then as state leaking between
+  tests, and both readings were tested rather than argued. The test passed alone
+  and failed as the *first* test of its own file, so nothing had run before it to
+  leak anything. Forty calls of each graph on that runner settled it: `amix` then
+  `apad=whole_dur=` 22/40 full length, `amix=duration=longest` then `apad` 20/40,
+  and a silent bed of exactly the total length mixed in (`anullsrc=...:d=`)
+  40/40. `build_narration` uses the bed now and holds no `apad` at all. The bed
+  is bounded where it is generated, so the hang above stays fixed for the same
+  reason the bounded pad fixed it. The live box is on 6.1.1 and was never short;
+  a box rebuilt on 26.04 would have been. The lesson is the one in the entry
+  above, from the other side: a runner image moving is an ffmpeg upgrade nobody
+  asked for, and `ffmpeg -version` in the job log is the first thing to read
+  when only one platform goes red.
 - **An ffmpeg call with no timeout can hang forever, and one did.** `apad` is
   infinite by definition, so `build_narration` left `atrim` as the only thing
   ending its output; `master()` had always passed `-t` as well, and this one did

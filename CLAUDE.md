@@ -56,7 +56,7 @@ before writing anything. The traps are the reason this file exists.
 | Change a limit, default or threshold the docs quote | `test_docs_constants.py` | The docs' numbers are checked against the code; change both, and reword a sentence only with its case |
 | Handle a model 429 | [incidents.md](docs/claude/incidents.md), quota entries | Read the `quotaId`: `PerDay` refuses, `PerMinute` waits |
 | Resolve a key, or read what a build spent | [keys.md](docs/claude/keys.md) | Unsetting a key in the shell does not stop a build finding one in a sibling `.env` |
-| Deploy or update the live box | [deploying.md](docs/claude/deploying.md) | `ssh host "commands"`, never a session; check which machine it ran on |
+| Deploy or update the live box | [deploying.md](docs/claude/deploying.md) | Merging is the deploy: the box pulls `main` within five minutes when idle; by hand it is `ssh host "commands"`, never a session |
 | Write a test that reloads or spawns | [tests.md](docs/claude/tests.md); [incidents.md](docs/claude/incidents.md), macOS narration hang | Module state and threads outlive their test and disarm the next file |
 | Write a test that resolves a key | [tests.md](docs/claude/tests.md) | `conftest` clears every `KEY_ENV` name; a test must never read the machine's own |
 | Speed the service up | [web-service.md](docs/claude/web-service.md) | Concurrency is settled and measured; 78% of a build is ffmpeg |

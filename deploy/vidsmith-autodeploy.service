@@ -1,0 +1,15 @@
+# Runs scripts/autodeploy.sh once. Started by vidsmith-autodeploy.timer.
+# Install: deploy/aws.md, "Deploying by merging".
+[Unit]
+Description=Put origin/main on this box when it has moved
+After=network-online.target vidsmith.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/vidsmith
+Environment=VIDSMITH_APP_DIR=/home/ubuntu/vidsmith
+ExecStart=/bin/bash /home/ubuntu/vidsmith/scripts/autodeploy.sh
+# a pull, a pip install when requirements moved, and the health wait
+TimeoutStartSec=15min

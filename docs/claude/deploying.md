@@ -39,6 +39,20 @@ times, because on a connection that drops a deploy that had worked reported
 failure twice in one evening. `VIDSMITH_HOST`, `VIDSMITH_SSH_KEY` and
 `VIDSMITH_AWS_REGION` override the defaults.
 
+**Merging is the deploy.** The box pulls `main` itself: the
+`vidsmith-autodeploy` timer runs `scripts/autodeploy.sh` every five minutes, and
+when `origin/main` has moved and `/api/busy` says no render is running, it
+fast-forwards, reinstalls requirements only if they changed, restarts, and waits
+for `/healthz` to report the new commit. It needs no ssh, no key in GitHub and no
+security-group rule for whoever merged, which is what every hand deploy used to
+stop on. `journalctl -u vidsmith-autodeploy` is its log, one line per deploy.
+It leaves alone a checkout on another branch and refuses a diverged `main`, so
+trying something on the box means checking out a branch first. The whole script
+is one function called on its last line, because it is part of the checkout it
+pulls, and bash reads a script as it runs: a pull that rewrote it mid-run would
+otherwise execute half of each version. `vidsmith deploy` still works for a
+deploy that cannot wait five minutes, and for rolling back.
+
 **A deploy also says whether the page can upload.** The box ran for weeks
 with no YouTube client at all and nothing reported it; the fault would have
 landed as `redirect_uri_mismatch` in front of whoever first published from the

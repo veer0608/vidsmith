@@ -319,6 +319,21 @@ minutes into a single ffmpeg process, and at the default a long render would be
 killed near the end of its most expensive step. It is a bound on forever, not a
 budget.
 
+### Deploying by merging
+
+Once the service runs, have the box keep itself on `main`. The timer checks
+`origin/main` every five minutes and redeploys when it has moved and no render
+is running, so a merged PR is live within about five minutes with nothing run by
+hand and no ssh rule to update. `docs/claude/deploying.md` has what it refuses to
+do and why.
+
+```bash
+cd ~/vidsmith && sudo cp deploy/vidsmith-autodeploy.service deploy/vidsmith-autodeploy.timer /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now vidsmith-autodeploy.timer && systemctl list-timers vidsmith-autodeploy --no-pager
+```
+
+`journalctl -u vidsmith-autodeploy --no-pager | tail` is the deploy log. A run
+with nothing to do prints nothing.
+
 ## TLS, and a free hostname to hang it on
 
 The page accepts its token as a `?t=` query parameter, because a `<video>`
