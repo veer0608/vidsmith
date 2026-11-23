@@ -15,6 +15,7 @@ before writing anything. The traps are the reason this file exists.
 | About to | Read | What bites |
 | --- | --- | --- |
 | Edit a script | [script.md](docs/claude/script.md) | A blank line starts a new scene |
+| Ask for a diagram | [architecture.md](docs/claude/architecture.md), diagrams | `visuals.diagrams` is off by default; a `[diagram:]` line with it off stops the build at parse |
 | Write a test | [tests.md](docs/claude/tests.md) | Build scenes with `make_scene()`, never by hand |
 | Add or change a model call | [architecture.md](docs/claude/architecture.md), `LLMUnavailable` | Raise `LLMUnavailable` or the fallbacks stop working |
 | Touch shot lengths or timing | [architecture.md](docs/claude/architecture.md), narration slot | Clips must sum to `scene.duration` exactly, and no shot may outlast its clip |
