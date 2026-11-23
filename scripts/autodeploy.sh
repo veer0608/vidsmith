@@ -62,7 +62,19 @@ record() {
 trap 'if [ -z "$recorded" ]; then record failed false "failed at: $BASH_COMMAND"; fi' ERR
 
 running() {
-    curl -s -m 5 "$url/healthz" | sed -n 's/.*"commit":"\([0-9a-f]*\)".*/\1/p' || true
+    # Read as JSON, the top-level `commit` only. A sed for `"commit":"..."` used
+    # to do this, and its greedy `.*` took the *last* match: once /healthz carried
+    # this script's own record, whose `commit` is the previous deploy, every
+    # deploy compared against that and recorded itself as failed (ad52a22, which
+    # had landed fine). The box has python3 for the app's own venv.
+    curl -s -m 5 "$url/healthz" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except ValueError:
+    body = {}
+print(body.get("commit", "") if isinstance(body, dict) else "")
+' 2>/dev/null || true
 }
 
 is_on() {
@@ -89,7 +101,18 @@ main() {
     if [ "$here" = "$target" ]; then
         # On disk already. Owed a restart only when the service is up and
         # running something else; a service that is down is systemd's to restart.
-        if [ -z "$live" ] || is_on "$live" "$target"; then
+        if [ -z "$live" ]; then
+            return 0
+        fi
+        if is_on "$live" "$target"; then
+            # A record saying this very commit failed, while it is plainly
+            # running, is wrong: an earlier run misread /healthz, or the service
+            # came up after its health wait gave up. Correct it, so /healthz does
+            # not report a failure that is not there.
+            if grep -Eq '"ok"[[:space:]]*:[[:space:]]*false' "$state" 2>/dev/null \
+                    && grep -Eq "\"commit\"[[:space:]]*:[[:space:]]*\"${target:0:7}\"" "$state" 2>/dev/null; then
+                record deployed true "${target:0:7} is running; an earlier run recorded it as failed"
+            fi
             return 0
         fi
     fi

@@ -86,7 +86,13 @@ class Box:
             "#!/bin/sh\n"
             "for a in \"$@\"; do url=\"$a\"; done\n"
             "case \"$url\" in\n"
-            f"  */healthz) printf '{{\"ok\":true,\"commit\":\"%s\"}}' \"$(cat '{self.running}')\" ;;\n"
+            # shaped like the real one: the running commit at the top, then this
+            # script's own last record, whose `commit` is a different, older sha.
+            # A parser that takes the last "commit" reads the wrong one, which is
+            # how ad52a22 was recorded as failed after it had landed.
+            f"  */healthz) printf '{{\"ok\":true,\"commit\":\"%s\",\"busy\":false,"
+            f"\"autodeploy\":{{\"state\":\"deployed\",\"ok\":true,\"commit\":\"0000000\"}}}}' "
+            f"\"$(cat '{self.running}')\" ;;\n"
             f"  */api/busy) head -1 '{self.busy}';\n"
             f"    if [ \"$(wc -l < '{self.busy}')\" -gt 1 ]; then\n"
             f"      tail -n +2 '{self.busy}' > '{self.busy}.next'; mv '{self.busy}.next' '{self.busy}'; fi ;;\n"
@@ -146,6 +152,47 @@ def test_a_new_commit_is_pulled_restarted_confirmed_and_recorded(box):
     assert state["state"] == "deployed" and state["ok"] is True
     assert state["commit"] == sha[:7] and sha[:7] in state["said"]
     assert not box.pip_log.exists()          # requirements did not move
+
+
+def test_the_running_commit_is_read_from_the_top_not_from_the_last_record(box):
+    """The stub's /healthz carries a stale `autodeploy.commit`, like the real one.
+
+    The script used to take the last "commit" in the body, so this deploy would
+    restart, then wait out its health check against the old record's sha and
+    write `failed` over a deploy that had landed.
+    """
+    sha = box.push()
+    result = box.run()
+    assert result.returncode == 0, result.stdout + result.stderr
+    state = box.recorded()
+    assert state["state"] == "deployed" and state["ok"] is True, state
+    # and the run after it sees nothing to do, rather than restarting again
+    assert box.run().stdout == ""
+    assert box.restarts() == 1
+    assert box.running.read_text().strip() == sha[:7]
+
+
+def test_a_failure_record_that_is_no_longer_true_is_corrected(box):
+    """The deploy of this fix itself ran the old parser and recorded `failed`."""
+    sha = box.head(box.app)
+    box.state.parent.mkdir(parents=True, exist_ok=True)
+    box.state.write_text(json.dumps({
+        "state": "failed", "ok": False, "at": "2026-11-23T23:38:16Z",
+        "commit": sha[:7], "said": "pulled it and restarted, but /healthz reports '0000000'"}))
+    result = box.run()
+    assert result.returncode == 0, result.stderr
+    state = box.recorded()
+    assert state["state"] == "deployed" and state["ok"] is True
+    assert box.restarts() == 0, "correcting the record restarts nothing"
+
+
+def test_a_failure_for_another_commit_is_left_alone(box):
+    """Only a record about the commit actually running is corrected."""
+    box.state.parent.mkdir(parents=True, exist_ok=True)
+    stale = {"state": "failed", "ok": False, "commit": "abcdef1", "said": "something else"}
+    box.state.write_text(json.dumps(stale))
+    assert box.run().returncode == 0
+    assert box.recorded() == stale
 
 
 def test_a_running_render_is_never_restarted(box):
