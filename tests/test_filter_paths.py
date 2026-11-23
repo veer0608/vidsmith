@@ -232,9 +232,8 @@ def test_the_limit_leaves_nothing_behind_for_the_next_test(monkeypatch):
 
 
 def test_the_narration_output_is_bounded_by_more_than_the_graph():
-    """apad is infinite, so atrim is the only thing ending the output. One
-    filter declining to pass EOF then hangs the encode, which is what macOS
-    CI hung inside."""
+    """A filter declining to pass EOF hangs the encode, which is what macOS CI
+    hung inside, so the encode has a hard end outside the graph as well."""
     import inspect
 
     from vidsmith import render
