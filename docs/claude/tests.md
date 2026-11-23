@@ -18,8 +18,17 @@ within one run. It also carries `--timeout=120`, because it once sat in the
 suite for twenty-five minutes and reported nothing: a hang produces no output,
 and a per-test timeout turns it into a failing test with a traceback.
 
-**Three ffmpegs are in play and they do not agree.** Ubuntu 6.1.1 on the
-instance, winget 9.0 on this machine, Homebrew on the macOS runner - unpinned
+**The `box` job runs the suite on the live instance's ffmpeg.** `ubuntu-latest`
+moved to 26.04 in November 2026, taking the `test` job to ffmpeg 8.0.1, while the
+EC2 box stayed on 24.04 and 6.1.1. Since the box deploys every merge on its own
+([deploying.md](deploying.md)), nothing was then testing what production runs.
+`box` pins `ubuntu-24.04` and refuses to run unless `ffmpeg -version` says 6.1.1,
+so a retired image fails loudly instead of quietly testing something else. When
+the box moves to a new Ubuntu, move this job's image and expected version with it.
+
+**Four ffmpegs are in play and they do not agree.** Ubuntu 6.1.1 on the
+instance and the `box` job, 8.0.1 on the `test` job, winget 9.0 on this machine,
+Homebrew on the macOS runner - unpinned
 in the regular `tests.yml` job, so it floats to whatever Homebrew's snapshot
 currently ships (8.1.2 through 2026-09-04, 9.0.1 from 2026-09-08; see the
 narration-hang entry in [incidents.md](incidents.md) for what that floating cost a debugging session).

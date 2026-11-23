@@ -62,7 +62,7 @@ before writing anything. The traps are the reason this file exists.
 | Write a test that resolves a key | [tests.md](docs/claude/tests.md) | `conftest` clears every `KEY_ENV` name; a test must never read the machine's own |
 | Speed the service up | [web-service.md](docs/claude/web-service.md) | Concurrency is settled and measured; 78% of a build is ffmpeg |
 | Change the voice provider | [architecture.md](docs/claude/architecture.md), two providers | Polly's marks are ms with starts and no durations, billed twice |
-| Reach for a version of ffmpeg | [tests.md](docs/claude/tests.md) | Three are in play and they disagree about libass |
+| Reach for a version of ffmpeg | [tests.md](docs/claude/tests.md) | Four are in play and they disagree about libass and padding; the `box` job is the only one that matches production |
 | Change the price or the buy link | `test_selling_links.py` | Both docs must agree; a `PASTE_GUMROAD_*` token holds CI red on purpose |
 | Measure a model call, or quote a number from one | [benchmarks.md](docs/claude/benchmarks.md) | `labels.json` is ground truth a person wrote; never write to it from code or a guess |
 
@@ -149,7 +149,7 @@ redoes cached stages.
 
 | File | Covers |
 | --- | --- |
-| [tests.md](docs/claude/tests.md) | CI matrix, the three ffmpegs, lint gate, credential isolation, `make_scene()` |
+| [tests.md](docs/claude/tests.md) | CI matrix, the four ffmpegs, lint gate, credential isolation, `make_scene()` |
 | [benchmarks.md](docs/claude/benchmarks.md) | `bench/rank_clips`, labels, kappa, bootstrap intervals |
 | [script.md](docs/claude/script.md) | `script.md` format, directives, `WPS`, the drafting prompt and `lengthen()` |
 | [architecture.md](docs/claude/architecture.md) | Pipeline stages, voice providers, narration slot, Gemini calls, diagrams, music, render passes, captions, theme |

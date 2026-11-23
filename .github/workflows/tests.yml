@@ -11,6 +11,9 @@
 # Linux could ever have caught it.
 
 #
+# A fourth job, `box`, runs the suite on ubuntu-24.04 with apt's ffmpeg 6.1.1,
+# because that is what the live instance runs and `test` no longer does.
+#
 # Both jobs run the encodes, and they are not redundant: the escaping tests take
 # their paths from tmp_path, so only the Windows runner ever hands ffmpeg a
 # drive letter - which is the thing that escaping exists for.
@@ -82,6 +85,48 @@ jobs:
           AWS_ACCESS_KEY_ID: "ci-not-a-real-key"
           AWS_SECRET_ACCESS_KEY: "ci-not-a-real-key"
           AWS_REGION: "us-east-1"
+        run: python -m pytest --timeout=120 --durations=10
+
+  # The live box's ffmpeg, which `test` above no longer runs. ubuntu-latest moved
+  # to 26.04 in November 2026 and took apt's ffmpeg from 6.1.1 to 8.0.1, while
+  # the EC2 box stayed on 24.04 and 6.1.1. That move found a real bug, and it
+  # also left nothing testing the version production runs, at the same time the
+  # box started deploying every merge on its own. A change that breaks only on
+  # 6.1.1 would have passed CI and shipped with no one in between.
+  box:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ffmpeg and a font, as cloud-init.sh does on the box
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+
+      # Ask the binary. If GitHub retires or changes this image, this job would
+      # quietly test some other ffmpeg and keep passing, which is the failure
+      # this job exists to prevent. Change the expected version only together
+      # with the box (deploy/aws.md).
+      - name: Refuse anything but the box's ffmpeg
+        run: |
+          ffmpeg -hide_banner -version > version.txt
+          head -1 version.txt
+          grep -q '^ffmpeg version 6\.1\.1' version.txt || {
+            echo "expected ffmpeg 6.1.1, the live box's; this job is no longer testing what production runs"
+            exit 1
+          }
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt -r requirements-web.txt
+
+      - name: Run the suite
+        env:
+          VIDSMITH_FFMPEG_TIMEOUT: "45"
         run: python -m pytest --timeout=120 --durations=10
 
   windows:
