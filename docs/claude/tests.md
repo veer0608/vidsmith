@@ -2,7 +2,8 @@
 
 `pytest.ini` sets `pythonpath = . tests` and defines the one marker, `slow`, for
 the tests that shell out to a real ffmpeg and encode video. GitHub Actions runs
-the whole suite, encodes included, on **ubuntu, windows and macos** for every
+the whole suite, encodes included, on **ubuntu (26.04 and the box's 24.04), windows
+and macos** for every
 push to main and every PR (`.github/workflows/tests.yml`); it installs ffmpeg
 and a real font, because without one Pillow falls back to a bitmap default and
 the card tests measure text nobody would ship.
