@@ -46,7 +46,12 @@ def queue(tmp_path, monkeypatch):
     # when the timing lines up - it went green everywhere for a day and then
     # failed on macOS.
     gate.set()
-    _wait_until(lambda: not q.busy() and q.waiting() == 0, timeout=15)
+    # One read under the lock, not two. busy() and waiting() asked separately
+    # could each be true of a different moment, and a drain that returned early
+    # here once let a queued job render for real into another file's test.
+    # Loud on timeout: a drain that gives up in silence is the same leak.
+    assert _wait_until(lambda: q._idle_and_empty(), timeout=15), \
+        "a queued job was still running when the test ended"
 
 
 def _wait_until(predicate, timeout: float = 5.0) -> bool:
@@ -187,6 +192,37 @@ def test_position_counts_down_as_the_line_moves(queue):
     assert queue.position(third.id) == 2
     # a running job is not in the line, and neither is one that never joined it
     assert queue.position(queue._active) == 0
+    queue.gate.set()
+
+
+def test_a_handoff_never_reads_as_idle(queue):
+    """busy() and active() wait out a handoff instead of reading between its steps.
+
+    `_finish` sets `_active = None` and then claims the next job, both under the
+    lock. Read without the lock, the slot looked free in between: a test drain
+    trusted that and let a queued job render for real into another file's test,
+    and `/api/busy` (which autodeploy asks before restarting) had the same gap.
+    """
+    first = queue.submit("# t\n\nfirst", {})
+    second = queue.submit("# t\n\nsecond", {})
+    answers = {}
+
+    with queue._lock:                       # the middle of a handoff, held open
+        queue._active = None
+        readers = [threading.Thread(target=lambda: answers.__setitem__("busy", queue.busy())),
+                   threading.Thread(target=lambda: answers.__setitem__("active", queue.active()))]
+        for reader in readers:
+            reader.start()
+        time.sleep(0.2)
+        assert answers == {}, "a reader answered while the slot was changing hands"
+        queue._active = second.id           # the next job claims it, still under the lock
+    for reader in readers:
+        reader.join(timeout=5)
+
+    assert answers["busy"] is True
+    assert answers["active"]["id"] == second.id
+    assert first.id != second.id
+    queue._active = first.id                # put the real state back for the drain
     queue.gate.set()
 
 

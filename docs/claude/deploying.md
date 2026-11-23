@@ -53,6 +53,24 @@ pulls, and bash reads a script as it runs: a pull that rewrote it mid-run would
 otherwise execute half of each version. `vidsmith deploy` still works for a
 deploy that cannot wait five minutes, and for rolling back.
 
+**It asks whether a render is running twice, and decides against the running
+commit.** Once before the pull and again right before the restart, because the
+pull and a pip install take long enough for a render to start in between, and a
+restart kills it. When the second answer is busy it has already pulled, so the
+checkout is on `main` while the service is not. Comparing only HEAD with
+`origin/main` would then read "nothing new" on every later run and never restart;
+the script compares with what `/healthz` says is running, so the next idle run
+does the restart it owes. A service that is down on current code is left to
+systemd's `Restart=always` rather than restarted again.
+
+**A failed automatic deploy shows in `/healthz`.** Every run that does something
+writes `jobs/_autodeploy.json` (`state` deployed, waiting, refused or failed, `ok`,
+`at`, `commit`, `said`), and an `ERR` trap records any step that fails under
+`set -e`, such as the pip install. `/healthz` reports it as `autodeploy`, and
+`vidsmith deploy` says so first when the last one did not land. Before this, a
+deploy that broke halfway left the old code running and said so only in the
+journal. A run with nothing to do writes nothing, so the last real event stays.
+
 **A deploy also says whether the page can upload.** The box ran for weeks
 with no YouTube client at all and nothing reported it; the fault would have
 landed as `redirect_uri_mismatch` in front of whoever first published from the

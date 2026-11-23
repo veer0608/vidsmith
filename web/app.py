@@ -262,6 +262,25 @@ def admin_decide(request_id: str, action: str, _: None = Depends(guard)) -> Dict
         raise HTTPException(404, str(exc))
 
 
+def _autodeploy() -> Optional[Dict[str, Any]]:
+    """The box's last automatic deploy, as scripts/autodeploy.sh recorded it.
+
+    A deploy that failed halfway left the old code running and said so only in
+    the journal, which nobody reads unprompted. This puts it where the box is
+    already checked. None when the timer has never done anything, which is every
+    machine but the box. Public like the commit: it names a step and a sha.
+    """
+    import json
+
+    try:
+        raw = json.loads((WORKDIR / "_autodeploy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return {key: raw.get(key) for key in ("state", "ok", "at", "commit", "said")}
+
+
 @app.get("/healthz")
 def healthz(x_vidsmith_token: str = Header(default=""),
             t: str = "") -> Dict[str, Any]:
@@ -297,6 +316,9 @@ def healthz(x_vidsmith_token: str = Header(default=""),
     body: Dict[str, Any] = {"ok": True, "ffmpeg": ffmpeg, "fonts": bundled,
                             "commit": commit,
                             "busy": jobs.busy(), "max_minutes": MAX_MINUTES}
+    deployed = _autodeploy()
+    if deployed is not None:
+        body["autodeploy"] = deployed
     if authorised(x_vidsmith_token, t):
         body["keys"] = {name: bool(value) for name, value in _keys().items()}
     return body

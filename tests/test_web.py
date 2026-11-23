@@ -79,6 +79,20 @@ def test_health_reports_ffmpeg(client):
     assert "ffmpeg" in body["ffmpeg"].lower()
 
 
+def test_health_reports_the_last_automatic_deploy(client, tmp_path, monkeypatch):
+    """A deploy that failed halfway used to be visible only in the journal."""
+    monkeypatch.setattr(web_app, "WORKDIR", tmp_path)
+    assert "autodeploy" not in client.get("/healthz").json()   # never ran: say nothing
+    (tmp_path / "_autodeploy.json").write_text(
+        '{"state":"failed","ok":false,"at":"2026-11-23T18:00:00Z","commit":"abc1234",'
+        '"said":"failed at: .venv/bin/pip install","extra":"dropped"}\n', encoding="utf-8")
+    assert client.get("/healthz").json()["autodeploy"] == {
+        "state": "failed", "ok": False, "at": "2026-11-23T18:00:00Z",
+        "commit": "abc1234", "said": "failed at: .venv/bin/pip install"}
+    (tmp_path / "_autodeploy.json").write_text("not json", encoding="utf-8")
+    assert "autodeploy" not in client.get("/healthz").json()   # a torn file is not a 500
+
+
 def test_options_lists_what_the_form_needs(client):
     body = client.get("/api/options").json()
     assert "16:9" in body["aspects"] and "9:16" in body["aspects"]

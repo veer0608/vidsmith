@@ -89,6 +89,29 @@ def test_nothing_happens_when_main_is_already_live():
     assert not box.ssh_calls
 
 
+def test_a_failed_automatic_deploy_is_said_before_anything_else(monkeypatch):
+    """The box deploys itself, so a hand deploy usually follows one that failed."""
+    box = Box(live=TARGET[:7])
+    original = box.get
+
+    def get(url, timeout=0):
+        reply = original(url, timeout)
+        if url.endswith("/healthz"):
+            reply._body["autodeploy"] = {"state": "failed", "ok": False,
+                                         "at": "2026-11-23T18:00:00Z",
+                                         "said": "failed at: .venv/bin/pip install"}
+        return reply
+    box.get = get
+    box.go()
+    assert any("did not land" in line and "pip install" in line for line in box.log)
+
+
+def test_a_good_automatic_deploy_says_nothing_extra():
+    box = Box(live=TARGET[:7])
+    box.go()
+    assert not any("did not land" in line for line in box.log)
+
+
 def test_a_running_render_is_never_restarted_under():
     box = Box(busy=[{"busy": True, "stage": "encoding", "waiting": 1}])
 

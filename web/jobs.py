@@ -341,7 +341,24 @@ class Jobs:
         return self._jobs.get(job_id)
 
     def busy(self) -> bool:
-        return self._active is not None
+        """Whether the slot is taken. Read under the lock, and it has to be.
+
+        `_finish` hands the slot on in two steps, `_active = None` and then
+        `_next_locked()` claiming the next job, both inside the lock. Read without
+        it, this answered "idle" in between, and a caller that then asked
+        `waiting()` (which does lock) got 0 once the handoff finished: idle and
+        nobody waiting, with a job about to start. A test drain trusted that and
+        put the real pipeline back under a job still on its way, which rendered
+        for real into the next test file's ffmpeg stub. The same gap was in front
+        of `/api/busy`, which autodeploy asks before restarting.
+        """
+        with self._lock:
+            return self._active is not None
+
+    def _idle_and_empty(self) -> bool:
+        """No render running and none waiting, as one fact rather than two reads."""
+        with self._lock:
+            return self._active is None and not self._waiting
 
     def waiting(self) -> int:
         """How many submissions are in line behind the running one."""
@@ -357,8 +374,13 @@ class Jobs:
                 return 0
 
     def active(self) -> Optional[Dict[str, Any]]:
-        """What the box is doing, for a page deciding whether to offer Render."""
-        job = self._jobs.get(self._active or "")
+        """What the box is doing, for a page deciding whether to offer Render.
+
+        Under the lock for the reason `busy()` gives: this is `/api/busy`, and
+        mid-handoff it must not report an idle box.
+        """
+        with self._lock:
+            job = self._jobs.get(self._active or "")
         return None if job is None else job.public()
 
     def snapshot(self, job_id: str) -> Optional[Dict[str, Any]]:
