@@ -496,6 +496,22 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **`busy()` read the slot without the lock, so a handoff looked idle.**
+  2026-11-24, on the windows runner of #180: `test_a_shots_still_follows_its_clip`
+  counted two ffmpeg calls where it made one, and the second was a real card
+  encode from `test_render_queue.py`'s `test_position_counts_down_as_the_line_moves`,
+  three files earlier. Its fixture drains with "not busy and nobody waiting", then
+  undoes the stub. `_finish` hands the slot on in two steps under the lock
+  (`_active = None`, then `_next_locked()` claims the next job), but `busy()` and
+  `active()` read `_active` without it. Between the two steps `busy()` said idle;
+  `waiting()` locked, waited out the handoff, and said 0. Idle and empty, with the
+  third job about to start, so it ran the real `pipeline.build` into the next
+  file's patched `ff.run`. The same unlocked read sat behind `/api/busy`, which
+  autodeploy trusts before a restart. Both now read under the lock, the drain asks
+  one locked question (`_idle_and_empty()`) and fails loudly on a timeout instead
+  of returning in silence, and `test_a_handoff_never_reads_as_idle` holds the lock
+  open mid-handoff and fails on the old code. Two reads that are each locked are
+  still two moments; a predicate about the queue has to be one read.
 - **The bounded pad cut the narration short on ffmpeg 8.0.1, about half the
   time.** In November 2026 `ubuntu-latest` moved from 24.04 to 26.04, which took
   apt's ffmpeg from 6.1.1 to 8.0.1, and `test_narration_is_exactly_the_requested_length`
