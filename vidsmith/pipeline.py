@@ -286,6 +286,40 @@ def build(project_root: Path, force: Sequence[str] = (), stop_after: str = "",
         return result
 
 
+class DiagramsOff(RuntimeError):
+    """The script asks for a diagram and the project has drawing switched off.
+
+    A RuntimeError, so `vidsmith build` prints it as an error and the web worker
+    records it as the job's failure, both without a traceback.
+    """
+
+
+def refuse_unwanted_footage(scenes: Sequence[Scene], drawing_on: bool) -> None:
+    """Stop before any work when a `[diagram:]` line would quietly become footage.
+
+    `visuals.diagrams` is off by default, deliberately: model-decided diagrams
+    read as slides. But a `[diagram:]` line is a person asking for one, and with
+    drawing off it became stock footage with one log line per scene. dodo-prep
+    wrote eight of them by hand and found out seventeen minutes later, after the
+    whole build. Refusing at parse costs a second and names the fix.
+    """
+    if drawing_on:
+        return
+    asked = [s for s in scenes if s.diagram]
+    if not asked:
+        return
+    # numbered from 0, as the shot sheet, `retake --scene` and every log line do
+    where = "; ".join(f"{s.index} {s.heading!r}" if s.heading else str(s.index)
+                      for s in asked)
+    many = len(asked) != 1
+    raise DiagramsOff(
+        f"the script asks for {len(asked)} diagram{'s' if many else ''} "
+        f"(scene{'s' if many else ''} {where}) but visuals.diagrams is off, "
+        f"so {'they' if many else 'it'} would render as stock footage. "
+        "Set `diagrams: true` under `visuals:` in config.yaml, or change "
+        f"{'those lines' if many else 'that line'} to [visual: ...] for footage.")
+
+
 def _build(project_root: Path, force: Sequence[str], stop_after: str,
            overrides: Optional[Dict[str, str]], log, rec: manifest.Recorder,
            retake: bool = False, edit: bool = False, cut: bool = False) -> Path:
@@ -324,6 +358,12 @@ def _build(project_root: Path, force: Sequence[str], stop_after: str,
     rec.enter("parse")
     # ---- parse ---------------------------------------------------------- #
     title, scenes = parse_script(proj.script)
+    if not (retake or edit or cut):
+        # Only a build that is about to film the script. A retake, a scene edit
+        # or another cut of a finished render works on what that render already
+        # decided, and refusing it for a directive it was built without would
+        # strand a video that is otherwise fine.
+        refuse_unwanted_footage(scenes, cfg.visuals.diagrams)
     resolve_title(proj, cfg, title)
     log(f"script   {len(scenes)} scenes, ~{sum(s.est_seconds for s in scenes):.0f}s estimated")
 

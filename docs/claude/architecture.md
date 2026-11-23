@@ -114,8 +114,20 @@ template is followed more faithfully than any instruction above it. Then
 The line is removed, not renamed to `[visual:]`: a model's diagram description
 describes a graphic, which is the worst possible stock search, and a scene with
 no directive gets a query Gemini writes from its narration. First real draft on
-the subject that produced those frames came back with zero diagram lines. A
-hand-written `[diagram:]` with drawing off is logged, never silently dropped.
+the subject that produced those frames came back with zero diagram lines.
+
+**A hand-written `[diagram:]` with drawing off stops the build at parse.** It
+used to be logged, one line per scene, and render as footage: dodo-prep wrote
+eight by hand on a project `vidsmith new` had set to `diagrams: false`, and
+found out seventeen minutes later from the finished video.
+`pipeline.refuse_unwanted_footage()` now raises `DiagramsOff` before the voice,
+naming each scene (numbered from 0, as the sheet and `retake --scene` number
+them) and both fixes. A retake, a scene edit or another cut of a finished render
+is exempt, because that render already decided and refusing it would strand it.
+The web page had the same trap for everyone, since its hint teaches
+`[diagram: three boxes] draws one` and web jobs never switched drawing on; a web
+job now gets `diagrams: true` exactly when its script has a `[diagram:]` line.
+The default stays off, because it exists for diagrams a model decides on.
 
 **The music bed is synthesised, not sourced.** There is no free API for licensed
 music and an unlicensed track is a copyright strike, so `music.py` builds it in
