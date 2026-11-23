@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vidsmith · Request access</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #000; --surface: #0a0a0a; --border: #262626;
+    --fg: #ededed; --fg-2: #a1a1a1;
+    --ok: #3fcf8e; --warn: #f5a524; --bad: #ff6369; --focus: #60a5fa;
+    --brand: linear-gradient(135deg, #7c3aed, #2563eb); --brand-a: #a78bfa;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { color-scheme: light; --bg: #fff; --surface: #fafafa; --border: #e5e5e5;
+            --fg: #171717; --fg-2: #525252; --ok: #067a46; --warn: #8a5a00;
+            --bad: #c4161c; --focus: #1d4ed8; --brand-a: #6d28d9; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 var(--sans);
+         min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+  main { width: 100%; max-width: 30rem; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h1 span { color: var(--brand-a); }
+  p { color: var(--fg-2); margin: 0 0 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: 8px; padding: 20px; }
+  label { display: block; font-size: 14px; margin: 14px 0 6px; }
+  input, textarea { width: 100%; background: var(--bg); color: var(--fg);
+          border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+          font: inherit; }
+  input:focus, textarea:focus, button:focus-visible, a:focus-visible
+          { outline: 2px solid var(--focus); outline-offset: 2px; }
+  textarea { min-height: 80px; resize: vertical; }
+  button { margin-top: 18px; width: 100%; background: var(--brand); color: #fff;
+           border: 0; border-radius: 6px; padding: 11px 14px; font: inherit;
+           font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .msg { margin-top: 14px; min-height: 1.4em; font-size: 14px; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); } .wait { color: var(--warn); }
+  code { font-family: var(--mono); word-break: break-all; }
+  a { color: var(--brand-a); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Request <span>access</span></h1>
+  <p>vidsmith turns a script into a narrated, captioned video. Ask for a login and the
+     owner will review it. Nothing is spent until you are approved.</p>
+
+  <section class="card" id="form-card">
+    <form id="form" novalidate>
+      <label for="name">Your name</label>
+      <input id="name" name="name" autocomplete="name" maxlength="80" required>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+      <label for="note">What will you make? <span style="color:var(--fg-2)">(optional)</span></label>
+      <textarea id="note" name="note" maxlength="300"></textarea>
+      <button id="send" type="submit">Request access</button>
+      <p class="msg bad" id="error" role="alert" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="card hidden" id="status-card" aria-live="polite">
+    <p id="status-line" style="color:var(--fg);margin-bottom:8px"></p>
+    <p id="status-detail"></p>
+    <p class="hidden" id="open-row"><a id="open" href="/">Open vidsmith</a></p>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY = "vidsmith_request";          // the secret for this person's request
+const store = {
+  get() { try { return localStorage.getItem(KEY) || ""; } catch { return ""; } },
+  set(v) { try { localStorage.setItem(KEY, v); } catch {} },
+};
+
+function show(line, detail, cls) {
+  $("form-card").classList.add("hidden");
+  $("status-card").classList.remove("hidden");
+  $("status-line").textContent = line;
+  $("status-line").className = cls || "";
+  $("status-detail").textContent = detail || "";
+}
+
+let timer = null;
+async function poll(secret) {
+  let r, body;
+  try {
+    r = await fetch("/api/register/" + encodeURIComponent(secret));
+    body = await r.json();
+  } catch {
+    show("Could not reach the server.", "Reload this page to try again.", "bad");
+    return;
+  }
+  if (r.status === 404) {                // forgotten on the server: start over
+    try { localStorage.removeItem(KEY); } catch {}
+    $("form-card").classList.remove("hidden");
+    $("status-card").classList.add("hidden");
+    return;
+  }
+  if (body.status === "pending") {
+    show("Waiting for approval", "The owner has your request. This page checks again every " +
+         "30 seconds, and you can close it and come back on this browser.", "wait");
+    timer = setTimeout(() => poll(secret), 30000);
+  } else if (body.status === "denied") {
+    show("Not approved", "This request was declined.", "bad");
+  } else if (body.token) {
+    // the server hands the token over once; keep it here, in the same place the
+    // main page keeps it, and send the person on
+    try { localStorage.setItem("vidsmith_token", body.token); } catch {}
+    show("You are in", "Your login is saved in this browser. You can render up to " +
+         body.daily_renders + " videos a day.", "ok");
+    $("open-row").classList.remove("hidden");
+  } else {
+    show("Already collected", "Your login was handed over on a browser that has it. " +
+         "Open vidsmith there. If you lost it, ask the owner to approve a new request.", "wait");
+    $("open-row").classList.remove("hidden");
+  }
+}
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("error").textContent = "";
+  $("send").disabled = true;
+  try {
+    const r = await fetch("/api/register", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name: $("name").value, email: $("email").value,
+                            note: $("note").value}),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const d = body.detail;
+      $("error").textContent = typeof d === "string" ? d
+        : "Check your name and email and try again.";
+      return;
+    }
+    store.set(body.secret);
+    poll(body.secret);
+  } catch {
+    $("error").textContent = "Could not reach the server. Try again.";
+  } finally {
+    $("send").disabled = false;
+  }
+});
+
+if (store.get()) poll(store.get());
+</script>
+</body>
+</html>

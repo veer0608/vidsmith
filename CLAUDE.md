@@ -34,6 +34,7 @@ before writing anything. The traps are the reason this file exists.
 | Redraft an existing script | [incidents.md](docs/claude/incidents.md), stale caches | Scene-indexed caches must be invalidated |
 | Publish a video anywhere | [incidents.md](docs/claude/incidents.md), attribution and chapters | Crediting is a licence condition; YouTube drops a chapter list rather than the bad line |
 | Edit the web page | [web-service.md](docs/claude/web-service.md) | Ask the server for what it knows; do not hardcode a second copy |
+| Add a web route | [web-service.md](docs/claude/web-service.md), registering for access | A route is the owner's alone unless it is on the member list; a member who reaches the YouTube login can publish to the owner's channel |
 | Touch the web queue | [web-service.md](docs/claude/web-service.md); [incidents.md](docs/claude/incidents.md), the render slot | Claim the slot and you own giving it back on every path out |
 | Change how a finished render swaps a shot | [web-service.md](docs/claude/web-service.md), one shot of a finished render | A retake is `build(retake=True)`, never a second copy of the render stage |
 | Show it to someone | [deploying.md](docs/claude/deploying.md) | The tunnel beats both hosts |
