@@ -203,5 +203,10 @@ Three rules hold it together:
   `/admin` mints a replacement for a member who lost theirs, shows it to the owner once
   as a `?t=` link, and leaves it on their status link too; the old token stops.
 
+**Remove** deletes a request from `/admin`, and only a denied one: an approved member
+holds a working token and a pending one is a person waiting, so either is denied first
+and nobody loses access without the owner seeing it happen. Removing also drops the
+record of which renders were theirs, and the same address can ask again.
+
 The owner's page shows "N waiting for access", linked to `/admin`, when requests are
 pending. There is no other notice, so that pill is how a request gets seen.

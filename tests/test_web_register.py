@@ -175,6 +175,32 @@ def test_only_an_approved_member_is_reissued(client):
                        headers=OWNER).status_code == 404
 
 
+def test_only_a_denied_request_can_be_removed(client):
+    ann, secret, request_id = _member(client)
+    job = client.post("/api/jobs", json={"script": SCRIPT, "provider": "cards"}, headers=ann)
+    _settle(web_app.jobs)
+    # an approved member, with a working token, is never removed in one click
+    assert client.post(f"/api/admin/requests/{request_id}/remove",
+                       headers=OWNER).status_code == 409
+    client.post(f"/api/admin/requests/{request_id}/deny", headers=OWNER)
+    assert client.post(f"/api/admin/requests/{request_id}/remove",
+                       headers=OWNER).json()["status"] == "removed"
+    assert client.get("/api/admin/requests", headers=OWNER).json()["requests"] == []
+    assert client.get(f"/api/register/{secret}").status_code == 404
+    assert not web_app.accounts.owns(job.json()["id"], request_id)
+    # the same address can ask again
+    assert client.post("/api/register",
+                       json={"name": "Ann", "email": "ann@example.com"}).status_code == 201
+
+
+def test_a_pending_request_is_not_removed_and_a_missing_one_is_404(client):
+    client.post("/api/register", json={"name": "W", "email": "w@example.com"})
+    request_id = client.get("/api/admin/requests", headers=OWNER).json()["requests"][0]["id"]
+    assert client.post(f"/api/admin/requests/{request_id}/remove",
+                       headers=OWNER).status_code == 409
+    assert client.post("/api/admin/requests/nope/remove", headers=OWNER).status_code == 404
+
+
 def test_owner_only_cards_are_marked_on_the_page(client):
     """The page hides these for a member; a card left unmarked would offer a 403."""
     page = client.get("/").text

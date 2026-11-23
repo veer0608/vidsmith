@@ -246,13 +246,17 @@ def admin_requests(_: None = Depends(guard)) -> Dict[str, Any]:
 
 @app.post("/api/admin/requests/{request_id}/{action}")
 def admin_decide(request_id: str, action: str, _: None = Depends(guard)) -> Dict[str, Any]:
-    if action not in ("approve", "deny", "reissue"):
+    if action not in ("approve", "deny", "reissue", "remove"):
         raise HTTPException(404, "no such action")
     try:
         if action == "reissue":
             # handed to the owner once, to send on as a login link
             return {"id": request_id, "status": "approved",
                     "token": accounts.reissue(request_id)}
+        if action == "remove":
+            if accounts.status_of(request_id) not in (None, "denied"):
+                raise HTTPException(409, "deny or revoke this request before removing it")
+            return accounts.remove(request_id)
         return accounts.decide(request_id, action == "approve")
     except accounting.Refused as exc:
         raise HTTPException(404, str(exc))

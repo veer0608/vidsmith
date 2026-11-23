@@ -156,6 +156,31 @@ class Accounts:
             self._save()
             return {"id": req["id"], "status": req["status"]}
 
+    def status_of(self, request_id: str) -> Optional[str]:
+        with self._lock:
+            req = self._find(request_id)
+            return req["status"] if req else None
+
+    def remove(self, request_id: str) -> Dict[str, Any]:
+        """Delete a denied request from the list, and the record of its renders.
+
+        Only a denied one. An approved member has a working token and pending
+        one is a person waiting, so either is denied first; removing cannot be
+        the way someone loses access without the owner seeing it happen.
+        """
+        with self._lock:
+            reqs = self._data["requests"]
+            key = next((k for k, r in reqs.items() if r["id"] == request_id), None)
+            if key is None:
+                raise Refused("No such request.")
+            if reqs[key]["status"] != "denied":
+                raise Refused("Deny or revoke this request before removing it.")
+            del reqs[key]
+            self._data["owners"] = {job: member for job, member in self._data["owners"].items()
+                                    if member != request_id}
+            self._save()
+            return {"id": request_id, "status": "removed"}
+
     # -- a member's token --------------------------------------------------- #
     def member(self, token: str) -> Optional[str]:
         """The request id this token belongs to, or None."""

@@ -27,9 +27,12 @@
   .row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
          padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 12px;
          align-items: center; flex-wrap: wrap; }
+  /* the status sits under the name, so the buttons are the only thing on the
+     right and stay together; on a narrow screen they drop below as one group */
   .who { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
   .who small { display: block; color: var(--fg-2); }
-  .tag { font-size: 13px; }
+  .tag { display: block; font-size: 13px; margin-top: 4px; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .pending { color: var(--warn); } .approved { color: var(--ok); } .denied { color: var(--bad); }
   button { background: transparent; color: var(--fg); border: 1px solid var(--border);
            border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
@@ -87,10 +90,13 @@ async function load() {
     tag.className = "tag " + q.status;
     tag.textContent = q.status === "approved"
       ? "approved · " + q.today + " renders, " + q.drafts + " drafts today" : q.status;
-    row.append(who, tag);
-    if (q.status !== "approved") row.append(button("Approve", "go", q.id, "approve"));
-    if (q.status === "approved") row.append(button("New Login Link", "", q.id, "reissue"));
-    if (q.status !== "denied") row.append(button(q.status === "approved" ? "Revoke" : "Deny", "no", q.id, "deny"));
+    who.append(tag);
+    const acts = document.createElement("div"); acts.className = "acts";
+    if (q.status !== "approved") acts.append(button("Approve", "go", q.id, "approve"));
+    if (q.status === "approved") acts.append(button("New Login Link", "", q.id, "reissue"));
+    if (q.status !== "denied") acts.append(button(q.status === "approved" ? "Revoke" : "Deny", "no", q.id, "deny"));
+    if (q.status === "denied") acts.append(button("Remove", "", q.id, "remove"));
+    row.append(who, acts);
     list.append(row);
   }
 }
@@ -121,6 +127,7 @@ function button(label, cls, id, action) {
   b.type = "button"; b.className = cls; b.textContent = label;
   b.addEventListener("click", async () => {
     if (action === "reissue" && !confirm("Their current login stops working. Make a new one?")) return;
+    if (action === "remove" && !confirm("Remove this request from the list? It cannot be undone.")) return;
     b.disabled = true;
     const r = await fetch("/api/admin/requests/" + encodeURIComponent(id) + "/" + action,
                           {method: "POST", headers: headers()});
