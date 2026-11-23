@@ -515,6 +515,22 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **The deploy script read its own record as the running commit.** 2026-11-23:
+  ad52a22 (#182) deployed fine, and `/healthz` then said `"state":"failed"`,
+  "pulled ad52a22 and restarted, but /healthz reports 'fb331fd'". The script read
+  the running commit with `sed 's/.*"commit":"\(...\)".*/\1/'`, whose greedy `.*`
+  takes the *last* `"commit"` in the body, and #180 had just put the script's own
+  record into `/healthz` with a `commit` of its own, the previous deploy. The
+  tests passed because the stub `/healthz` had no such block. Worse than a false
+  failure: on a run with nothing to do, a record naming any other commit read as
+  "the service is behind" and restarted it, every five minutes; production
+  escaped only because the failed record happened to name the commit that was
+  running. `running()` now parses the JSON with python3 and reads the top-level
+  `commit`, the stub `/healthz` always carries a stale record (seven tests fail on
+  the old parser), and a run with nothing to do corrects a `failed` record for the
+  commit that is plainly running, which the deploy of the fix itself needed, since
+  the old script did that deploy. Grepping JSON is parsing it badly, and a field
+  name that appears twice is exactly when it shows.
 - **`busy()` read the slot without the lock, so a handoff looked idle.**
   2026-11-24, on the windows runner of #180: `test_a_shots_still_follows_its_clip`
   counted two ffmpeg calls where it made one, and the second was a real card
