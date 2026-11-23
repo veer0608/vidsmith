@@ -633,6 +633,80 @@ def test_a_dark_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
     assert "0" not in {h["id"] for h in kept}
 
 
+# --------------------------------------------------------------------------- #
+# an empty flat screen
+# --------------------------------------------------------------------------- #
+def _flat_still(fill, box_fraction=0.0, box=(255, 255, 255), noise=0):
+    """A fill colour with an optional centred box, like Pexels 5849607's 'BILLS'."""
+    import random
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (320, 168), fill)
+    if box_fraction:
+        w, h = int(320 * box_fraction ** 0.5), int(168 * box_fraction ** 0.5)
+        x, y = (320 - w) // 2, (168 - h) // 2
+        img.paste(box, (x, y, x + w, y + h))
+    if noise:
+        rng = random.Random(1)
+        px = img.load()
+        for i in range(0, 320, 2):
+            for j in range(0, 168, 2):
+                r, g, b = px[i, j]
+                d = rng.randint(-noise, noise)
+                px[i, j] = (max(0, min(255, r + d)), max(0, min(255, g + d)), max(0, min(255, b + d)))
+    buf = BytesIO()
+    img.save(buf, "JPEG", quality=72)
+    return buf.getvalue()
+
+
+def test_an_empty_teal_screen_with_one_label_is_flat():
+    """Pexels 5849607, picked for machine-statements scene 5: measured 0.878."""
+    assert visuals.too_flat(_flat_still((85, 182, 205), box_fraction=0.10)) is True
+
+
+def test_a_flat_colour_with_jpeg_noise_is_still_one_colour():
+    assert visuals.too_flat(_flat_still((200, 190, 160), noise=6)) is True
+
+
+def test_a_black_screen_is_not_this_checks_question():
+    """Code on black measured up to 0.86 and is good footage; dark is too_dark's call."""
+    assert visuals.too_flat(_flat_still((5, 5, 8), box_fraction=0.05)) is False
+
+
+def test_a_frame_with_real_content_is_not_flat():
+    """A third of the frame is something other than the background."""
+    assert visuals.too_flat(_flat_still((180, 180, 180), box_fraction=0.30,
+                                        box=(40, 60, 90))) is False
+
+
+def test_bytes_that_are_not_an_image_are_not_called_flat():
+    assert visuals.too_flat(b"jpg") is False
+
+
+def test_a_flat_clip_is_never_judged_or_picked(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    shown, said = [], []
+
+    def fake(line, query, images, key, log=None, genre="any"):
+        shown.append(len(images))
+        return list(range(len(images))), [], True
+
+    flat = _flat_still((85, 182, 205), box_fraction=0.10)
+    stills = {f"s{i}": flat if i == 0 else _still(0.8) for i in range(8)}
+    monkeypatch.setattr(builder, "_preview", lambda url: stills[url])
+    monkeypatch.setattr(visuals.llm, "rank_clips", fake)
+    builder.log = said.append
+
+    kept = builder._rerank(_stills(), scene, "printed receipt", want=2, text="t", key="0.1")
+
+    assert shown == [7], "the flat still was shown to the model"
+    assert "0" not in {h["id"] for h in kept}
+    assert any("1 empty flat screen" in line for line in said)
+    assert not any("too dark" in line for line in said), "a flat clip is not reported as dark"
+
+
 def test_every_rerank_rejects_words_and_adverts():
     """Pixabay's animated picks put a SUBSCRIBE title and a FREE advert under
     the narration; a clip that is mainly text is somebody else's message."""
