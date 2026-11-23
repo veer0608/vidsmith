@@ -34,8 +34,7 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
         parts.append(f"[{i}:a]aresample=48000,adelay={delay_ms}:all=1[a{i}]")
         labels.append(f"[a{i}]")
 
-    # `apad=whole_dur=` rather than a bare `apad`, so the graph holds nothing
-    # that generates forever.
+    # History: why nothing here may generate forever.
     #
     # A bare apad pads until something downstream stops asking. `atrim` drops the
     # frames past the end but does not propagate EOF upstream, so apad goes on
@@ -57,17 +56,30 @@ def build_narration(scenes: Sequence[Scene], out: Path, lead_in: float,
     # 439/3000 calls (14.6%), every one reaching the same out_time=00:00:21.342000
     # this comment already named; the bounded arm hung 0/3000. Bounding apad is
     # what stops the hang on the ffmpeg that actually produces it.
-    pad = f"apad=whole_dur={total:.3f}"
+    #
+    # The length comes from a silent bed, not from padding the mix.
+    #
+    # `apad` after `amix` was the way to make a short last scene still fill the
+    # runtime, and on ffmpeg 8.0.1 it does not: ubuntu-latest moved to 26.04 in
+    # November 2026, took ffmpeg from 6.1.1 to 8.0.1, and the narration stopped
+    # where the last scene's speech stopped about half the time. Measured on that
+    # runner, 40 calls each: `amix` then `apad=whole_dur=` 22/40 the full length
+    # and the rest 21.542s, which is the bare mix; `amix=duration=longest` then
+    # `apad` 20/40; a bed of exactly `total` mixed in, 40/40. The current graph
+    # was right 40/40 on 9.0, and 6.1.1 (the live box) never failed it in CI,
+    # which is why only the new ubuntu runner saw it.
+    #
+    # The bed is `anullsrc` with `d=`, so it is bounded where it is generated.
+    # That keeps what the bounded apad was for: nothing in this graph produces
+    # forever. A bare apad hung macOS CI 439 times in 3000 on ffmpeg 8.1.2 by
+    # padding past an `atrim` that does not pass EOF upstream; the bed ends on
+    # its own, and `amix=duration=longest` ends with it. normalize=0, so the
+    # silence adds nothing and no voice is scaled down by the extra input.
+    bed = f"anullsrc=r=48000:cl=stereo:d={total:.3f}[bed]"
     n = len(scenes)
-    if n == 1:
-        graph = parts[0] + f";[a0]{pad},atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
-    else:
-        graph = ";".join(parts)
-        graph += (
-            ";" + "".join(labels)
-            + f"amix=inputs={n}:normalize=0:dropout_transition=0[mixed]"
-            + f";[mixed]{pad},atrim=0:{total:.3f},asetpts=N/SR/TB[out]"
-        )
+    graph = (";".join(parts) + ";" + bed + ";" + "".join(labels) + "[bed]"
+             + f"amix=inputs={n + 1}:normalize=0:duration=longest:dropout_transition=0"
+             + f"[mixed];[mixed]atrim=0:{total:.3f},asetpts=N/SR/TB[out]")
 
     # `-t` stays as well, and so does the atrim. Three bounds is not belt and
     # braces for its own sake: each one covers a different way of failing to
