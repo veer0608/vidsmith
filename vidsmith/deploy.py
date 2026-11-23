@@ -215,6 +215,12 @@ def deploy(host: str = HOST, user: str = USER, key: str = KEY,
     health = _json(get, f"{base}/healthz") or {}
     live = health.get("commit", "")
     log(f"main is {target}; {host} is running {live or 'something that did not answer'}")
+    # The box deploys itself now, so the likeliest reason to be here by hand is
+    # that its own last attempt did not land. Say what it said before deciding.
+    auto = health.get("autodeploy") or {}
+    if auto and auto.get("ok") is False:
+        log(f"the box's last automatic deploy did not land ({auto.get('at', 'at an unknown time')}): "
+            f"{auto.get('said', 'no reason recorded')}")
     if live == target and not force:
         log("already live; nothing to deploy")
         return live
