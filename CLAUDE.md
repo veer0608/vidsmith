@@ -95,10 +95,12 @@ One line each. The reason behind every one is in the linked doc.
 
 ## Working in this repo
 
-**`main` is protected and requires all three CI checks.** `test`, `windows`
-and `macos` are all required as of 2026-08-28. A direct push is rejected with
-`GH006`, so every change is a branch, a PR, and a wait for ubuntu, windows and
-macos to go green before `gh pr merge --squash --delete-branch`. Budget for the
+**`main` is protected and requires all four CI checks.** `test`, `windows`
+and `macos` since 2026-08-28, and `box` (the live box's ffmpeg 6.1.1) since
+2026-11-23. A direct push is rejected with `GH006`, so every change is a branch,
+a PR, and a wait for all four to go green before `gh pr merge --squash
+--delete-branch`; merging is also the deploy. A macOS job that GitHub cannot
+place is cancelled after 15 minutes: `gh run rerun <id> --failed`. Budget for the
 round trip: it is a few minutes per change, which is the argument for batching
 a fix and its test into one PR rather than two.
 
