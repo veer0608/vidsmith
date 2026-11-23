@@ -306,6 +306,25 @@
   offender was 5% lit, streets with their lights on 15 to 40%, daylight 60 to
   100%. It runs only where reranking runs, so a build with no Gemini key can
   still pick one, and verdicts cached before it existed are not re-judged.
+- **An empty teal screen passed the reranker and shipped, because nothing in it
+  was wrong.** The published `machine-statements` (`MgD7QwCozms`) cuts to Pexels
+  5849607, "animation of bills", for scene 5: a flat teal frame with one white
+  "BILLS" label for most of its run. Its preview is exactly that, and the model
+  judged it on subject. `too_flat()` sits beside `too_dark()` and asks it in code:
+  the share of the preview in its most common colour plus the bins touching it,
+  counted at 32 levels a channel, only when that colour is not near-black (code on
+  a black screen is good footage, and darkness is `too_dark`'s question). Measured
+  on all 210 previews the projects had picked before choosing the cut: the
+  offender 0.874, the best of 109 good ones 0.759 (a blurred receipt on grey
+  paper), so the cut is 0.82. Two measures were tried and dropped on the numbers.
+  Plain luminance spread could not separate them, because the white label lifted
+  the bad one to 31.6 while good footage went down to 12.2. Counting one bin alone
+  missed a noisy flat beige whose values sat on a bin edge, and 16 bins with
+  neighbours merged a soft-toned good shot to 0.941. This rests on one real
+  failure, not a measured rate: the rule separates what was seen, nothing more.
+  The note that started it pointed at dodo-prep, whose evidence a rebuild had
+  overwritten; measuring every stock clip across the projects is what found a real
+  one. The published video still shows that clip.
 - **Karaoke highlights overlapped whenever a word was very short.** Each word's
   event was floored at 60ms, and edge-tts reports words like "a" at 30 to 40ms,
   so the floor carried it past the next word's start. libass stacks any two

@@ -68,6 +68,22 @@ RERANK_ROUNDS = 3
 # 100%, so the cut sits clear of footage that is dark on purpose and readable.
 DARK_LUMA = 60
 DARK_LIT = 0.10
+# A still whose single most common colour covers more than FLAT_SHARE of it,
+# when that colour is not near-black, is an empty screen: nothing to look at.
+# machine-statements (published) shows Pexels 5849607, "animation of bills",
+# for scene 5: an empty teal frame with one white "BILLS" label, and the
+# reranker passed it, because nothing in it is *wrong*. It measured 0.874. The
+# 109 other picked previews with a non-dark dominant colour topped out at 0.759
+# (a blurred receipt on grey paper, which is fine footage), so the cut sits in
+# that gap. Calibrated on one real failure, not a rate. A near-black dominant
+# colour is excluded on purpose: code on a black screen is good footage, and too
+# dark to read is `too_dark`'s question, not this one.
+# Colours are counted in FLAT_BINS levels per channel (8 wide), with the bins
+# touching the most common one, so JPEG noise on a flat colour that sits on a bin
+# edge still counts as one colour. 16 bins was measured too: its neighbours reach
+# about 48 levels and a good soft-toned shot scored 0.941, above the bad one.
+FLAT_SHARE = 0.82
+FLAT_BINS = 32
 
 
 def too_dark(still: bytes) -> bool:
@@ -79,6 +95,29 @@ def too_dark(still: bytes) -> bool:
     hist = img.histogram()
     total = sum(hist)
     return bool(total) and sum(hist[DARK_LUMA + 1:]) / total < DARK_LIT
+
+
+def too_flat(still: bytes) -> bool:
+    """Whether a preview still is mostly one bright, flat colour. Unreadable bytes are not."""
+    try:
+        img = Image.open(BytesIO(still)).convert("RGB")
+    except Exception:
+        return False
+    width = 256 // FLAT_BINS
+    binned = img.point(lambda v: v // width)
+    colours = binned.getcolors(maxcolors=FLAT_BINS ** 3)
+    if not colours:
+        return False
+    by_bin = {rgb: n for n, rgb in colours}
+    _, (r, g, b) = max(colours)
+    # The most common colour, plus the bins touching it. One flat colour whose
+    # values sit on a bin edge is split across neighbours by JPEG noise alone,
+    # and counting only the single bin missed a noisy flat beige outright.
+    count = sum(by_bin.get((r + dr, g + dg, b + db), 0)
+                for dr in (-1, 0, 1) for dg in (-1, 0, 1) for db in (-1, 0, 1))
+    # the bin's middle, in the same luma `too_dark` reads
+    luma = 0.299 * (r + 0.5) * width + 0.587 * (g + 0.5) * width + 0.114 * (b + 0.5) * width
+    return luma > DARK_LUMA and count / (img.width * img.height) > FLAT_SHARE
 
 
 # --------------------------------------------------------------------------- #
@@ -921,8 +960,10 @@ class VisualBuilder:
                 rounds = 0
 
         blocked = {a for a in self._scene_creators | {self._last_creator} if a}
-        # too dark to read: never shown to the model and never picked
+        # too dark to read, or an empty flat screen: never shown to the model and
+        # never picked. One set, because both mean the same to a pick.
         dark: set = set()
+        flat_count = 0
 
         while rounds < RERANK_ROUNDS:
             # usable means a clip a pick could actually take: not rejected, not
@@ -934,18 +975,25 @@ class VisualBuilder:
                 break
             images: List[bytes] = []
             keep: List[Dict] = []
-            before = len(dark)
+            before, flat_before = len(dark), flat_count
             for hit in [h for h in hits if h["id"] not in order and h["id"] not in dark]:
                 if len(keep) >= max(2, self.cfg.rerank_pool):
                     break
                 blob = self._preview(hit.get("preview", "")) if hit.get("preview") else None
                 if blob and too_dark(blob):
                     dark.add(hit["id"])
+                elif blob and too_flat(blob):
+                    dark.add(hit["id"])
+                    flat_count += 1
                 elif blob:
                     images.append(blob)
                     keep.append(hit)
-            if len(dark) > before:
-                self.log(f"    rerank: passed over {len(dark) - before} too dark to read")
+            flat_now = flat_count - flat_before
+            if len(dark) - before - flat_now:
+                self.log(f"    rerank: passed over {len(dark) - before - flat_now} too dark to read")
+            if flat_now:
+                self.log(f"    rerank: passed over {flat_now} empty flat screen"
+                         f"{'s' if flat_now != 1 else ''}")
             if len(images) < 2:
                 break
             if order:
