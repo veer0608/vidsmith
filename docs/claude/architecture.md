@@ -100,9 +100,9 @@ renders a JSON spec (`flow`, `tree`, `stack`, `compare`) in the project theme.
 **And they are off by default, because the boxes read as slides.** Published
 videos kept cutting to "MARKDOWN TO SCENES" and "LICENSING OPTIONS" frames that
 explained the subject the way a deck would. `visuals.diagrams` now defaults to
-`false`, which gates all three triggers: an explicit directive, a stored model
-decision, and the on-reject substitution. Existing projects keep what their
-fully expanded `config.yaml` says, so an old project rebuilt still draws.
+`false`, and it gates the model's own two triggers: a stored "draw this" decision
+and the on-reject substitution. An explicit `[diagram:]` line is not gated by it
+and always draws (`visuals.draws()`); see below for why that split exists.
 
 Two layers keep a *drafted* script away from them, in the same shape as dashes.
 `SCRIPT_PROMPT` offers only `[visual:]` and teaches the hard case, an idea with no
@@ -127,25 +127,26 @@ last, never a comparison, list, price, plan or benefit; the howto subscription
 frame is the worked bad example. Each rule is one a model can break, so
 `llm.limit_diagrams()` holds them in code (replacing `strip_diagrams` on the draft
 path), dropping the line as before, and its `SLIDE_WORDS` catch the descriptions
-that read as a deck. `vidsmith new` turns `visuals.diagrams` on when the draft
-kept one, or the build would stop at parse. Measured on two rounds of real drafts
+that read as a deck. A drafted line draws on its own, without `visuals.diagrams`;
+see the split below. Measured on two rounds of real drafts
 before merging: b-trees kept 2 and 2 (one more proposed, dropped by the cap),
 bank statements 2 and 1 (coordinates into a grid, words into rows), pour-over
 coffee 0 and 0, and a one-off-payment-versus-subscription topic, the shape that
 produced the slides, 0. Two rounds is a check, not a rate.
 
-**A hand-written `[diagram:]` with drawing off stops the build at parse.** It
-used to be logged, one line per scene, and render as footage: dodo-prep wrote
-eight by hand on a project `vidsmith new` had set to `diagrams: false`, and
-found out seventeen minutes later from the finished video.
-`pipeline.refuse_unwanted_footage()` now raises `DiagramsOff` before the voice,
-naming each scene (numbered from 0, as the sheet and `retake --scene` number
-them) and both fixes. A retake, a scene edit or another cut of a finished render
-is exempt, because that render already decided and refusing it would strand it.
-The web page had the same trap for everyone, since its hint teaches
-`[diagram: three boxes] draws one` and web jobs never switched drawing on; a web
-job now gets `diagrams: true` exactly when its script has a `[diagram:]` line.
-The default stays off, because it exists for diagrams a model decides on.
+**A `[diagram:]` line always draws; `visuals.diagrams` is only the model's.**
+One switch used to cover both, and each way of setting it broke something.
+Off, a hand-written line rendered as footage with one log line: dodo-prep wrote
+eight and found out seventeen minutes later, and the web page's own hint,
+`[diagram: three boxes] draws one`, drew nothing for anybody. The first fix
+(#181) refused such a build at parse and switched drawing on for web jobs with a
+diagram line; #185 switched it on for drafts that kept one. On, it also let the
+model draw: btrees2's draft kept two mechanism diagrams, and its build drew six
+more of its own, every one a comparison slide ("Without Index vs With Index",
+"Wide Keys vs Compact Keys"), 8 of 15 scenes. A request and the model's own
+judgement are different things, so they have different switches: none for the
+request, `visuals.diagrams` for the model, still off by default. The refusal and
+both switch-flips are gone, and `visuals.draws()` is the whole rule.
 
 **The music bed is synthesised, not sourced.** There is no free API for licensed
 music and an unlicensed track is a copyright strike, so `music.py` builds it in

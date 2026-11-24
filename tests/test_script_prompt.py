@@ -136,8 +136,9 @@ def test_a_short_script_draws_nothing():
     assert llm.drafted_diagrams(llm.limit_diagrams(script)) == 0
 
 
-def test_new_turns_drawing_on_when_the_draft_kept_a_diagram(tmp_path, monkeypatch):
-    """Drawing is off by default, and a [diagram:] with it off stops the build."""
+def test_new_keeps_the_models_own_drawing_off_even_when_the_draft_draws(tmp_path, monkeypatch):
+    """The drafted [diagram:] lines draw on their own; switching visuals.diagrams
+    on for them let btrees2's build add six comparison slides of its own."""
     import argparse
 
     import yaml
@@ -151,7 +152,8 @@ def test_new_turns_drawing_on_when_the_draft_kept_a_diagram(tmp_path, monkeypatc
     cli.cmd_new(argparse.Namespace(name=str(root), title=None, topic="how b-trees work",
                                    minutes=3.0, force=False))
     raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
-    assert raw["visuals"]["diagrams"] is True
+    assert raw["visuals"]["diagrams"] is False
+    assert "[diagram: a node splits" in (root / "script.md").read_text(encoding="utf-8")
 
 
 def test_new_leaves_drawing_off_for_a_draft_without_one(tmp_path, monkeypatch):
