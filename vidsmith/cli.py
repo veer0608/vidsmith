@@ -76,6 +76,16 @@ def cmd_new(args) -> int:
     cfgp = root / "config.yaml"
     if not cfgp.exists() or args.force:
         write_default_config(cfgp, title)
+        # A draft may now keep a [diagram:] for a scene that walks through a
+        # mechanism, and drawing is off by default, so without this the first
+        # build of a drafted project stops at parse on a line the drafter wrote.
+        if drafted and llm.drafted_diagrams(script.read_text(encoding="utf-8")):
+            text = cfgp.read_text(encoding="utf-8")
+            cfgp.write_text(text.replace("  diagrams: false", "  diagrams: true", 1),
+                            encoding="utf-8")
+            print("diagrams on: the draft draws "
+                  f"{llm.drafted_diagrams(script.read_text(encoding='utf-8'))} "
+                  "mechanism scene(s); every other scene is footage")
 
     print(f"project  {root}")
     print(f"script   {script}")
