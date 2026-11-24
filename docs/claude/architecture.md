@@ -116,6 +116,24 @@ describes a graphic, which is the worst possible stock search, and a scene with
 no directive gets a query Gemini writes from its narration. First real draft on
 the subject that produced those frames came back with zero diagram lines.
 
+**A drafted script may now draw a mechanism, and nothing else.** The outright
+ban starved algorithm topics: a b-trees build had no `[diagram:]` at all, so its
+model invented stock categories for "a node holding sorted keys", rerank
+rejected most of them, and it pulled 75 shots from 55 creators, which blew the
+description past YouTube's 5000-character limit. `SCRIPT_PROMPT` now allows
+`[diagram:]` only where the narration walks through a structure or a process
+that exists only as data or logic, at most one per four scenes, never first or
+last, never a comparison, list, price, plan or benefit; the howto subscription
+frame is the worked bad example. Each rule is one a model can break, so
+`llm.limit_diagrams()` holds them in code (replacing `strip_diagrams` on the draft
+path), dropping the line as before, and its `SLIDE_WORDS` catch the descriptions
+that read as a deck. `vidsmith new` turns `visuals.diagrams` on when the draft
+kept one, or the build would stop at parse. Measured on two rounds of real drafts
+before merging: b-trees kept 2 and 2 (one more proposed, dropped by the cap),
+bank statements 2 and 1 (coordinates into a grid, words into rows), pour-over
+coffee 0 and 0, and a one-off-payment-versus-subscription topic, the shape that
+produced the slides, 0. Two rounds is a check, not a rate.
+
 **A hand-written `[diagram:]` with drawing off stops the build at parse.** It
 used to be logged, one line per scene, and render as footage: dodo-prep wrote
 eight by hand on a project `vidsmith new` had set to `diagrams: false`, and

@@ -73,15 +73,101 @@ def test_every_scene_is_told_to_use_a_visual():
     assert "always [visual:]" in PROMPT.lower()
 
 
-def test_the_draft_is_never_offered_a_diagram():
-    """Drafted scripts explained their subject as box-and-arrow frames, which
-    read as slides rather than a video. The output template used to offer
-    `[visual: ...]  or  [diagram: ...]`, and a template is followed more
-    faithfully than any instruction above it."""
+def test_a_diagram_is_offered_only_for_a_mechanism():
+    """Drafted scripts once explained their subject as box-and-arrow frames that
+    read as slides, so diagrams were banned outright, and then algorithm topics
+    starved: b-trees pulled 75 shots from 55 creators trying to film a node. A
+    diagram is allowed again only where the narration walks through a structure
+    no camera can film. The output template still shows only [visual:], because
+    a template is followed more faithfully than any instruction above it."""
     low = PROMPT.lower()
-    assert "never write [diagram:]" in low
+    assert "only where the scene is the mechanism itself" in low
+    assert "no camera could ever film it" in low
+    assert "one diagram for every four scenes" in low
+    assert "never in the first scene or the last" in low
+    # the howto frame that lit Recurring and Auto Renew is the worked bad example
+    assert "bad   [diagram: one payment against a monthly subscription]" in low
     template = PROMPT[PROMPT.index("OUTPUT exactly"):]
-    assert "[diagram" not in template, "the output template still offers a diagram"
+    assert "[diagram" not in template, "the output template offers a diagram"
+
+
+SCENES = "# T\n" + "".join(f"\n## S{i}\n[visual: hands at a desk]\nWords {i}.\n" for i in range(8))
+
+
+def _with_diagram(script: str, scene: int, spec: str) -> str:
+    head = f"## S{scene}\n"
+    return script.replace(head, f"{head}[diagram: {spec}]\n", 1)
+
+
+def test_a_mechanism_diagram_in_the_middle_is_kept():
+    script = _with_diagram(SCENES, 3, "a full node splits into two around its middle key")
+    assert llm.drafted_diagrams(llm.limit_diagrams(script)) == 1
+
+
+@pytest.mark.parametrize("scene", [0, 7])
+def test_no_diagram_opens_or_closes_the_video(scene):
+    script = _with_diagram(SCENES, scene, "a node splits")
+    assert llm.drafted_diagrams(llm.limit_diagrams(script)) == 0
+
+
+def test_at_most_one_diagram_per_four_scenes():
+    script = SCENES
+    for scene in (1, 2, 3, 4, 5):
+        script = _with_diagram(script, scene, f"keys move between nodes {scene}")
+    kept = llm.limit_diagrams(script)
+    assert llm.drafted_diagrams(kept) == 2, "eight scenes allow two"
+    assert "nodes 1]" in kept and "nodes 2]" in kept, "the first two are the ones kept"
+
+
+@pytest.mark.parametrize("spec", [
+    "one payment against a monthly subscription",
+    "pricing tiers side by side",
+    "features of the product as boxes",
+    "pros and cons of each option",
+    "the workflow from file to scenes",
+])
+def test_a_slide_is_dropped_even_in_a_middle_scene(spec):
+    assert llm.drafted_diagrams(llm.limit_diagrams(_with_diagram(SCENES, 3, spec))) == 0
+
+
+def test_a_short_script_draws_nothing():
+    """Under four scenes the allowance is zero."""
+    script = "# T\n\n## A\nOne.\n\n## B\n[diagram: a node splits]\nTwo.\n\n## C\nThree.\n"
+    assert llm.drafted_diagrams(llm.limit_diagrams(script)) == 0
+
+
+def test_new_turns_drawing_on_when_the_draft_kept_a_diagram(tmp_path, monkeypatch):
+    """Drawing is off by default, and a [diagram:] with it off stops the build."""
+    import argparse
+
+    import yaml
+
+    from vidsmith import cli
+
+    drafted = _with_diagram(SCENES, 3, "a node splits around its middle key")
+    monkeypatch.setattr(cli, "find_keys", lambda root: {"gemini": "k"})
+    monkeypatch.setattr(cli.llm, "draft_script", lambda *a, **k: drafted)
+    root = tmp_path / "proj"
+    cli.cmd_new(argparse.Namespace(name=str(root), title=None, topic="how b-trees work",
+                                   minutes=3.0, force=False))
+    raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["visuals"]["diagrams"] is True
+
+
+def test_new_leaves_drawing_off_for_a_draft_without_one(tmp_path, monkeypatch):
+    import argparse
+
+    import yaml
+
+    from vidsmith import cli
+
+    monkeypatch.setattr(cli, "find_keys", lambda root: {"gemini": "k"})
+    monkeypatch.setattr(cli.llm, "draft_script", lambda *a, **k: SCENES)
+    root = tmp_path / "proj"
+    cli.cmd_new(argparse.Namespace(name=str(root), title=None, topic="pour-over coffee",
+                                   minutes=3.0, force=False))
+    raw = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert raw["visuals"]["diagrams"] is False
 
 
 def test_abstract_ideas_are_filmed_not_drawn():

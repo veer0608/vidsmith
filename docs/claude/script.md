@@ -40,7 +40,9 @@ what the prompt must still demand: a word budget stated per scene as well as in
 total, derived from the speaking rate; both directives taught; diagrams
 described as diagrams rather than pictures; no invented facts; varied sentence
 rhythm; distinct headings; and a hook-through-takeaway shape. Rewording that
-prompt without reading the tests will quietly drop one of them.
+prompt without reading the tests will quietly drop one of them. A drafted
+`[diagram:]` is allowed only for a mechanism and is held to its limits by
+`llm.limit_diagrams()`; see the diagrams section of [architecture.md](architecture.md).
 
 **The prompt cannot get the length right on its own, so the draft is measured.**
 At nine minutes, one-shot drafts came back between 26% and 69% of their budget,

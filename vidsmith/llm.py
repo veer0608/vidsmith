@@ -994,9 +994,26 @@ EVERY SCENE GETS ONE VISUAL DIRECTIVE, AND IT IS ALWAYS [visual:]:
       This is searched against a stock video library, so it must be a thing
       that exists on film: hands, objects, places, machinery, people working.
 
-NEVER EXPLAIN AN IDEA WITH A GRAPHIC. No diagrams, charts, boxes, arrows, tables,
-labels or words on screen, and never write [diagram:]. The narration carries the
-explanation. The picture shows where the idea happens in the real world.
+A DIAGRAM ONLY WHERE THE SCENE IS THE MECHANISM ITSELF. Almost every scene is
+[visual:]. A scene may instead take
+
+  [diagram: the parts the narration names, and what happens between them]
+
+only when its narration walks step by step through a structure or a process that
+exists only as data or logic, so no camera could ever film it: a tree node
+splitting in two, a key being hashed into a slot, the order of messages in a
+handshake. The diagram draws exactly what that narration says, in its own words.
+At most one diagram for every four scenes, never in the first scene or the last,
+and never for a comparison, a list, a price, a plan, a benefit or a business
+idea. Those are slides, and a viewer reads them as one: no charts, tables,
+labels or words on screen.
+    idea: a full node splits into two
+        good  [diagram: a full node splits into two nodes around its middle key]
+    idea: paying once instead of a subscription
+        good  [visual: card tapped on a shop terminal]
+        bad   [diagram: one payment against a monthly subscription]
+The bad one shipped once: it drew boxes labelled Recurring and Auto Renew over a
+line saying there was nothing to cancel. Anything with a physical form is filmed.
 
 SHOW WHAT THE NARRATION IS LITERALLY ABOUT, NEVER A METAPHOR FOR IT. A viewer
 hears the line and sees the shot at the same moment, and connects them only when
@@ -1020,8 +1037,9 @@ infographics or nothing on the subject at all. The last is a metaphor, which it
 answers with exactly the wrong subject.
 
 THE TEST: point a camera at it, and a viewer who hears the line should see why
-this shot is on screen without being told. If you would have to draw it, or
-explain the comparison, name the object or the person doing the thing instead.
+this shot is on screen without being told. If you would have to explain the
+comparison, name the object or the person doing the thing instead. Draw it only
+when the narration is walking through the mechanism and there is nothing to film.
 
 OUTPUT exactly this markdown and nothing else:
 
@@ -1067,7 +1085,7 @@ def draft_script(topic: str, minutes: float, api_key: str,
     )
     text = re.sub(r"^```(?:markdown)?|```$", "", text.strip(),
                   flags=re.MULTILINE).strip() + "\n"
-    return lengthen(strip_diagrams(text), words, api_key, model, log=log)
+    return lengthen(limit_diagrams(text), words, api_key, model, log=log)
 
 
 # A draft counts as long enough at this share of its budget. The rewrite lands
@@ -1244,7 +1262,7 @@ def lengthen(script: str, target: int, api_key: str,
             except LLMUnavailable as exc:
                 if log:
                     log(f"    lengthening stopped, keeping the draft: {exc}")
-                return strip_diagrams(_assemble(head, sections))
+                return limit_diagrams(_assemble(head, sections))
             rewritten = {_same_heading(r["heading"]): r
                          for r in _sections(reply)[1]}
             for s, _ask in chunk:
@@ -1254,7 +1272,7 @@ def lengthen(script: str, target: int, api_key: str,
                 # alongside every other scene's
                 if r and _spoken(r) > _spoken(s):
                     s["body"] = r["body"]
-        script = strip_diagrams(_assemble(head, sections))
+        script = limit_diagrams(_assemble(head, sections))
     return script
 
 
@@ -1263,6 +1281,50 @@ def lengthen(script: str, target: int, api_key: str,
 # [diagram:] anyway still has to come out without one.
 DIAGRAM_LINE = re.compile(r"^[ \t]*\[diagram:[^\]\n]*\][ \t]*\n?",
                           re.IGNORECASE | re.MULTILINE)
+
+
+# Words that make a diagram a slide rather than a mechanism. Every published
+# diagram that read as a deck was one of these: "MARKDOWN TO SCENES" was a flow
+# of a product's features, "LICENSING OPTIONS" a list, and the howto pricing frame
+# a comparison that lit Recurring and Auto Renew over "nothing to cancel".
+SLIDE_WORDS = re.compile(
+    r"\b(vs\.?|versus|compar\w*|against|pric\w*|cost\w*|subscription\w*|plan\w*|"
+    r"benefit\w*|pros|cons|options?|features?|tables?|charts?|lists?|steps to|"
+    r"checklist|timeline|roadmap|pipeline|workflow|funnel)\b", re.IGNORECASE)
+
+
+def limit_diagrams(script: str) -> str:
+    """Keep a drafted [diagram:] only where the prompt allows one, and drop the rest.
+
+    The prompt allows a diagram only for a scene that walks through a mechanism,
+    at most one per four scenes, never first or last, never a slide. Each of those
+    is a rule the model can break, so each is held here as well, the way the
+    footage styles' rules are. A dropped line goes, as in `strip_diagrams`: what a
+    model writes after "diagram:" is a poor stock search, and a scene with no
+    directive gets a query written from its narration.
+    """
+    lines = script.splitlines(keepends=True)
+    heads = [i for i, line in enumerate(lines) if line.startswith("## ")]
+    allowed = max(0, len(heads) // 4)
+    kept = 0
+    out = []
+    for i, line in enumerate(lines):
+        if DIAGRAM_LINE.fullmatch(line.rstrip("\n")) or DIAGRAM_LINE.match(line):
+            scene = sum(1 for h in heads if h < i) - 1      # 0-based scene index
+            spec = line.split(":", 1)[1] if ":" in line else ""
+            ok = (0 < scene < len(heads) - 1 and kept < allowed
+                  and not SLIDE_WORDS.search(spec))
+            if ok:
+                kept += 1
+                out.append(line)
+            continue
+        out.append(line)
+    return "".join(out)
+
+
+def drafted_diagrams(script: str) -> int:
+    """How many [diagram:] lines a script carries."""
+    return sum(1 for line in script.splitlines() if DIAGRAM_LINE.match(line + "\n"))
 
 
 def strip_diagrams(script: str) -> str:
