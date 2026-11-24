@@ -112,6 +112,24 @@ dropped out of `vidsmith published`. `record()` now moves a different video id
 it is about to overwrite into a `replaced` list, and `published` lists each one
 as "replaced by <id>", with `--live` adding whether it is still up.
 
+**Uploading a new cut is the remedy, so it is not a reason to refuse.**
+Replacing machine-statements on 2026-11-24, `upload` stopped on "this is a new
+cut ... Upload this cut with its own description", the finding recommending the
+very upload it was refusing, and the replacement went through only on `--force`.
+`check(out, uploading=tag)` now leaves out that one finding for the receipt of the
+shape being uploaded; a stale description still stops it, since its remedy is
+re-pasting onto the same video, and the other shape's receipt is still judged.
+`upload` names the video it replaces and prints the `publish --video <old>
+--privacy private` line that finishes the job.
+
+**`published --live` says "unknown" when it could not read the channel.** The
+same day, an expired login printed "could not read the channel" and then listed
+every public video as "gone from the channel" underneath, because a failed read
+and a read that found nothing shared one answer. Only a read that worked can say
+a video is gone. The login itself is the OAuth app's Testing mode: refresh tokens
+die after about seven days, and the consent has to run in his own shell (the app's
+Terminal panel works; this session's Bash cannot receive Google's redirect).
+
 **A clean `check --published` answers the drift it resolved.** The run that
 confirmed a re-pasted description rewrote the receipt and still failed on "the
 description published there is stale", because the offline half had judged

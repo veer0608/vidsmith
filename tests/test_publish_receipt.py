@@ -206,3 +206,48 @@ def test_an_old_receipt_with_no_cut_gives_both_answers(out):
     [problem] = publish_drift(out)
     assert "cannot tell" in problem
     assert "never paste this description onto the old video" in problem
+
+
+# --------------------------------------------------------------------------- #
+# uploading a new cut is the remedy, not a problem
+# --------------------------------------------------------------------------- #
+def test_a_new_cut_does_not_stop_its_own_upload(delivered):
+    """machine-statements, 2026-11-24: `upload` refused on "this is a new cut"
+    while that very finding said to upload it, so replacing a published video
+    needed --force over a finding that was telling it to go ahead."""
+    record(delivered, "MgD7QwCozms")
+    (delivered / "a-video.mp4").write_bytes(b"a rebuilt cut")
+
+    assert publish_drift(delivered, uploading="") == []
+    assert "this is a new cut" in publish_drift(delivered)[0], "check alone still says so"
+
+
+def test_uploading_one_shape_does_not_silence_the_other(delivered):
+    """A new widescreen cut says nothing about the Short's receipt."""
+    record(delivered, "MgD7QwCozms")
+    record(delivered, "zAv-sAArB5Y", tag="-9x16")
+    (delivered / "a-video.mp4").write_bytes(b"a rebuilt cut")
+    (delivered / "a-video-9x16.mp4").write_bytes(b"a rebuilt short")
+
+    [problem] = publish_drift(delivered, uploading="")
+    assert "zAv-sAArB5Y" in problem and "this is a new cut" in problem
+
+
+def test_a_stale_description_still_stops_an_upload(delivered):
+    """Its remedy is re-pasting onto the same video, never a second upload."""
+    record(delivered, "0PkBP0dk4Lw")
+    (delivered / "description.txt").write_text("Rewritten.\n", encoding="utf-8")
+
+    [problem] = publish_drift(delivered, uploading="")
+    assert "is stale; re-paste it" in problem
+
+
+def test_replaces_names_the_video_only_for_a_new_cut(delivered):
+    from vidsmith.check import replaces
+
+    assert replaces(delivered) is None                    # nothing published
+    record(delivered, "MgD7QwCozms")
+    assert replaces(delivered) is None                    # the same cut
+    (delivered / "a-video.mp4").write_bytes(b"a rebuilt cut")
+    assert replaces(delivered) == "MgD7QwCozms"
+    assert replaces(delivered, "-9x16") is None           # no Short receipt
