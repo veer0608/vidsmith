@@ -515,6 +515,17 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **edge-tts 7.2.8 started getting 403 from Microsoft, on every machine at once.**
+  2026-11-24, found by a local build stopping at `voice` with `WSServerHandshakeError:
+  403` from `speech.platform.bing.com`. The clock was right to the second, which
+  rules out the time-based `Sec-MS-GEC` token, and the live box failed the same way,
+  so every render on the site was dying at the voice. 7.3.1 voices again, word
+  boundaries included. The requirement said `edge-tts>=7.0`, and `pip install -r`
+  never upgrades a version that already satisfies it, so both machines sat on the
+  broken release. It says `>=7.3.1` now; changing `requirements.txt` is also what
+  makes the box's autodeploy run pip, so the merge repaired the site with no ssh.
+  Microsoft changes this endpoint without notice: when the voice stage 403s
+  everywhere, check PyPI for a newer edge-tts before suspecting the code.
 - **The deploy script read its own record as the running commit.** 2026-11-23:
   ad52a22 (#182) deployed fine, and `/healthz` then said `"state":"failed"`,
   "pulled ad52a22 and restarted, but /healthz reports 'fb331fd'". The script read
