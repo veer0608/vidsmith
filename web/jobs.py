@@ -36,7 +36,6 @@ from vidsmith import cover
 from vidsmith import retake as retakes
 from vidsmith import cuts as cutting
 from vidsmith import rewrite, snapshot
-from vidsmith.script_parser import parse_script
 from vidsmith.check import delivered
 from vidsmith.config import Config, write_default_config
 from web import uploads as uploading
@@ -694,15 +693,6 @@ class Jobs:
         )
         cfg.audio.music = "auto" if options.get("music", True) else ""
         cfg.audio.mood = options.get("mood") or cfg.audio.mood
-        # The page teaches `[diagram: three boxes] draws one`, and drawing is off
-        # by default, so for every web job that wrote one it drew nothing: the
-        # scene became footage and the log said so in a line nobody reads. A
-        # diagram the person typed is the request; the default exists for
-        # diagrams a model decides on, not ones a person asks for.
-        script = root / "script.md"
-        if script.exists():
-            _, scenes = parse_script(script)
-            cfg.visuals.diagrams = any(s.diagram for s in scenes)
         if options.get("voice"):
             cfg.voice.name = options["voice"]
 

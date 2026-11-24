@@ -97,6 +97,19 @@ def too_dark(still: bytes) -> bool:
     return bool(total) and sum(hist[DARK_LUMA + 1:]) / total < DARK_LIT
 
 
+def draws(directive: str, decided: Optional[bool], mine: bool, model_diagrams: bool) -> bool:
+    """Whether a scene is drawn before any footage is searched for.
+
+    A `[diagram:]` line always draws: it is a request, from a person or from a
+    draft `llm.limit_diagrams()` has already held to a mechanism. `model_diagrams`
+    (`visuals.diagrams`) gates only the model's own stored decision. The viewer's
+    own files beat both.
+    """
+    if mine:
+        return False
+    return bool(directive) or (model_diagrams and decided is True)
+
+
 def too_flat(still: bytes) -> bool:
     """Whether a preview still is mostly one bright, flat colour. Unreadable bytes are not."""
     try:
@@ -1374,13 +1387,14 @@ class VisualBuilder:
         spec: Optional[diagram.Spec] = None
         decided = self._decisions().get(str(scene.index))
         mine = self._mine(scene)
-        wants_drawing = (self.cfg.diagrams and not mine
-                         and (bool(scene.diagram) or decided is True))
-        if scene.diagram and not self.cfg.diagrams:
-            # Said out loud, because otherwise a directive the author wrote
-            # would vanish in silence and the scene would just be footage.
-            self.log(f"    the script asked for a diagram but visuals.diagrams "
-                     f"is off; using footage for '{query[:40]}'")
+        # Two kinds of drawing, and one switch for only one of them. A
+        # `[diagram:]` line is a request, from a person or from a draft held to
+        # `llm.limit_diagrams()`, and it always draws. `visuals.diagrams` gates the
+        # model's own: a stored "draw this" decision and the swap below when
+        # footage keeps being rejected. One switch used to cover both, so turning
+        # it on for two drafted diagrams in btrees2 let the build add six more of
+        # its own, every one a comparison slide ("Wide Keys vs Compact Keys").
+        wants_drawing = draws(scene.diagram, decided, bool(mine), self.cfg.diagrams)
 
         if wants_drawing:
             # a decided or explicit diagram skips the search entirely - no point

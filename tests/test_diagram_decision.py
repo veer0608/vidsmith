@@ -136,27 +136,45 @@ def test_drawing_is_off_unless_a_project_turns_it_on():
     assert VisualConfig().diagrams is False
 
 
-def test_a_hand_written_diagram_skipped_by_the_switch_says_so(tmp_path, monkeypatch):
-    """The author wrote [diagram:], so it cannot simply disappear in silence."""
-    from conftest import make_scene
-
+def _drawing_builder(tmp_path, monkeypatch, decided=None):
     builder = _builder(tmp_path, diagrams=False)
-    said = []
+    said, drawn = [], []
     builder.log = said.append
-    scene = make_scene("A root node splits into two children.", diagram="a b-tree")
-    drawn = []
     monkeypatch.setattr(builder, "_stock_batch", lambda *a, **k: [])
     monkeypatch.setattr(builder, "_diagram_spec",
                         lambda *a, **k: drawn.append(1) or Spec.from_dict(TREE))
+    monkeypatch.setattr(builder, "_decisions", lambda: decided or {})
     monkeypatch.setattr("vidsmith.visuals.cards.scene_card",
                         lambda out, *a, **k: out)
     monkeypatch.setattr("vidsmith.visuals.normalise_still",
                         lambda src, out, *a, **k: out.write_bytes(b"x") or out)
+    return builder, said, drawn
 
-    builder.build(scene)
 
-    assert not drawn
-    assert any("visuals.diagrams is off" in line for line in said), said
+def test_a_hand_written_diagram_draws_with_the_switch_off(tmp_path, monkeypatch):
+    """The author wrote [diagram:], and that is a request, not the model's call.
+
+    It used to be skipped with a log line when visuals.diagrams was off, which is
+    how dodo-prep's eight became footage; then switching it on for them let
+    btrees2's build draw six slides of its own. The line now draws regardless.
+    """
+    from conftest import make_scene
+
+    builder, said, drawn = _drawing_builder(tmp_path, monkeypatch)
+    builder.build(make_scene("A root node splits into two children.", diagram="a b-tree"))
+
+    assert drawn, "the [diagram:] line was not drawn"
+    assert any("the script asked" in line for line in said), said
+
+
+def test_the_models_own_decision_does_not_draw_with_the_switch_off(tmp_path, monkeypatch):
+    """visuals.diagrams is the model's switch, and it is off by default."""
+    from conftest import make_scene
+
+    builder, said, drawn = _drawing_builder(tmp_path, monkeypatch, decided={"0": True})
+    builder.build(make_scene("A root node splits into two children.", index=0))
+
+    assert not drawn, "the model drew a scene with visuals.diagrams off"
 
 
 def test_the_spec_cache_is_shared_too(tmp_path):
