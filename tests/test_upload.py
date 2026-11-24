@@ -343,7 +343,7 @@ def _stub_upload(monkeypatch, sent, problems=()):
     from vidsmith import check as check_mod
     from vidsmith import upload as real
 
-    monkeypatch.setattr(check_mod, "check", lambda out: list(problems))
+    monkeypatch.setattr(check_mod, "check", lambda out, **kw: list(problems))
     monkeypatch.setattr(real, "access_token", lambda *a, **k: "tok")
 
     def _publish(cut, meta, description, token, **kw):
@@ -458,3 +458,36 @@ def test_the_widescreen_receipt_keeps_its_unsuffixed_names(out):
 
     body = json.loads((out / "published.json").read_text(encoding="utf-8"))
     assert set(body["files"]) == {"description.txt", "credits.txt"}
+
+
+def test_the_upload_asks_check_about_its_own_shape(tmp_path, monkeypatch):
+    """So the one finding that an upload resolves is left out, for that cut only."""
+    from vidsmith import check as check_mod
+    from vidsmith import cli
+
+    root = _project(tmp_path)
+    _deliver(root, "")
+    sent, asked = {}, {}
+    _stub_upload(monkeypatch, sent)
+    monkeypatch.setattr(check_mod, "check",
+                        lambda out, **kw: asked.update(kw) or [])
+
+    assert cli.main(["upload", str(root)]) == 0
+    assert asked == {"uploading": ""}
+
+
+def test_an_upload_of_a_new_cut_says_how_to_retire_the_old_video(tmp_path, monkeypatch, capsys):
+    from vidsmith import cli
+    from vidsmith.published import record
+
+    root = _project(tmp_path)
+    _deliver(root, "")
+    record(root / "out", "MgD7QwCozms")
+    (root / "out" / "a-video.mp4").write_bytes(b"n" * 64)      # a re-filmed cut
+    sent = {}
+    _stub_upload(monkeypatch, sent)
+
+    assert cli.main(["upload", str(root)]) == 0
+    said = capsys.readouterr().out
+    assert "new cut of MgD7QwCozms" in said
+    assert "--video MgD7QwCozms --privacy private" in said

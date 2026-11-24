@@ -591,6 +591,12 @@ def cmd_published(args) -> int:
         return 0
 
     live = {}
+    # Whether the channel was actually read. Not the same as `live` being
+    # non-empty: a read that worked and found nothing means every video is gone,
+    # and a read that failed means nothing is known. The two used to share one
+    # answer, so an expired login listed every public video as "gone from the
+    # channel" right under the warning that said it could not look (2026-11-24).
+    channel_read = False
     if args.live:
         keys = find_keys(projects[0])
         repo_root = Path(__file__).resolve().parent.parent
@@ -599,6 +605,7 @@ def cmd_published(args) -> int:
             token = access_token(repo_root, keys.get("yt_client", ""),
                                  keys.get("yt_secret", ""), interactive=False)
             live = privacy_of([r["video_id"] for r in rows], token)
+            channel_read = True
         except (UploadFailed, Unreachable) as exc:
             print(f"warn     could not read the channel: {exc}")
 
@@ -623,7 +630,9 @@ def cmd_published(args) -> int:
     for row in sorted(rows, key=lambda r: (r["project"], r["tag"])):
         shape = row["tag"] or "16:9"
         state = live.get(row["video_id"])
-        if args.live:
+        if args.live and not channel_read:
+            said = "unknown, the channel was not read"
+        elif args.live:
             said = state["privacy"] if state else "gone from the channel"
         else:
             said = row["checked"] or "checked, date unknown"
@@ -666,7 +675,9 @@ def cmd_upload(args) -> int:
         print(f"nothing built for {cfg.render.aspect} yet - run: vidsmith build {args.name}")
         return 1
 
-    problems = check(proj.out)
+    # A new cut of a published video is what an upload is for, so it is not a
+    # problem here; it is said, with the step that finishes the replacement.
+    problems = check(proj.out, uploading=tag)
     if problems and not args.force:
         print(f"\n{len(problems)} problem(s) in {proj.out}, "
               "so nothing was uploaded:\n")
@@ -676,6 +687,14 @@ def cmd_upload(args) -> int:
         return 1
     if problems:
         print(f"warn     uploading over {len(problems)} unresolved check problem(s)")
+    from .check import replaces
+    old = replaces(proj.out, tag)
+    if old:
+        print(f"replace  this is a new cut of {old}; once the new one is public, "
+              f"retire that one with:\n"
+              f"         vidsmith publish {args.name}"
+              f"{' --aspect ' + cfg.render.aspect if tag else ''} "
+              f"--video {old} --privacy private")
 
     meta_path = proj.out / "youtube.json"
     if not meta_path.exists():

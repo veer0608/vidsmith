@@ -208,3 +208,24 @@ def test_an_unreachable_box_does_not_lose_the_local_list(out, monkeypatch, capsy
     said = capsys.readouterr().out
     assert "could not read the live box" in said
     assert WIDE in said, "the local receipts are still worth printing"
+
+
+def test_a_channel_that_could_not_be_read_is_unknown_not_gone(out, monkeypatch, capsys):
+    """2026-11-24: an expired login printed "could not read the channel" and then
+    listed every public video as "gone from the channel" right below it."""
+    from vidsmith.upload import UploadFailed
+
+    def expired(*a, **k):
+        raise UploadFailed("YouTube is not connected, or Google no longer accepts the saved login")
+
+    monkeypatch.setattr(cli, "_project_dir", lambda name: out.parent)
+    monkeypatch.setattr(cli, "find_keys", lambda root: {"yt_client": "c", "yt_secret": "s"})
+    monkeypatch.setattr("vidsmith.upload.access_token", expired)
+
+    cli.cmd_published(argparse.Namespace(name="demo", live=True, box=False,
+                                         host=None, key=None))
+
+    said = capsys.readouterr().out
+    assert "could not read the channel" in said
+    assert "gone from the channel" not in said
+    assert said.count("unknown, the channel was not read") == 2

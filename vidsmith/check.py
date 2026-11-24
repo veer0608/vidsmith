@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from . import ffmpeg_util as ff
 from .config import ASPECTS, LONG_SHOT_FACTOR, aspect_tag
@@ -325,21 +325,54 @@ def substituted_scenes(cfg: dict) -> List[str]:
             f"--force diagrams,visuals,render to judge them again"]
 
 
-def publish_drift(out: Path) -> List[str]:
+def publish_drift(out: Path, uploading: Optional[str] = None) -> List[str]:
     """Every published cut's drift, one receipt at a time.
 
     A Short and a widescreen video are two publications of one delivery, so
     each leaves its own `published<tag>.json`. There used to be one receipt for
     the project and the second upload overwrote the first, which lost the fact
     that the widescreen video had ever been verified.
+
+    `uploading` is the aspect tag about to be uploaded ("" for 16:9). For that
+    one receipt, "this is a new cut" is not a problem, because uploading it is
+    the remedy the finding itself recommends. `vidsmith upload` used to refuse on
+    it, so replacing a published video needed `--force` over a finding that was
+    telling it to go ahead (machine-statements, 2026-11-24). Every other finding
+    stands, a stale description above all, whose remedy is re-pasting it onto
+    the same video and never a second upload.
     """
     problems: List[str] = []
     for receipt in sorted(Path(out).glob("published*.json")):
-        problems.extend(_drift_of(Path(out), receipt))
+        mine = uploading is not None and receipt.name == f"published{uploading}.json"
+        problems.extend(_drift_of(Path(out), receipt, uploading=mine))
     return problems
 
 
-def _drift_of(out: Path, path: Path) -> List[str]:
+def replaces(out: Path, tag: str = "") -> Optional[str]:
+    """The video an upload of this cut would replace, when it is a new cut of one.
+
+    None when there is no receipt for this shape, or the cut on disk is the one
+    already published.
+    """
+    path = Path(out) / f"published{tag}.json"
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    return body.get("video_id") if _is_new_cut(Path(out), body) else None
+
+
+def _is_new_cut(out: Path, body: Dict) -> bool:
+    from .published import digest
+
+    cut = body.get("cut") if isinstance(body.get("cut"), dict) else None
+    return bool(cut and cut.get("digest")
+                and digest(out / cut.get("name", "")) != cut["digest"])
+
+
+def _drift_of(out: Path, path: Path, uploading: bool = False) -> List[str]:
     """The delivery was rebuilt after it was verified against a live video.
 
     `check --published` reads the watch page, so it can only see a *public*
@@ -384,8 +417,9 @@ def _drift_of(out: Path, path: Path) -> List[str]:
     # the new one onto it credits footage it does not contain - which this check
     # once recommended, after a rebuild that was deliberately never uploaded.
     cut = body.get("cut") if isinstance(body.get("cut"), dict) else None
-    new_cut = bool(cut and cut.get("digest")
-                   and digest(out / cut.get("name", "")) != cut["digest"])
+    new_cut = _is_new_cut(out, body)
+    if new_cut and uploading:
+        return []                    # the upload about to happen is the remedy
     if not moved and not new_cut:
         return []
     where = f"https://youtu.be/{vid}{' on ' + when if when else ''}"
@@ -409,15 +443,19 @@ def _drift_of(out: Path, path: Path) -> List[str]:
             f"description onto the old video"]
 
 
-def check(out_dir: Path) -> List[str]:
-    """Everything wrong with this delivery, as plain sentences."""
+def check(out_dir: Path, uploading: Optional[str] = None) -> List[str]:
+    """Everything wrong with this delivery, as plain sentences.
+
+    `uploading` is the aspect tag `vidsmith upload` is about to send; see
+    `publish_drift` for the one finding that does not apply then.
+    """
     out = Path(out_dir)
     problems: List[str] = []
 
     # first, because it is the one finding that does not depend on the delivery
     # existing: a receipt outlives the files it witnessed, and "the description
     # on YouTube is stale" stays true even when out/ has been emptied
-    problems.extend(publish_drift(out))
+    problems.extend(publish_drift(out, uploading=uploading))
 
     cuts = delivered(out)
     if not cuts:
