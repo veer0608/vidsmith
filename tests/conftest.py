@@ -31,6 +31,20 @@ def no_real_credentials(monkeypatch):
     """
     for var in KEY_ENV.values():
         monkeypatch.delenv(var, raising=False)
+    # The owner's mail settings too, from the environment and from `.env`: every
+    # register test would otherwise email whoever this machine is set up to
+    # alert. Off by default here; test_web_alerts turns it on with a recorder.
+    import sys
+
+    try:
+        from web import alerts
+    except ImportError:                   # the web stack is optional locally
+        return
+    for var in alerts.NAMES:
+        monkeypatch.delenv(var, raising=False)
+    app = sys.modules.get("web.app")
+    if app is not None:
+        monkeypatch.setattr(app, "_alert_settings", lambda: None)
 
 
 @pytest.fixture(autouse=True)

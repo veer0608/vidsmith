@@ -209,4 +209,16 @@ and nobody loses access without the owner seeing it happen. Removing also drops 
 record of which renders were theirs, and the same address can ask again.
 
 The owner's page shows "N waiting for access", linked to `/admin`, when requests are
-pending. There is no other notice, so that pill is how a request gets seen.
+pending, and `web/alerts.py` emails the owner on each new request once mail is set
+up: `VIDSMITH_ALERT_TO`, `VIDSMITH_SMTP_HOST`, `VIDSMITH_SMTP_USER` and
+`VIDSMITH_SMTP_PASSWORD` in the instance's `.env` (port 587 STARTTLS unless
+`VIDSMITH_SMTP_PORT` says 465; for Gmail the password is an app password, never
+the account's). Missing any of them and alerts are simply off; `/admin` says which.
+Three rules hold it: the mail goes on a thread after the row is written, and a
+mail server that refuses is logged, never in the person's way; the requester's
+name is flattened to one line before it reaches the Subject, because a newline
+there is a header injection; and the settings are read per request through
+`_alert_settings()`, the one place tests stub, while `conftest` clears them so no
+test can email whoever the machine alerts. A default argument cannot stand in for
+that stub: `notify(sender=send)` bound the real `send` when the module loaded, and
+the first test of the stubbed path made a real DNS lookup.
