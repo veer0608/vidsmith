@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -744,6 +745,22 @@ def set_thumbnail_credit(path: Path, stock: Optional[Dict[str, Any]]) -> None:
         path.unlink()
 
 
+# A Pexels video page answers at its id alone: /video/<slug>-<id>/ and
+# /video/<id>/ land on the same clip (checked in a browser on 2026-11-25; Pexels
+# puts automated clients behind a Cloudflare check, so this cannot be probed
+# from a script). The slug is the clip's title spelled out, and it was most of
+# the description: btrees2 linked 74 clips in 5,656 of its 6,779 characters, over
+# YouTube's 5000. The id form keeps every creator named and every clip linked,
+# which is what the API guidelines ask, in a fraction of the room. Videos only:
+# photo pages were not checked, and Pixabay's links are already short.
+PEXELS_VIDEO = re.compile(r"^(https?://(?:www\.)?pexels\.com/video/)[^/?#]*?-?(\d+)/?$")
+
+
+def short_link(url: str) -> str:
+    """A credit link at its shortest form that still lands on the same page."""
+    return PEXELS_VIDEO.sub(r"\g<1>\g<2>/", url.strip())
+
+
 def credits_block(scenes: Sequence[Scene], provider: str) -> str:
     """Attribution text for the YouTube description.
 
@@ -764,7 +781,7 @@ def credits_block(scenes: Sequence[Scene], provider: str) -> str:
             if not name:
                 continue
             urls = links.setdefault(name, [])
-            url = shot.get("credit_url", "")
+            url = short_link(shot.get("credit_url", ""))
             if url and url not in urls:
                 urls.append(url)
     if not links:

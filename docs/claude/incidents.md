@@ -296,6 +296,19 @@
   nine-minute build's credits approach YouTube's 5000-character description
   limit on their own, `description_box()` trims the prose rather than the
   credits and `check` reports a description over the limit.
+  **Then the links were most of it.** A 5.7-minute drafted b-trees video linked
+  74 clips from 46 creators in 6,779 characters, 5,656 of them URLs, because a
+  Pexels video page is `/video/<the clip's title as a slug>-<id>/`. The page
+  answers at `/video/<id>/` too, checked by a person in a browser on 2026-11-25:
+  Pexels puts automated clients, curl and this session's browser alike, behind a
+  Cloudflare check, so it cannot be probed from a script, and a script must not
+  try to get past one. `pipeline.short_link()` writes that form in
+  `credits_block()`, the one writer, so `credits.txt` and the description still
+  agree for `check`. Every creator stays named and every clip linked. Only
+  Pexels video links: photo pages were not checked and Pixabay's are already
+  short. Before this, the only version of that video that fit was one whose
+  build had drawn six comparison slides in place of footage, which is the wrong
+  way to make a description short.
 - **A black clip passed the reranker twice, because it showed the right
   subject.** "Night highway drive following a truck" is a truck, so City and
   Documentary both kept it, and it played as a black frame with two headlights

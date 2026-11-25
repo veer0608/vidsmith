@@ -112,3 +112,44 @@ def test_each_aspect_keeps_its_own_credits(tmp_path):
 
 def test_merged_credits_are_empty_when_nothing_was_sourced(tmp_path):
     assert all_credits(tmp_path) == ""
+
+
+# --------------------------------------------------------------------------- #
+# a Pexels video link at its id
+# --------------------------------------------------------------------------- #
+import pytest  # noqa: E402
+
+from vidsmith.pipeline import short_link  # noqa: E402
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://www.pexels.com/video/seo-web-design-search-google-4549682/",
+     "https://www.pexels.com/video/4549682/"),
+    ("https://www.pexels.com/video/4549682/", "https://www.pexels.com/video/4549682/"),
+    # a slug with digits of its own: the id is the last number, not the first
+    ("https://www.pexels.com/video/blue-8-bit-12345678/",
+     "https://www.pexels.com/video/12345678/"),
+    ("https://pexels.com/video/a-clip-555/", "https://pexels.com/video/555/"),
+    # photos were not checked against Pexels, and Pixabay's are already short
+    ("https://www.pexels.com/photo/a-receipt-1234567/",
+     "https://www.pexels.com/photo/a-receipt-1234567/"),
+    ("https://pixabay.com/videos/id-35350051/", "https://pixabay.com/videos/id-35350051/"),
+    ("", ""),
+])
+def test_a_pexels_video_link_is_shortened_to_its_id(url, expected):
+    """btrees2 linked 74 clips in 5,656 of its 6,779 description characters,
+    over YouTube's 5000; the slug is the clip's title spelled out."""
+    assert short_link(url) == expected
+
+
+def test_the_credits_block_carries_the_short_link_and_still_names_everyone(scenes):
+    scenes[0].shots = [
+        {"path": "a.mp4", "duration": 2.0, "credit": "Ada",
+         "credit_url": "https://www.pexels.com/video/seo-web-design-search-google-4549682/"},
+        {"path": "b.mp4", "duration": 2.0, "credit": "Ada",
+         "credit_url": "https://www.pexels.com/video/4549682/"},   # the same clip
+    ]
+    block = credits_block(scenes[:1], "pexels")
+    assert "Ada - https://www.pexels.com/video/4549682/" in block
+    assert block.count("4549682") == 1, "one clip in two spellings is linked once"
+    assert "seo-web-design" not in block
