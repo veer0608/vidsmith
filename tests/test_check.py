@@ -21,12 +21,17 @@ pytest.importorskip("PIL")
 from PIL import Image                              # noqa: E402
 
 
-def _mp4(path: Path, seconds_long: float = 4.0) -> Path:
+def _mp4(path: Path, seconds_long: float = 4.0, audio_long: float = None) -> Path:
+    """A delivered cut: picture, and a silent track as long as it unless told otherwise."""
     from vidsmith import ffmpeg_util as ff
 
-    ff.run(["-f", "lavfi", "-i", f"color=c=black:s=320x180:d={seconds_long}",
-            "-r", "12", "-c:v", "libx264", "-preset", "ultrafast",
-            "-pix_fmt", "yuv420p", str(path)])
+    args = ["-f", "lavfi", "-i", f"color=c=black:s=320x180:d={seconds_long}"]
+    if audio_long != 0:
+        args += ["-f", "lavfi", "-i",
+                 f"anullsrc=r=48000:cl=stereo:d={audio_long or seconds_long}",
+                 "-c:a", "aac", "-b:a", "64k"]
+    ff.run(args + ["-r", "12", "-c:v", "libx264", "-preset", "ultrafast",
+                   "-pix_fmt", "yuv420p", str(path)])
     return path
 
 
@@ -553,3 +558,66 @@ def test_a_card_inside_a_footage_scene_still_counts_as_a_shot(tmp_path):
     scenes = [{"index": 4, "heading": "Maintenance Overhead", "duration": 10.1}]
 
     assert frozen_shots(build, "16:9", scenes) == [],         "two shots of about 5s each is an ordinary edit"
+
+
+# --------------------------------------------------------------------------- #
+# the sound lasts as long as the picture
+# --------------------------------------------------------------------------- #
+@pytest.mark.slow
+def test_audio_that_stops_before_the_picture_is_caught(delivery):
+    """btrees2 shipped 5:43 of picture over 2:25 of audio, and check called it
+    consistent: nothing compared the two streams."""
+    _mp4(delivery / "a-title.mp4", seconds_long=4.0, audio_long=1.5)
+    problems = check(delivery)
+    assert any("a-title.mp4's audio stops at 1.5s of" in p and "silent" in p
+               for p in problems), problems
+
+
+@pytest.mark.slow
+def test_a_cut_with_no_audio_track_is_caught(delivery):
+    _mp4(delivery / "a-title-9x16.mp4", audio_long=0)
+    assert any("no audio track" in p for p in check(delivery))
+
+
+@pytest.mark.slow
+def test_audio_within_a_frame_or_two_of_the_picture_is_fine(delivery):
+    """machine-statements measured 175.96s of audio on 176.03s of picture."""
+    _mp4(delivery / "a-title.mp4", seconds_long=4.0, audio_long=3.9)
+    assert not any("audio" in p for p in check(delivery))
+
+
+def test_a_stale_ledger_cannot_hide_a_frozen_shot(tmp_path):
+    """btrees2's scene 14 was four drawn frames in one build and one 15.9s clip in
+    the next. credits.json kept the three old entries, so 15.9 / 4 read as 4.0s
+    and check passed it; shots.json, written whole each build, says one shot."""
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", [4], [15.9])          # the stale ledger
+    (build / "visuals" / "shots.json").write_text(json.dumps({"0": [
+        {"path": "scene_000_00.mp4", "duration": 15.9, "credit": "A Creator"}]}),
+        encoding="utf-8")
+    problems = frozen_shots(build, "16:9", scenes)
+    assert len(problems) == 1 and "15.9s" in problems[0], problems
+
+
+def test_shots_json_reads_the_longest_shot_not_the_average(tmp_path):
+    """Four shots averaging 4s can still hold one for 10s."""
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", [4], [16.0])
+    (build / "visuals" / "shots.json").write_text(json.dumps({"0": [
+        {"duration": 10.0, "credit": "A"}, {"duration": 2.0, "credit": "B"},
+        {"duration": 2.0, "credit": "C"}, {"duration": 2.0, "credit": "D"}]}),
+        encoding="utf-8")
+    assert any("10.0s" in p for p in frozen_shots(build, "16:9", scenes))
+
+
+def test_shots_json_leaves_drawn_and_generated_scenes_alone(tmp_path):
+    from vidsmith.check import frozen_shots
+
+    build, scenes = _edit(tmp_path, "", [1, 1], [20.0, 20.0], diagrams=("a tree", ""))
+    (build / "visuals" / "shots.json").write_text(json.dumps({
+        "0": [{"duration": 20.0, "credit": ""}],              # a drawn scene
+        "1": [{"duration": 20.0, "credit": ""}]}),             # a generated card
+        encoding="utf-8")
+    assert frozen_shots(build, "16:9", scenes) == []

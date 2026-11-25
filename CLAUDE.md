@@ -21,7 +21,7 @@ before writing anything. The traps are the reason this file exists.
 | Touch shot lengths or timing | [architecture.md](docs/claude/architecture.md), narration slot | Clips must sum to `scene.duration` exactly, and no shot may outlast its clip |
 | Change what footage gets searched for | [incidents.md](docs/claude/incidents.md), unrelated footage | One search per scene, or a metaphor, reads as unrelated; a beat's verdict is keyed `index.beat` |
 | Move captions or diagrams | [architecture.md](docs/claude/architecture.md), karaoke; [incidents.md](docs/claude/incidents.md), layers and ASS | Never hardcode a caption fraction; the ASS `Format:` line is positional |
-| Change ffmpeg or the encode | [architecture.md](docs/claude/architecture.md), three passes | Do not collapse the passes into one |
+| Change ffmpeg or the encode | [architecture.md](docs/claude/architecture.md), three passes; [incidents.md](docs/claude/incidents.md), audio stopped | Do not collapse the passes into one; no `asetpts` in the master's shared graph, it cut the audio short |
 | Hand a path to ffmpeg | [incidents.md](docs/claude/incidents.md), escaping | Two escapes, two parsers; never share one helper between them |
 | Pass an optional file between stages | [incidents.md](docs/claude/incidents.md), `Path("")` | `Path("")` is truthy and exists; guard on `is None` |
 | Add a config key | [configuration.md](docs/claude/configuration.md) | A misspelled key is ignored in silence; a closed-set value is refused on load |

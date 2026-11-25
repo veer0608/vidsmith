@@ -107,6 +107,22 @@ def frozen_shots(build: Path, aspect: str, scenes: List[dict],
     ceiling = float(cfg.get("max_shot_seconds") or 0.0) * LONG_SHOT_FACTOR \
         or LONG_SHOT_SECONDS
 
+    # The cut's own shot list first, when it has one. `credits.json` is a ledger
+    # that a rebuild adds to and never prunes: btrees2's scene 14 was drawn as
+    # four frames in one build and filmed as one 15.9s clip in the next, and the
+    # three stale entries made the average 4.0s, under the ceiling, so check
+    # passed a frozen closing scene the build itself had warned about.
+    # `shots.json` is written whole each build and carries each shot's real
+    # length, so the longest shot is read rather than averaged.
+    shots_path = build / f"visuals{aspect_tag(aspect)}" / "shots.json"
+    if shots_path.exists():
+        try:
+            listed = json.loads(shots_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            listed = None
+        if isinstance(listed, dict):
+            return _frozen_from_shots(listed, scenes, aspect, ceiling)
+
     ledger = build / f"visuals{aspect_tag(aspect)}" / "credits.json"
     if not ledger.exists():
         return []                     # nothing went looking for footage
@@ -154,6 +170,58 @@ def frozen_shots(build: Path, aspect: str, scenes: List[dict],
                 f"{scene.get('index')} ('{heading}'); the reranker probably left "
                 f"too few usable clips")
     return problems
+
+
+def _frozen_from_shots(listed: dict, scenes: List[dict], aspect: str,
+                       ceiling: float) -> List[str]:
+    """`frozen_shots` read from a cut's `shots.json`: each shot's own length."""
+    by_index = {str(s.get("index")): s for s in scenes}
+    problems = []
+    for key, shots in sorted(listed.items(), key=lambda kv: int(kv[0])
+                             if str(kv[0]).isdigit() else 0):
+        scene = by_index.get(str(key), {})
+        if scene.get("diagram") or not isinstance(shots, list):
+            continue                  # a drawn scene is one frame on purpose
+        if not any((s or {}).get("credit") for s in shots):
+            continue                  # generated frames, not a search that failed
+        longest = max((float((s or {}).get("duration") or 0) for s in shots), default=0.0)
+        if longest > ceiling:
+            heading = scene.get("heading") or scene.get("text", "")[:40]
+            problems.append(
+                f"the {aspect} cut holds one shot for {longest:.1f}s on scene "
+                f"{key} ('{heading}'); the reranker probably left too few usable clips")
+    return problems
+
+
+# How much shorter the audio may run than the picture. The master trims both to
+# the same total, and a clean delivery measures within a frame or two (176.03s
+# against 175.96s on machine-statements); AAC frames are about 21ms each.
+AUDIO_SLACK_SECONDS = 0.5
+
+
+def short_audio(cut: Path) -> List[str]:
+    """A delivered cut whose sound stops before its picture, or has none.
+
+    btrees2 shipped 5:43 of picture over 2:25 of audio and `check` called it
+    consistent, because nothing here compared the two streams. The cause was in
+    the master pass (see `render.master`), but this is the check that would have
+    caught it, and it reads only the container's own stream durations.
+    """
+    try:
+        streams = ff.probe(cut).get("streams", [])
+    except RuntimeError:
+        return []                    # an unreadable file is reported elsewhere
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if video is None:
+        return []
+    if audio is None:
+        return [f"{cut.name} has no audio track; the narration never reached it"]
+    v, a = float(video.get("duration") or 0), float(audio.get("duration") or 0)
+    if v and a and a < v - AUDIO_SLACK_SECONDS:
+        return [f"{cut.name}'s audio stops at {a:.1f}s of {v:.1f}s of picture; the "
+                f"last {v - a:.0f}s are silent. Re-render it: --force render"]
+    return []
 
 
 def seconds(stamp: str) -> float:
@@ -471,6 +539,10 @@ def check(out_dir: Path, uploading: Optional[str] = None) -> List[str]:
     # a shape assumption dressed up as a delivery check.
     reference_aspect, reference = cuts[0]
     runtime = ff.duration(reference)
+
+    # the sound has to last as long as the picture, in every cut
+    for _aspect, cut in cuts:
+        problems.extend(short_audio(cut))
 
     # every cut is the same edit at a different size, so any disagreement here
     # means one of them was rebuilt and the others were not
