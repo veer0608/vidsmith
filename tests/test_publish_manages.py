@@ -208,6 +208,32 @@ def test_a_replaced_video_is_still_listed(tmp_path):
                                                                      (OLD, NEW)]
 
 
+def test_each_replaced_video_names_the_one_that_replaced_it(tmp_path):
+    """howto's September original was listed as "replaced by XCZIxF8mfoU", a cut
+    uploaded two months after it had been retired by ta1x6KFVuxU."""
+    (tmp_path / "a-video.mp4").write_bytes(b"cut")
+    record(tmp_path, OLD)
+    record(tmp_path, NEW)
+    record(tmp_path, "third_video")
+    by = {r["video_id"]: r.get("replaced_by") for r in receipts(tmp_path)}
+    assert by == {"third_video": None, NEW: "third_video", OLD: NEW}
+    body = json.loads((tmp_path / RECEIPT).read_text(encoding="utf-8"))
+    assert [r["by"] for r in body["replaced"]] == ["third_video", NEW]
+
+
+def test_a_receipt_from_before_by_was_recorded_is_read_by_its_order(tmp_path):
+    """howto's real receipt: newest first, and no `by` on either entry."""
+    (tmp_path / "a-video.mp4").write_bytes(b"cut")
+    (tmp_path / RECEIPT).write_text(json.dumps({
+        "video_id": "XCZIxF8mfoU", "checked": "2026-11-25T02:38:39+00:00",
+        "replaced": [{"video_id": "ta1x6KFVuxU", "until": "2026-11-25T02:38:39+00:00"},
+                     {"video_id": "eNhDPX7s_Xs", "until": "2026-09-24T12:05:37+00:00"}]}),
+        encoding="utf-8")
+    by = {r["video_id"]: r.get("replaced_by") for r in receipts(tmp_path)}
+    assert by["ta1x6KFVuxU"] == "XCZIxF8mfoU"
+    assert by["eNhDPX7s_Xs"] == "ta1x6KFVuxU"
+
+
 def test_the_command_says_what_replaced_it(tmp_path, monkeypatch, capsys):
     proj = tmp_path / "projects" / "howto"
     (proj / "out").mkdir(parents=True)
