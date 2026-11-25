@@ -27,6 +27,7 @@ from vidsmith.pipeline import find_keys
 from vidsmith.theme import PRESETS
 from web.jobs import KEEP_BYTES, KEEP_SECONDS, MAX_QUEUE, Busy, Jobs, stage_sequence
 from web import accounts as accounting
+from web import alerts
 from web import uploads as uploading
 from web.youtube import CALLBACK, Refused, YouTube
 
@@ -202,15 +203,38 @@ class RegisterRequest(BaseModel):
     note: str = Field(default="", max_length=1000)
 
 
+def _alert_settings():
+    """The owner's mail settings, read per request so a `.env` edit needs no restart.
+
+    One place to stub, like `_keys()`: a test must never read the machine's own.
+    """
+    return alerts.settings(_DOTENVS)
+
+
+def _public_base(request: Request) -> str:
+    """The address people reach this instance at, for a link in an email."""
+    if PUBLIC_URL:
+        return PUBLIC_URL
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host")
+            or request.url.netloc)
+    return f"{proto}://{host}"
+
+
 @app.post("/api/register", status_code=201)
-def register(req: RegisterRequest) -> Dict[str, Any]:
+def register(req: RegisterRequest, request: Request) -> Dict[str, Any]:
     """Ask for access. Open to anyone, and spends nothing: it only writes a row."""
     if not TOKEN:
         raise HTTPException(400, "this instance is open; there is nothing to register for")
     try:
-        return {"secret": accounts.register(req.name, req.email, req.note)}
+        secret = accounts.register(req.name, req.email, req.note)
     except accounting.Refused as exc:
         raise HTTPException(400, str(exc))
+    # After the row is written, and never in its way: the owner hears by email
+    # when alerts are configured, and otherwise from the pill on their own page.
+    alerts.notify(_alert_settings(), req.name, req.email, req.note,
+                  _public_base(request) + "/admin", accounts.pending())
+    return {"secret": secret}
 
 
 @app.get("/api/register/{secret}")
@@ -241,7 +265,9 @@ def whoami(who: Who = Depends(identity)) -> Dict[str, Any]:
 @app.get("/api/admin/requests")
 def admin_requests(_: None = Depends(guard)) -> Dict[str, Any]:
     return {"requests": accounts.listing(), "daily_renders": accounting.DAILY_RENDERS,
-            "daily_drafts": accounting.DAILY_DRAFTS}
+            "daily_drafts": accounting.DAILY_DRAFTS,
+            # whether a new request emails the owner; never the settings themselves
+            "email_alerts": _alert_settings() is not None}
 
 
 @app.post("/api/admin/requests/{request_id}/{action}")
@@ -485,12 +511,7 @@ def renders(who: Who = Depends(identity)) -> Dict[str, Any]:
 
 
 def _redirect_uri(request: Request) -> str:
-    if PUBLIC_URL:
-        return PUBLIC_URL + CALLBACK
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = (request.headers.get("x-forwarded-host") or request.headers.get("host")
-            or request.url.netloc)
-    return f"{proto}://{host}{CALLBACK}"
+    return _public_base(request) + CALLBACK
 
 
 @app.get("/api/youtube")
