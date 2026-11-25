@@ -416,12 +416,21 @@ def receipts(out_dir: Path) -> List[Dict[str, Any]]:
         found.append({"video_id": body["video_id"], "tag": tag,
                       "checked": (body.get("checked") or "")[:10],
                       "cut": cut.get("name", ""), "moved": moved})
-        for old in body.get("replaced") or []:
-            if isinstance(old, dict) and old.get("video_id"):
-                found.append({"video_id": old["video_id"], "tag": tag,
-                              "checked": "", "cut": "", "moved": [],
-                              "replaced_by": body["video_id"],
-                              "until": (old.get("until") or "")[:10]})
+        # Newest first, so each was replaced by the one listed before it, and the
+        # first by the video this receipt names now. Every entry used to be
+        # labelled with the current video: howto's September original read as
+        # "replaced by XCZIxF8mfoU", a cut uploaded two months after it was
+        # retired, when ta1x6KFVuxU had replaced it. `by` is recorded from now
+        # on; the order answers it for receipts written before.
+        chain = [old for old in body.get("replaced") or []
+                 if isinstance(old, dict) and old.get("video_id")]
+        newer = body["video_id"]
+        for old in chain:
+            found.append({"video_id": old["video_id"], "tag": tag,
+                          "checked": "", "cut": "", "moved": [],
+                          "replaced_by": old.get("by") or newer,
+                          "until": (old.get("until") or "")[:10]})
+            newer = old["video_id"]
     return found
 
 
@@ -486,7 +495,8 @@ def record(out_dir: Path, vid: str, tag: str = "") -> Path:
     prior = prior if isinstance(prior, dict) else {}
     replaced = [r for r in prior.get("replaced") or [] if isinstance(r, dict)]
     if prior.get("video_id") and prior["video_id"] != body["video_id"]:
-        replaced.insert(0, {"video_id": prior["video_id"], "until": body["checked"]})
+        replaced.insert(0, {"video_id": prior["video_id"], "until": body["checked"],
+                            "by": body["video_id"]})
     replaced = [r for r in replaced if r.get("video_id") != body["video_id"]]
     if replaced:
         body["replaced"] = replaced
