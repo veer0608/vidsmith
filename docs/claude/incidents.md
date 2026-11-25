@@ -528,6 +528,26 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **The delivered audio stopped minutes before the picture, and three of them
+  were public.** Found 2026-11-25 reviewing btrees2: 5:43 of picture over 2:25 of
+  audio, with `narration.wav` whole at 343s. Bisected on the real files, never on
+  a theory: the audio graph alone was whole; the same graph over a generated
+  black picture was whole; narration alone through `render.master`'s shared
+  `-filter_complex` beside the real 1080p picture lost it, with ffmpeg 9.0
+  logging `[aac] Queue input is backward in time` twice; the same command without
+  the `asetpts` after `atrim` kept every second, and `PTS-STARTPTS` failed like
+  `N/SR/TB`. `atrim` from 0 already starts at 0, so the reset bought nothing and
+  is gone from the master pass. `check` had never compared the two streams, so a
+  sweep of every delivery found the damage only once it did: the machine-statements
+  Short `zAv-sAArB5Y` silent for its last 111.6s of 176 since 2026-09-20, the
+  demo `3NuA_RVbO10` for 13.5s of 32.7, howto `ta1x6KFVuxU` for its last 5.8s,
+  each byte-identical to its upload receipt. `check.short_audio()` now fails any
+  cut whose audio runs more than half a second shorter than its picture, or has
+  none. The same review found `frozen_shots` averaging over `credits.json`, a
+  ledger a rebuild adds to and never prunes: three stale entries made a 15.9s
+  closing shot read as 4.0s. It reads each shot's own length from the cut's
+  `shots.json` now. Both checks were proven on the broken delivery before the fix:
+  the old check called it ready to upload, the new one names both faults.
 - **edge-tts 7.2.8 started getting 403 from Microsoft, on every machine at once.**
   2026-11-24, found by a local build stopping at `voice` with `WSServerHandshakeError:
   403` from `speech.platform.bing.com`. The clock was right to the second, which

@@ -203,7 +203,16 @@ def master(picture: Path, narration: Path, out: Path, cfg: RenderConfig,
     else:
         graph.append("[1:a]aresample=48000[premix]")
 
-    tail = f"atrim=0:{total:.3f},asetpts=N/SR/TB"
+    # No asetpts after the trim. In this graph the audio shares a filtergraph with
+    # a 1080p picture, and with `asetpts` there ffmpeg 9.0 handed the AAC encoder
+    # frames "backward in time" and the encoder dropped the rest: btrees2's 5:43
+    # video carried 2:25 of audio, with all 343s of narration decoded on the way
+    # in. Bisected on the real files: narration alone through this graph lost it,
+    # `PTS-STARTPTS` lost it too, and the same graph without asetpts kept every
+    # second. atrim from 0 leaves the timestamps starting at 0 already, so the
+    # reset was buying nothing. `check` now compares the delivered audio's length
+    # with the video's, which is the check that would have caught it.
+    tail = f"atrim=0:{total:.3f}"
     if audio_cfg.normalize:
         tail = f"loudnorm=I={audio_cfg.lufs}:TP=-1.5:LRA=11,{tail}"
     graph.append(f"[premix]{tail}[aout]")
