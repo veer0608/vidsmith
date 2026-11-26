@@ -432,8 +432,15 @@ def serve_labels(root: Path, data_dir: Path = HERE, port: int = 8078,
 # --------------------------------------------------------------------------- #
 # run: the model over every case, checkpointed per call
 # --------------------------------------------------------------------------- #
-def results_path(data_dir: Path, model: str) -> Path:
-    return data_dir / "results" / f"{re.sub(r'[^A-Za-z0-9._-]', '_', model)}.jsonl"
+def results_path(data_dir: Path, model: str, tag: str = "") -> Path:
+    """One file per model, and per prompt variant when `tag` names one.
+
+    Without a tag, a second run of a changed prompt appended to the first one's
+    file and the two were scored as one system: the judge's prompt changed twice
+    after the benchmark first ran, and there was no way to compare them.
+    """
+    name = f"{model}-{tag}" if tag else model
+    return data_dir / "results" / f"{re.sub(r'[^A-Za-z0-9._-]', '_', name)}.jsonl"
 
 
 def read_results(path: Path) -> List[Dict]:
@@ -448,7 +455,7 @@ def read_results(path: Path) -> List[Dict]:
 
 
 def run(root: Path, api_key: str, model: str, repeats: int = 3,
-        data_dir: Path = HERE, limit: int = 0, log=print) -> int:
+        data_dir: Path = HERE, limit: int = 0, log=print, tag: str = "") -> int:
     """Judge every case `repeats` times, appending one line per call.
 
     A spent daily quota stops the run with everything so far on disk, and the
@@ -460,7 +467,7 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
     from vidsmith import llm
 
     cases = load_cases(data_dir)[:limit or None]
-    path = results_path(data_dir, model)
+    path = results_path(data_dir, model, tag)
     path.parent.mkdir(parents=True, exist_ok=True)
     done = {(r["case"], r["repeat"]) for r in read_results(path)}
     stills = stills_dir(root)
@@ -499,7 +506,8 @@ def run(root: Path, api_key: str, model: str, repeats: int = 3,
                 return 3
             except (llm.LLMUnavailable, ValueError) as exc:
                 row = {"error": str(exc)[:300]}
-            row.update({"case": case["id"], "repeat": repeat, "model": model,
+            row.update({"case": case["id"], "repeat": repeat,
+                        "model": f"{model} [{tag}]" if tag else model,
                         "seconds": round(time.time() - started, 2)})
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row) + "\n")
@@ -777,6 +785,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sub.choices["run"].add_argument("--model", default="")
     sub.choices["run"].add_argument("--repeats", type=int, default=3)
     sub.choices["run"].add_argument("--limit", type=int, default=0)
+    sub.choices["run"].add_argument(
+        "--tag", default="",
+        help="name this prompt variant, so its results are scored as their own system")
     scoring = sub.add_parser("score")
     scoring.add_argument("--write", action="store_true", help="also write REPORT.md")
     scoring.add_argument("--labels", choices=("human", "ai"), default="human",
@@ -799,7 +810,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("no GEMINI_API_KEY found")
             return 1
         return run(args.root.resolve(), key, args.model or llm.DEFAULT_MODEL, args.repeats,
-                   limit=args.limit)
+                   limit=args.limit, tag=args.tag)
     elif args.cmd == "score":
         name = HUMAN if args.labels == "human" else MODEL
         report = score(labels_name=name)

@@ -295,6 +295,85 @@ def test_a_verdict_cached_before_rounds_counts_as_one(tmp_path, monkeypatch, sce
     assert len(calls) == RERANK_ROUNDS - 1
 
 
+# --------------------------------------------------------------------------- #
+# a later round's keepers are a reserve
+# --------------------------------------------------------------------------- #
+def _judged_batch(monkeypatch, builder, length=12.0, keep=2):
+    """Thirty search results, a judge keeping two of every eight, 12s clips."""
+    _judge(monkeypatch, builder, keep=keep)
+    monkeypatch.setattr(visuals, "pexels_search", lambda *a, **k: _hits(30))
+    monkeypatch.setattr(visuals, "_download",
+                        lambda url, dest, *a, **k: dest.write_bytes(b"x"))
+    monkeypatch.setattr(visuals.ff, "duration", lambda p: length)
+    monkeypatch.setattr(builder, "_twin", lambda *a, **k: None)
+
+
+def test_only_a_later_rounds_keepers_are_the_reserve(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    _judge(monkeypatch, builder)
+
+    builder._rerank(_hits(30), scene, "q", want=6)
+
+    assert builder._reserve == {"8", "9", "16", "17"}
+
+
+def test_a_verdict_cached_before_the_reserve_splits_the_same_way(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    (builder.workdir / "rerank.json").write_text(json.dumps(
+        {"0": {"order": [str(i) for i in range(16)], "rounds": 2, "query": "q",
+               "reject": [str(i) for i in range(16) if i % 8 > 1], "filmable": True}}),
+        encoding="utf-8")
+    calls = _judge(monkeypatch, builder)
+
+    builder._rerank(_hits(30), scene, "q", want=4)
+
+    assert calls == []
+    assert builder._reserve == {"8", "9"}
+
+
+def test_fewer_longer_shots_beat_a_later_rounds_pick(tmp_path, monkeypatch, scene):
+    """btrees2 showed gym weights for "server rack lights" once the first
+    round's good clips were taken: a weaker batch still has a best two."""
+    lines = []
+    builder = _builder(tmp_path, lines)
+    _judged_batch(monkeypatch, builder)
+
+    picked = builder._stock_batch("q", 4, scene, need=16.0, plan=[4.0] * 4)
+
+    assert [p["id"] for p in picked] == ["0", "1"]
+    assert "holding 2 clips longer" in "\n".join(lines)
+
+
+def test_a_later_round_still_fills_what_would_freeze(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    _judged_batch(monkeypatch, builder)
+
+    # two clips would make 9s shots, past the 8.8s `check` calls frozen
+    picked = builder._stock_batch("q", 3, scene, need=18.0, plan=[6.0] * 3)
+
+    assert [p["id"] for p in picked] == ["0", "1", "8"]
+
+
+def test_a_later_round_fills_a_scene_whose_first_round_went_elsewhere(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    _judged_batch(monkeypatch, builder)
+    builder.used = {"0", "1"}
+
+    picked = builder._stock_batch("q", 2, scene, need=8.0, plan=[4.0, 4.0])
+
+    assert [p["id"] for p in picked] == ["8"]
+
+
+def test_no_rerank_leaves_no_reserve_behind(tmp_path, monkeypatch, scene):
+    builder = _builder(tmp_path)
+    builder._reserve = {"0", "1"}
+    builder.cfg.rerank = False
+
+    builder._rerank(_hits(30), scene, "q", want=2)
+
+    assert builder._reserve == set()
+
+
 def test_a_failed_first_call_keeps_the_search_order(tmp_path, monkeypatch, scene):
     builder = _builder(tmp_path)
     monkeypatch.setattr(builder, "_preview", lambda url: b"jpg")

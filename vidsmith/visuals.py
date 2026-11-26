@@ -776,6 +776,10 @@ class VisualBuilder:
         # subject - a near-total rejection means there is no footage to find
         self._reject_ratio = 0.0
         self._filmable = True
+        # clips the last rerank kept from a later round, a batch judged further
+        # down the search results; taken only when the first round's cannot
+        # cover the passage
+        self._reserve: set = set()
         self._project_root = Path(project_root) if project_root is not None else None
         self._local: List[Path] = []
         if cfg.provider == "local":
@@ -948,6 +952,7 @@ class VisualBuilder:
         for a scene cut into beats. A verdict records the search it judged, and
         one made for another search is not reused: its clips are not these.
         """
+        self._reserve = set()
         api_key = self.keys.get("gemini", "")
         if not (self.cfg.rerank and api_key) or len(hits) < 2:
             return hits
@@ -1059,7 +1064,27 @@ class VisualBuilder:
         if not keepers:
             self.log("    rerank: everything was rejected; keeping the best of a bad set")
             keepers = [by_id[order[0]]]
+        # Every round but the last judges a full pool, so the first pool's worth
+        # of the order is the first round, in a verdict cached before this too.
+        first = set(order[:max(2, self.cfg.rerank_pool)])
+        self._reserve = {h["id"] for h in keepers if h["id"] not in first}
         return keepers
+
+    def _holds(self, plan: Sequence[float], picked: List[Dict]) -> bool:
+        """Whether the clips picked so far can cut `plan` with no frozen shot.
+
+        A later round judges candidates further down the search results, and a
+        weaker batch still has a best few that the judge keeps: btrees2 showed
+        gym weight plates for "server rack lights" and string lights after the
+        first round's good clips went to other scenes. Holding the good clips
+        longer, up to the length `check` calls frozen, is better than that.
+        """
+        lengths = [p["length"] for p in picked]
+        if not lengths or sum(lengths) < sum(plan):
+            return False
+        ceiling = max(self.cfg.max_shot_seconds, 0.1) * LONG_SHOT_FACTOR
+        fitted = fit_shots(plan, lengths, self.cfg.min_shot_seconds)
+        return max(d for d, _ in fitted) <= ceiling
 
     def _rank_cache_path(self) -> Path:
         return self.workdir / "rerank.json"
@@ -1076,7 +1101,8 @@ class VisualBuilder:
     # -- source selection --------------------------------------------------- #
     def _stock_batch(self, query: str, count: int, scene: Scene,
                      text: Optional[str] = None, key: Optional[str] = None,
-                     need: Optional[float] = None) -> List[Dict]:
+                     need: Optional[float] = None,
+                     plan: Optional[Sequence[float]] = None) -> List[Dict]:
         """One search, up to `count` distinct clips taken from its results.
 
         Reusing a single search for every shot in a scene keeps the shots on the
@@ -1108,6 +1134,8 @@ class VisualBuilder:
 
         hits = self._rerank(hits, scene, query, want=count, text=text, key=key)
         need = scene.duration if need is None else need
+        plan = list(plan) if plan else [need]
+        reserve = self._reserve
         picked: List[Dict] = []
         passed: Dict[str, int] = {}
         for hit in hits:
@@ -1115,6 +1143,11 @@ class VisualBuilder:
             # too short between them to cover the scene without slowing down
             if (len(picked) >= count
                     and sum(p["length"] for p in picked) >= need):
+                break
+            # a later round's clip, only when fewer, longer shots cannot do
+            if hit["id"] in reserve and self._holds(plan, picked):
+                self.log(f"    holding {len(picked)} clip{'s' if len(picked) != 1 else ''} "
+                         f"longer rather than take a later round's pick")
                 break
             if hit["id"] in self.used:
                 continue
@@ -1465,7 +1498,8 @@ class VisualBuilder:
                 part = plan[beat["lo"]:beat["hi"]]
                 key = str(scene.index) if len(beats) == 1 else f"{scene.index}.{b}"
                 batch = self._stock_batch(beat["query"], len(part), scene,
-                                          text=beat["text"], key=key, need=sum(part))
+                                          text=beat["text"], key=key, need=sum(part),
+                                          plan=part)
                 if b == 0:
                     hopeless = (not self._filmable
                                 or self._reject_ratio >= self.cfg.diagram_on_reject)
@@ -1485,7 +1519,7 @@ class VisualBuilder:
                     # the passage's own search found nothing usable; the scene's
                     # is a subject the writer chose, which beats a card
                     batch = self._stock_batch(query, len(part), scene, text=beat["text"],
-                                              key=f"{key}~", need=sum(part))
+                                              key=f"{key}~", need=sum(part), plan=part)
                 if batch:
                     part, batch = self._fit(scene, part, batch)
                     self._scene_creators.update(s["author"] for s in batch if s["author"])
