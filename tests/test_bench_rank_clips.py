@@ -383,6 +383,23 @@ def test_a_second_run_resumes_instead_of_repaying(tmp_path, monkeypatch):
     assert len(rc.read_results(rc.results_path(tmp_path, "m"))) == 4
 
 
+def test_a_tagged_run_is_its_own_system_beside_the_untagged_one(tmp_path, monkeypatch):
+    """Two prompts on one model are compared by tag. A tagged run must not
+    resume from, or be scored as, the untagged run of the same model."""
+    _ready(tmp_path, n_cases=1)
+    monkeypatch.setattr(llm, "rank_clips", lambda *a, **k: ([0, 1, 2, 3], [], True))
+    rc.run(tmp_path, "key", "m", repeats=1, data_dir=tmp_path, log=lambda *a: None)
+    seen = []
+    monkeypatch.setattr(llm, "rank_clips",
+                        lambda *a, **k: seen.append(1) or ([0, 1, 2, 3], [], True))
+    rc.run(tmp_path, "key", "m", repeats=1, data_dir=tmp_path, tag="after",
+           log=lambda *a: None)
+    assert seen == [1]
+    tagged = rc.read_results(rc.results_path(tmp_path, "m", "after"))
+    assert [r["model"] for r in tagged] == ["m [after]"]
+    assert len(rc.read_results(rc.results_path(tmp_path, "m"))) == 1
+
+
 def test_a_changed_still_is_refused_not_judged(tmp_path, monkeypatch):
     _ready(tmp_path, n_cases=1)
     (rc.stills_dir(tmp_path) / "0b.jpg").write_bytes(b"a different picture")

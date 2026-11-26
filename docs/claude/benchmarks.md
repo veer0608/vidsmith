@@ -7,6 +7,11 @@ each `python -m bench.rank_clips <step> --root C:/Users/veera/claude/vidsmith`:
 8078 that writes `labels.json` on every click, `run` judges each case three
 times into `results/<model>.jsonl`, and `score --write` produces `REPORT.md`.
 
+- **A prompt change is measured with `run --tag`.** Untagged, a second run of
+  a changed prompt resumes into the same file and is scored as the same
+  system. Tag the current prompt `before` and the change `after`; each lands
+  in `results/<model>-<tag>.jsonl` and scores as its own row.
+
 - **`--root` is the checkout that did the building, not the one running the
   code.** Searches and verdicts live in its gitignored `.cache/` and
   `projects/*/build/`. The first collect ran from a worktree, read the

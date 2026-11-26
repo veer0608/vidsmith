@@ -77,3 +77,37 @@ experiment is the over-rejection in finding 3: a prompt that asks for a reject
 only when the subject is clearly wrong, measured on these same cases against
 the kept-usable number and reject precision together, so a gain in one is not
 paid for in the other.
+
+## 2026-11-26: a "word with two meanings" warning did not help
+
+A real build (btrees2) showed gym weight plates for "server rack lights", and
+a sewing machine for a hard drive read head. The guess was that the judge
+matched a word of the search, so the prompt got a paragraph warning it that
+"a rack of weight plates is not a server rack" and two more examples like it.
+Both prompts ran once over the 92 cases (`run --tag before` / `--tag after`,
+results in `results/`):
+
+| measure | labels | before | after |
+| --- | --- | --- | --- |
+| rejects that were wrong subjects | a person's | 56% | 50% |
+| wrong subjects rejected | a person's | 71% | 62% |
+| kept stills usable | a person's | 84% | 79% |
+| rejects that were wrong subjects | Claude's | 51% | 52% |
+| wrong subjects rejected | Claude's | 78% | 81% |
+| kept stills usable | Claude's | 95% | 95% |
+
+No measure moved outside the run-to-run noise (finding 4), and the person's
+labels lean worse, so the warning was not shipped.
+
+It could not have fixed that build anyway. Every clip that scene used was in
+the top three of the batch it was judged in, the weights included. They came
+from the second and third rounds, which judge candidates further down the
+search results once the first batch's good clips are used elsewhere. A weaker
+batch still has a best three, and the judge keeps it. That is not a ranking
+failure, and the benchmark, built only from first batches, cannot see it.
+
+One thing the data does show: a kept still's place matters. On the person's
+labels, the first four the judge kept in a batch were wrong 0 to 8% of the
+time, and the fifth onward 21 to 41% (17 to 33 stills per position, so
+indicative only). Claude's labels do not show the drop. Their lean, toward
+calling the right kind of thing usable, is the reason.
