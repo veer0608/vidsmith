@@ -1252,11 +1252,16 @@ class VisualBuilder:
         screens back on every rebuild and retake.
         """
         cached = (cache.get(key) or {}).get("query") or ""
+        why = ""
         if cached and not genres.drop_graphics(cached, text):
+            why = "asks for a chart"
+        elif cached and not genres.drop_figures(cached, text):
+            why = "films a comparison the narration makes"
+        if why:
             if key not in self._graphics_said:
                 self._graphics_said.add(key)
-                self.log(f"    graphics: cached search {cached!r} for scene "
-                         f"{scene.index} asks for a chart; using the scene's own")
+                self.log(f"    cached search {cached!r} for scene {scene.index} "
+                         f"{why}; using the scene's own")
             cached = ""
         return cached or scene_query(scene)
 
