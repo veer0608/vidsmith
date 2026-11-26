@@ -528,6 +528,22 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **The narrator's own figure of speech was filmed as the subject.** btrees2 said
+  "this index acts as a roadmap" and got GPS on a phone, Google Maps and a subway
+  sign; "turns a search into a short walk down a well mapped path" got satellite
+  navigation in a car and an Uber booking. About 26 seconds a viewer reads as
+  unrelated. The beat prompt already forbade *inventing* a metaphor ("a forest
+  path is not a tree structure"); these the model copied from the narration,
+  because the prompt also said to search for "the most literal thing the passage
+  names". `genres.figure_words()` reads what follows a comparison frame ("acts
+  as a", "like a", "think of it as", "turns ... into a") and `drop_figures()`
+  drops a search that shares a word with it, "map" inside "roadmap" included,
+  for the scene's own search; it runs in `style_search` and in
+  `_cached_beat_query`, beside the chart rule. Measured on the 136 cached beats
+  before it was written: 7 passages make a comparison, 2 searches filmed it (both
+  btrees2, both dropped), and the 5 that searched the real subject, including an
+  example ("like a birthday") rather than a metaphor, are left alone. A small
+  sample: this holds the two seen, not a rate.
 - **A search for a chart came back as somebody else's money.** btrees2 put a crypto
   screen, coins under a "Weekly LocalBitcoins Volume" chart, trading desks and a
   "Marketing Strategy" deck under narration about B-tree write performance.

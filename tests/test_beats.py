@@ -1029,6 +1029,68 @@ def test_a_cached_chart_search_is_not_filmed_on_a_rebuild(tmp_path):
     assert builder._cached_beat_query(cache, key, scene.text, scene) == \
         "engineer typing in a server terminal"
     builder._cached_beat_query(cache, key, scene.text, scene)
-    assert sum("graphics" in line for line in said) == 1, "said once, not every read"
+    assert sum("asks for a chart" in line for line in said) == 1, "said once, not every read"
     ordinary = {key: {"text": scene.text, "query": "server rack lights"}}
     assert builder._cached_beat_query(ordinary, key, scene.text, scene) == "server rack lights"
+
+
+# --------------------------------------------------------------------------- #
+# the narrator's own figure of speech is not the subject
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("query,narration", [
+    # both btrees2 searches that filmed the narrator's comparison
+    ("digital map on screen",
+     "This index acts as a roadmap so the processor knows the exact address."),
+    ("mapped route navigation",
+     "A B tree turns an impossible search through millions of records into a "
+     "short walk down a well mapped path."),
+    ("person walking down a path", "Think of it as a path through the data."),
+    ("library shelves", "The cache works like a library for hot rows."),
+])
+def test_a_search_that_films_the_narrators_comparison_is_dropped(query, narration):
+    from vidsmith.genres import drop_figures
+    assert drop_figures(query, narration) == ""
+
+
+@pytest.mark.parametrize("query,narration", [
+    # the 5 cached searches that kept to the real subject beside a comparison
+    ("data table on monitor", "The parent block serves as the new signpost for the search."),
+    ("database rows in grid", "Pull out facts, like a birthday or a seat preference."),
+    ("server rack blinking lights",
+     "That microscopic delay turns into a massive bottleneck when thousands arrive."),
+    ("network traffic map", "Each block acts like a multiway intersection rather than a road."),
+    # no comparison at all
+    ("code on a monitor", "The function returns the sorted keys."),
+])
+def test_a_search_for_the_real_subject_is_left_alone(query, narration):
+    from vidsmith.genres import drop_figures
+    assert drop_figures(query, narration) == query
+
+
+def test_a_beat_that_filmed_a_figure_falls_back_and_says_so(monkeypatch):
+    from vidsmith import llm
+
+    said = []
+    monkeypatch.setattr(llm, "generate", lambda *a, **k: '["digital map on screen"]')
+    got = llm.beat_queries(
+        [{"text": "This index acts as a roadmap so the processor knows the address."}],
+        "k", log=said.append)
+    assert got == [""]
+    assert any("figure" in line and "comparison" in line for line in said)
+
+
+def test_a_cached_figure_search_is_not_filmed_on_a_rebuild(tmp_path):
+    builder = _builder(tmp_path)
+    scene = make_scene("This index acts as a roadmap so the processor knows the address.",
+                       index=3, duration=4.0)
+    scene.query = "hands sorting paper documents"
+    key = builder._beat_key(scene, scene.text)
+    cache = {key: {"text": scene.text, "query": "digital map on screen"}}
+    assert builder._cached_beat_query(cache, key, scene.text, scene) == \
+        "hands sorting paper documents"
+
+
+def test_the_beat_prompt_names_the_narrators_own_comparison():
+    from vidsmith import llm
+    low = llm.BEAT_QUERY_PROMPT.lower()
+    assert "the narrator's figure" in low and "never the roadmap or the path" in low

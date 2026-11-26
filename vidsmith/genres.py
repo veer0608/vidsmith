@@ -178,6 +178,57 @@ def drop_graphics(query: str, narration: str) -> str:
     return query
 
 
+# The narration's own figures of speech. "This index acts as a roadmap" got
+# "digital map on screen" (GPS on a phone, Google Maps, a subway sign) and "turns
+# a search into a short walk down a well mapped path" got "mapped route
+# navigation" (driving with satellite navigation, booking an Uber): 26 seconds of
+# btrees2 that a viewer reads as unrelated. The beat prompt already forbade the
+# model *inventing* a metaphor; these it copied from the narrator. What follows
+# one of these frames is the vehicle of a comparison, never the subject.
+FIGURE_FRAME = re.compile(
+    r"\b(?:acts?|acting|serves?|serving|works?|working)\s+(?:as|like)\s+(?:a|an|the|your)?\s*"
+    r"|\blike\s+(?:a|an)\s+"
+    r"|\bthink\s+of\s+(?:it|this|them|that)\s+as\s+(?:a|an|the)?\s*"
+    r"|\b(?:imagine|picture)\s+(?:a|an)\s+"
+    r"|\bturns?\s+[\w\s]{0,80}?\binto\s+(?:a|an)\s+"
+    r"|\ba\s+kind\s+of\s+",
+    re.IGNORECASE)
+_FIGURE_STOP = {"a", "an", "the", "so", "that", "of", "to", "in", "on", "and", "your",
+                "its", "it", "this", "with", "for", "you", "is", "be", "down", "into",
+                "from", "at", "or", "as"}
+
+
+def figure_words(narration: str) -> set:
+    """The words of every comparison the narration makes: what follows "acts as a"."""
+    out: set = set()
+    for m in FIGURE_FRAME.finditer(narration):
+        tail = re.findall(r"[a-z]+", narration[m.end():m.end() + 60].lower())[:6]
+        out |= {w for w in tail if w not in _FIGURE_STOP and len(w) >= 3}
+    return out
+
+
+def drop_figures(query: str, narration: str) -> str:
+    """The search, or "" when it films a comparison the narration makes.
+
+    A search word that is, or sits inside, a word of the comparison counts:
+    "map" is in "roadmap". "" hands the beat to its scene's own search, as
+    `drop_graphics` does. Measured over the 136 cached beats on 2026-11-26: 7
+    passages make a comparison, 2 searches filmed it, both dropped here, and the
+    5 that searched the real subject ("data table on monitor" under "serve as the
+    new signpost") are left alone, as is an example ("like a birthday") the
+    search did not take up.
+    """
+    vehicle = figure_words(narration)
+    if not vehicle:
+        return query
+    for w in re.findall(r"[a-z]+", query.lower()):
+        if len(w) < 3 or w in _FIGURE_STOP:
+            continue
+        if any(w == v or w in v or v in w for v in vehicle):
+            return ""
+    return query
+
+
 def scrub(name: str, query: str, narration: str) -> str:
     """Take device words out of a search when the narration names no device.
 
@@ -233,6 +284,11 @@ def style_search(name: str, query: str, narration: str, log=None) -> str:
             f"stock libraries answer with trading screens; "
             + (f"searching {plain!r}" if plain else "using the scene's own search"))
     if not plain:
+        return ""
+    if not drop_figures(plain, narration):
+        if log:
+            log(f"    figure: {plain!r} films a comparison the narration makes, "
+                f"not what it is about; using the scene's own search")
         return ""
     query = plain
     scrubbed = scrub(name, query, narration)

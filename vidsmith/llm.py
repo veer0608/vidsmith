@@ -703,6 +703,11 @@ Rules:
 - NEVER a metaphor. A forest path is not a tree structure, a ring of keys is not
   an index, and a laptop lid closing is not a chatbot. The comparison is never
   said out loud, so the viewer just sees unrelated footage.
+- When the passage itself makes a comparison ("the index acts as a roadmap",
+  "turns a search into a short walk down a path"), that is the narrator's figure
+  of speech, not the subject. Search for the real thing being described, the
+  index or the search, never the roadmap or the path: a map on a phone under a
+  line about a database index reads as unrelated footage too.
 - No generic filler that would fit any passage: "person thinking", "person typing
   on computer", "stressed worker". If the same search would suit a different
   passage just as well, it is not specific enough.
