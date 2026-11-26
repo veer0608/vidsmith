@@ -72,8 +72,10 @@ async function load() {
   const body = await r.json();
   $("sub").textContent = "Each approved person can render " + body.daily_renders +
     " videos and draft " + body.daily_drafts + " scripts a day. " +
-    (body.email_alerts ? "New requests are emailed to you."
-                       : "Email alerts are off: set VIDSMITH_ALERT_TO and the SMTP settings in the box's .env.");
+    (body.phone_alerts && body.email_alerts ? "New requests reach your phone and your email."
+     : body.phone_alerts ? "New requests are pushed to your phone."
+     : body.email_alerts ? "New requests are emailed to you."
+     : "Alerts are off: set VIDSMITH_NTFY_TOPIC (phone) or the SMTP settings (email) in the box's .env.");
   const list = $("list");
   list.replaceChildren();
   if (!body.requests.length) {

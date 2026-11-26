@@ -45,6 +45,7 @@ def no_real_credentials(monkeypatch):
     app = sys.modules.get("web.app")
     if app is not None:
         monkeypatch.setattr(app, "_alert_settings", lambda: None)
+        monkeypatch.setattr(app, "_push_settings", lambda: None)
 
 
 @pytest.fixture(autouse=True)
