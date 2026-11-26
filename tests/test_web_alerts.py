@@ -172,3 +172,62 @@ def test_admin_says_whether_alerts_are_on(client, monkeypatch):
     body = client.get("/api/admin/requests", headers=owner).json()
     assert body["email_alerts"] is True
     assert "password" not in str(body), "the settings themselves never leave the box"
+
+
+# --------------------------------------------------------------------------- #
+# a push to the owner's phone, through ntfy
+# --------------------------------------------------------------------------- #
+PUSH = alerts.Push(topic="vidsmith-abc123", server="https://ntfy.sh")
+
+
+def test_the_push_carries_nothing_about_who_asked():
+    """A topic is readable by anyone who knows it, so the person stays on the box."""
+    req = alerts.push_request(PUSH, "https://box.example/admin", 2)
+    assert req["url"] == "https://ntfy.sh/vidsmith-abc123"
+    assert req["headers"]["Click"] == "https://box.example/admin"
+    assert req["data"] == b"2 requests waiting. Tap to review."
+    flat = str(req)
+    assert "ann" not in flat.lower() and "@" not in flat
+
+
+def test_push_is_off_without_a_topic(tmp_path, monkeypatch):
+    for name in alerts.NAMES:
+        monkeypatch.delenv(name, raising=False)
+    assert alerts.push_settings([tmp_path / ".env"]) is None
+    (tmp_path / ".env").write_text("VIDSMITH_NTFY_TOPIC=vidsmith-abc123\n", encoding="utf-8")
+    push = alerts.push_settings([tmp_path / ".env"])
+    assert push == alerts.Push(topic="vidsmith-abc123", server="https://ntfy.sh")
+
+
+def test_a_new_request_pushes_to_the_phone(client, monkeypatch):
+    monkeypatch.setattr(web_app, "_push_settings", lambda: PUSH)
+    pushed = []
+    monkeypatch.setattr(alerts, "post", lambda push, url, waiting: pushed.append((url, waiting)))
+    monkeypatch.setattr(alerts.threading, "Thread",
+                        lambda target, daemon: type("T", (), {"start": staticmethod(target)}))
+    assert client.post("/api/register",
+                       json={"name": "Ann", "email": "ann@example.com"}).status_code == 201
+    assert pushed == [("https://box.example/admin", 1)]
+
+
+def test_a_push_server_that_fails_never_fails_the_request(client, monkeypatch):
+    monkeypatch.setattr(web_app, "_push_settings", lambda: PUSH)
+
+    def down(push, url, waiting):
+        raise OSError("ntfy unreachable")
+
+    monkeypatch.setattr(alerts, "post", down)
+    monkeypatch.setattr(alerts.threading, "Thread",
+                        lambda target, daemon: type("T", (), {"start": staticmethod(target)}))
+    assert client.post("/api/register",
+                       json={"name": "Ann", "email": "ann@example.com"}).status_code == 201
+
+
+def test_admin_says_whether_phone_alerts_are_on(client, monkeypatch):
+    owner = {"X-Vidsmith-Token": "owner-secret"}
+    monkeypatch.setattr(web_app, "_push_settings", lambda: None)
+    assert client.get("/api/admin/requests", headers=owner).json()["phone_alerts"] is False
+    monkeypatch.setattr(web_app, "_push_settings", lambda: PUSH)
+    body = client.get("/api/admin/requests", headers=owner).json()
+    assert body["phone_alerts"] is True
+    assert "vidsmith-abc123" not in str(body), "the topic never leaves the box"

@@ -211,6 +211,11 @@ def _alert_settings():
     return alerts.settings(_DOTENVS)
 
 
+def _push_settings():
+    """The owner's ntfy topic, read per request; one place to stub, like the mail."""
+    return alerts.push_settings(_DOTENVS)
+
+
 def _public_base(request: Request) -> str:
     """The address people reach this instance at, for a link in an email."""
     if PUBLIC_URL:
@@ -232,8 +237,10 @@ def register(req: RegisterRequest, request: Request) -> Dict[str, Any]:
         raise HTTPException(400, str(exc))
     # After the row is written, and never in its way: the owner hears by email
     # when alerts are configured, and otherwise from the pill on their own page.
+    admin_url = _public_base(request) + "/admin"
     alerts.notify(_alert_settings(), req.name, req.email, req.note,
-                  _public_base(request) + "/admin", accounts.pending())
+                  admin_url, accounts.pending())
+    alerts.notify_phone(_push_settings(), admin_url, accounts.pending())
     return {"secret": secret}
 
 
@@ -267,7 +274,8 @@ def admin_requests(_: None = Depends(guard)) -> Dict[str, Any]:
     return {"requests": accounts.listing(), "daily_renders": accounting.DAILY_RENDERS,
             "daily_drafts": accounting.DAILY_DRAFTS,
             # whether a new request emails the owner; never the settings themselves
-            "email_alerts": _alert_settings() is not None}
+            "email_alerts": _alert_settings() is not None,
+            "phone_alerts": _push_settings() is not None}
 
 
 @app.post("/api/admin/requests/{request_id}/{action}")

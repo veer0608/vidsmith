@@ -222,3 +222,13 @@ there is a header injection; and the settings are read per request through
 test can email whoever the machine alerts. A default argument cannot stand in for
 that stub: `notify(sender=send)` bound the real `send` when the module loaded, and
 the first test of the stubbed path made a real DNS lookup.
+
+**A push to the owner's phone is the alert that needs no password.** The email
+setup took four rounds on 2026-11-26 and never reached the box: an SSH line that
+never connected, a terminal tab nobody typed into, a "Saved" from a window that
+was not this box. `VIDSMITH_NTFY_TOPIC` is the whole setup for the other channel:
+`alerts.notify_phone()` POSTs to `https://ntfy.sh/<topic>` and the ntfy app on a
+subscribed phone shows it, tap through to `/admin`. A topic is readable by anyone
+who knows its name, so the name is long and random and the push says only how
+many requests wait, never who asked: the name, email and note stay on the box.
+Both channels run side by side; `/admin` says which are on.
