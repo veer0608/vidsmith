@@ -693,7 +693,10 @@ Rules:
 - 2 to 5 words a stock library understands.
 - Search for the most literal thing the passage names or does. A passage about
   email replies gets an email inbox on a laptop. Source code gets code on a
-  monitor. A chart gets a chart on a tablet. A slow disk gets a hard drive.
+  monitor. A slow disk gets a hard drive. A number gets the thing it measures,
+  never a picture of it: a slow query gets a server rack or code on a monitor,
+  not a "performance chart", because stock footage of charts, graphs and
+  dashboards is almost all trading screens and business meetings.
   Screens showing an app, a chat, code or a spreadsheet are good shots.
 - Only when the passage names nothing filmable, show a person doing what it
   describes: a developer typing in a terminal, a team reviewing a document.
@@ -706,8 +709,9 @@ Rules:
 - It must be something stock libraries really hold footage of. "Chat app on a
   phone" exists; a particular feature of a particular product, like "side panel
   in a web app", does not.
-- No diagrams or infographics, no proper nouns, no brand or product names, no
-  numbers.
+- No charts, graphs, dashboards, diagrams or infographics unless the passage
+  itself is about a chart or about money. No proper nouns, no brand or product
+  names, no numbers.
 - Passages from the same scene must not repeat a subject, and no main subject
   appears more than twice in the whole video.
 {style}

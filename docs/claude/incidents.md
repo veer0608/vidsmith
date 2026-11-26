@@ -528,6 +528,28 @@
   the symptom is not absence of the cause unless the trigger is actually
   present. When any future ffmpeg-version bump touches this runner, re-run
   `narration-hang.yml` before trusting green CI to mean the hang is gone.
+- **A search for a chart came back as somebody else's money.** btrees2 put a crypto
+  screen, coins under a "Weekly LocalBitcoins Volume" chart, trading desks and a
+  "Marketing Strategy" deck under narration about B-tree write performance.
+  Measured across all 296 stock shots in the projects on 2026-11-26: the 24 whose
+  search named a chart, graph, diagram or dashboard came back as a finance or
+  business clip half the time, against 6% for everything else. The beat prompt
+  itself said "a chart gets a chart on a tablet". It now says a number gets the
+  thing it measures, and `genres.drop_graphics()` holds that in code inside
+  `style_search`, the one place both search paths pass through: a chart-type
+  search is dropped whole for the scene's own search, unless the narration itself
+  is about charts or money. Whole, not just the chart word, because the remainder
+  is the idea the chart was of, which is a metaphor: "shallow tree diagram" minus
+  "diagram" searches for trees. It also runs where cached beat searches are read,
+  or every rebuild and retake of an old project would keep its trading screens,
+  and that took two tries: the first guard went in `prepare_beats`, and a rebuild
+  logged seven charts dropped and then filmed all seven, because `_passages` read
+  `beats.json` again for the beats actually filmed. Two readers of one cache, the
+  same shape as the two writers that lost credits; `_cached_beat_query()` is now
+  the only one. Rebuilt with it: btrees2's finance and chart clips went from 10 of
+  72 stock shots to 0 of 75, and the 15.9s frozen closing shot became four.
+  Left open: a scene's own `[visual:]` is not filtered, and btrees2's "red error
+  notification blinking on a dashboard screen" came back as car dashboards.
 - **The delivered audio stopped minutes before the picture, and three of them
   were public.** Found 2026-11-25 reviewing btrees2: 5:43 of picture over 2:25 of
   audio, with `narration.wav` whole at 343s. Bisected on the real files, never on

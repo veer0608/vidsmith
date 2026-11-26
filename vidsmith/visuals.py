@@ -757,6 +757,8 @@ class VisualBuilder:
         self.cache.mkdir(parents=True, exist_ok=True)
         self.keys = keys
         self.log = log
+        # cached chart searches already reported, so a beat read twice says it once
+        self._graphics_said: set = set()
         self.used: set = set()
         # visuals.exclude, parsed; load_config has already refused a bad entry
         self._excluded = [clip_exclusion(e) for e in (cfg.exclude or [])]
@@ -1235,8 +1237,28 @@ class VisualBuilder:
             text = scene.text if len(ranges) == 1 or not text else text
             key = self._beat_key(scene, text)
             beats.append({"lo": lo, "hi": hi, "text": text, "key": key,
-                          "query": (cache.get(key) or {}).get("query") or scene_query(scene)})
+                          "query": self._cached_beat_query(cache, key, text, scene)})
         return beats
+
+    def _cached_beat_query(self, cache: Dict[str, Any], key: str, text: str,
+                           scene: Scene) -> str:
+        """A beat's cached search, unless it asks for a chart the passage never names.
+
+        The one place a beat gets its search from `beats.json`. The chart rule
+        first ran in `prepare_beats`, which reads the same cache, and changed
+        nothing: this method read it again for the beats actually filmed, so a
+        rebuild of btrees2 logged seven charts dropped and filmed every one of
+        them. Searches cached before the rule would otherwise bring their trading
+        screens back on every rebuild and retake.
+        """
+        cached = (cache.get(key) or {}).get("query") or ""
+        if cached and not genres.drop_graphics(cached, text):
+            if key not in self._graphics_said:
+                self._graphics_said.add(key)
+                self.log(f"    graphics: cached search {cached!r} for scene "
+                         f"{scene.index} asks for a chart; using the scene's own")
+            cached = ""
+        return cached or scene_query(scene)
 
     def prepare_beats(self, scenes: Sequence[Scene]) -> None:
         """Write a search for every beat of every stock scene, in one request.
@@ -1287,7 +1309,9 @@ class VisualBuilder:
         for scene, beats in planned:
             for beat in beats:
                 if beat.get("key") in cache:
-                    beat["query"] = cache[beat["key"]]["query"]
+                    # through the one reader, so the chart rule applies here too
+                    beat["query"] = self._cached_beat_query(cache, beat["key"],
+                                                            beat["text"], scene)
                 # a search that names a screen the narration never mentions is
                 # how a scene about paper ends up showing code. Said, never
                 # fixed: a retake rerolls the same words and a scene that is
