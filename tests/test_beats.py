@@ -955,3 +955,80 @@ def test_the_build_says_it_and_keeps_the_search(tmp_path, monkeypatch):
     assert any("drift:" in line and "screen" in line for line in lines), lines
     kept = [b["query"] for b in builder._beats[scene.index]]
     assert kept == ["database error on screen"] * len(kept), "a search was rewritten"
+
+
+# --------------------------------------------------------------------------- #
+# a picture of a number comes back as somebody else's number
+# --------------------------------------------------------------------------- #
+NOT_MONEY = "The index keeps your write path fast as the table grows."
+
+
+@pytest.mark.parametrize("query", [
+    # every chart search btrees2 shipped, all four of which came back as finance
+    "storage IOPS graph", "logarithmic growth chart", "read write performance chart",
+    "server response time chart", "shallow tree diagram", "system metrics dashboard UI",
+    "network traffic visualization map", "disk read write statistics",
+])
+def test_a_chart_search_is_dropped_for_the_scenes_own(query):
+    """24 chart-type searches across the projects: half came back as crypto,
+    trading or marketing clips, against 6% for every other search. The whole
+    search goes, because what is left ('shallow tree') is a metaphor."""
+    from vidsmith.genres import drop_graphics
+    assert drop_graphics(query, NOT_MONEY) == ""
+
+
+@pytest.mark.parametrize("query", ["server rack lights", "code on a monitor",
+                                   "hard drive spinning", "engineer typing in a terminal"])
+def test_an_ordinary_search_is_left_alone(query):
+    from vidsmith.genres import drop_graphics
+    assert drop_graphics(query, NOT_MONEY) == query
+
+
+@pytest.mark.parametrize("narration", [
+    "Your portfolio drops when the market falls.",
+    "Open the chart and read the trend line.",
+    "Traders watch the crypto price all day.",
+])
+def test_a_chart_is_kept_when_the_narration_is_about_one(narration):
+    from vidsmith.genres import drop_graphics
+    assert drop_graphics("stock market chart", narration) == "stock market chart"
+
+
+def test_a_beat_that_asked_for_a_chart_falls_back_and_says_so(monkeypatch):
+    from vidsmith import llm
+
+    said = []
+    monkeypatch.setattr(llm, "generate", lambda *a, **k:
+                        '["storage IOPS graph", "server rack with blinking lights"]')
+    got = llm.beat_queries([{"text": NOT_MONEY}, {"text": "Every write lands on disk."}],
+                           "k", log=said.append)
+    assert got == ["", "server rack with blinking lights"]
+    assert any("graphics" in line and "scene's own search" in line for line in said)
+
+
+def test_the_beat_prompt_no_longer_asks_for_charts():
+    """It said 'A chart gets a chart on a tablet', which is how they got there."""
+    from vidsmith import llm
+    low = llm.BEAT_QUERY_PROMPT.lower()
+    assert "a chart gets a chart" not in low
+    assert "never a picture of it" in low and "trading screens" in low
+
+
+def test_a_cached_chart_search_is_not_filmed_on_a_rebuild(tmp_path):
+    """The chart rule first ran only where beat searches are written and in
+    prepare_beats; `_passages` read the cache again for the beats actually
+    filmed, so a btrees2 rebuild logged seven charts dropped and filmed all seven."""
+    builder = _builder(tmp_path)
+    scene = make_scene("The index keeps your write path fast as the table grows.",
+                       index=0, duration=4.0)
+    scene.query = "engineer typing in a server terminal"
+    key = builder._beat_key(scene, scene.text)
+    cache = {key: {"text": scene.text, "query": "storage IOPS graph"}}
+    said = []
+    builder.log = said.append
+    assert builder._cached_beat_query(cache, key, scene.text, scene) == \
+        "engineer typing in a server terminal"
+    builder._cached_beat_query(cache, key, scene.text, scene)
+    assert sum("graphics" in line for line in said) == 1, "said once, not every read"
+    ordinary = {key: {"text": scene.text, "query": "server rack lights"}}
+    assert builder._cached_beat_query(ordinary, key, scene.text, scene) == "server rack lights"

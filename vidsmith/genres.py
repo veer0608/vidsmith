@@ -144,6 +144,40 @@ def prompt_block(name: str) -> str:
             "screen or a phone in one.\n")
 
 
+# A search for a picture of a number comes back as somebody else's number. Of
+# the 296 stock shots across the projects on 2026-11-26, the 24 whose search
+# named a chart, graph, diagram or dashboard came back as a finance or business
+# clip half the time (crypto screens, "Weekly LocalBitcoins Volume", a marketing
+# strategy deck), against 6% for every other search. The beat prompt itself said
+# "a chart gets a chart on a tablet". The prompt says otherwise now, and this
+# holds it, because a rule the model can break is enforced in code.
+GRAPHIC_WORDS = {"chart", "charts", "graph", "graphs", "plot", "plots", "diagram",
+                 "diagrams", "infographic", "infographics", "visualization",
+                 "visualisation", "visualizations", "visualisations", "dashboard",
+                 "dashboards", "analytics", "statistics"}
+# narration that is itself about charts or money can have them on screen
+GRAPHIC_CUES = GRAPHIC_WORDS | {"market", "markets", "stock", "stocks", "trading",
+                                "trader", "crypto", "bitcoin", "investor", "investing",
+                                "portfolio", "finance", "financial"}
+def drop_graphics(query: str, narration: str) -> str:
+    """The search, or "" when it asks for a chart and the narration is not about one.
+
+    "" hands the beat back to its scene's own search, as `scrub` does. The whole
+    search goes, not just the chart word: what is left is the idea the chart was
+    of, and that is a metaphor waiting to happen. "shallow tree diagram" without
+    "diagram" searches for trees, and "logarithmic growth chart" without "chart"
+    for plants. btrees2's scene searches for the same passages were literal
+    ("engineer typing commands into a server terminal"). Left alone when the
+    narration itself talks about charts, markets or money: then the chart is the
+    literal subject, not a picture of one.
+    """
+    if set(re.findall(r"[a-z]+", narration.lower())) & GRAPHIC_CUES:
+        return query
+    if set(re.findall(r"[a-z]+", query.lower())) & GRAPHIC_WORDS:
+        return ""
+    return query
+
+
 def scrub(name: str, query: str, narration: str) -> str:
     """Take device words out of a search when the narration names no device.
 
@@ -193,6 +227,14 @@ def style_search(name: str, query: str, narration: str, log=None) -> str:
     nothing about the device word taken out of it or the style word put in, so
     reading a build could not tell whether either rule had fired at all.
     """
+    plain = drop_graphics(query, narration)
+    if log and plain != query:
+        log(f"    graphics: {query!r} searched for a picture of a number, which "
+            f"stock libraries answer with trading screens; "
+            + (f"searching {plain!r}" if plain else "using the scene's own search"))
+    if not plain:
+        return ""
+    query = plain
     scrubbed = scrub(name, query, narration)
     if log and scrubbed != query:
         gone = [w for w in query.split() if w not in scrubbed.split()]
