@@ -239,7 +239,7 @@ def _encodes(monkeypatch):
 
 def _batches(tmp_path, asked, empty=()):
     """A stub search: distinct long clips per call, from a creator per call."""
-    def batch(query, count, scene, text=None, key=None, need=None):
+    def batch(query, count, scene, text=None, key=None, need=None, plan=None):
         asked.append({"query": query, "text": text, "key": key, "count": count})
         if query in empty:
             return []
@@ -365,7 +365,7 @@ def test_the_scene_remembers_its_creators_across_beats(tmp_path, monkeypatch):
     builder.prepare_beats([scene])
     seen = []
 
-    def batch(query, count, sc, text=None, key=None, need=None):
+    def batch(query, count, sc, text=None, key=None, need=None, plan=None):
         seen.append(set(builder._scene_creators))
         return [{"id": query, "path": tmp_path / "c.mp4", "length": 60.0,
                  "author": f"by {query}", "page": "", "query": query}]

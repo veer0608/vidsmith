@@ -260,6 +260,19 @@
   without the result count, because `bench/rank_clips` rebuilds that key to
   find past searches; an older 15-result page is simply served until it
   expires.
+- **The extra rounds brought back the wrong subjects they were added around.**
+  btrees2 showed gym weight plates and string lights for "server rack lights".
+  The judge had kept both, each in the top three of its batch: the second and
+  third rounds judge candidates further down the search results, and a weaker
+  batch still has a best few. A prompt warning about words with two meanings
+  was measured first and changed nothing (`bench/rank_clips/FINDINGS.md`).
+  Now a later round's keepers are a reserve (`_reserve`, read off the cached
+  order: the first `rerank_pool` ids are always round one), and
+  `_stock_batch` takes one only when the clips it has cannot cut the passage
+  without a shot past `max_shot_seconds * LONG_SHOT_FACTOR` (`_holds()`).
+  Rebuilt from btrees2's own cached verdicts, no new calls: later-round shots
+  23 → 14, footage shots 75 → 66, shots over 5.5s 4 → 11, none past 8.8s, and
+  both wrong clips gone from scene 13.
 - **A viewer called the footage mostly unrelated, and the searches were why.**
   A shot sheet of every cut in two finished videos - a frame per shot beside
   the words spoken over it - showed three causes, none of them visible in a log.
